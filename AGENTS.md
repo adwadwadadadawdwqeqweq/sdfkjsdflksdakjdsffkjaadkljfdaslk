@@ -640,6 +640,10 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
     `FNCConvertRundownField()` refuses with
     `ConstructionHandler:686: attempt to index nil with 'Name'` — it wants an
     instance, so it is not a free field reset.
+  **Copy report** (`spudTestCopy`) now also appends the last **60 farm-log
+  lines** from `_G.SPUD_TRACE` (v1.85) — a Tests-only copy cannot answer "why is
+  harvesting silent", and the console is the place the owner does not want to
+  dig in.
   **Run all** runs the two remaining probes (remote list, field remotes); both
   refuse while `loopThread` is live and touch no animals or other plots.
   There is **no harness** for them — the live read is the only verdict.
@@ -1400,7 +1404,7 @@ Capacity` was `0` when both values were unreadable, and the pass bailed as
 `MaxCapacity > 0` now, in both `spudFieldRemotePass` and `spudRadialFire`, so an
 unreadable pair means "unknown, no cap", never "full".
 
-**Where it stands:** `rebuild v1.84 · fluent gui`, whole suite green (29/29),
+**Where it stands:** `rebuild v1.85 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

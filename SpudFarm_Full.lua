@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.84 · fluent gui"
+local VERSION    = "rebuild v1.85 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5153,10 +5153,21 @@ local okBuild, errBuild = pcall(function()
     end
 
     function spudTestCopy()
+        -- ▸ THE FARM LOG COMES WITH IT. A Tests-only copy cannot answer a farm
+        --   question ("harvesting does nothing"), and the console is the one
+        --   place the user does not want to dig in — so the last 60 lines of
+        --   the run ride along in the same clipboard report.
+        local trace = _G.SPUD_TRACE
+        local farm = {}
+        if type(trace) == "table" then
+            for i = math.max(1, #trace - 59), #trace do
+                farm[#farm + 1] = trace[i]
+            end
+        end
         local text = string.format(
-            "══════ SPUD TESTS ══════\nplace %s · player %s · %s\n\n%s\n══════ END ══════",
+            "══════ SPUD TESTS ══════\nplace %s · player %s · %s\n\n%s\n\n── FARM LOG (last %d) ──\n%s\n══════ END ══════",
             tostring(game.PlaceId), tostring(LocalPlayer.Name), tostring(VERSION),
-            table.concat(spudTestLog, "\n"))
+            table.concat(spudTestLog, "\n"), #farm, table.concat(farm, "\n"))
         local ok = pcall(function() setclipboard(text) end)
         log(ok and "tests: the report is on the clipboard — paste it in chat"
             or "tests: setclipboard refused — the Console tab holds the same lines")
@@ -5243,6 +5254,96 @@ local okBuild, errBuild = pcall(function()
         --   it took. FNCEditField and FNCConvertRundownField are invoked with NO
         --   arguments only, to read the shape they demand (an error names it)
         --   without handing them anything that could rebuild the field.
+        -- ▸ HARVEST (owner 2026-10-31: "harvesting does not work? it is not
+        --   harvesting anything"). One grown cell, one call, and every fact
+        --   that can make it silent: is the remote in the kit, does the
+        --   harvester have an attachment, what does its tank read, did the
+        --   machine end up over the cell, and what did the cell do. It brings
+        --   the harvester out itself when it is stored.
+        if kind == "harvest" then
+            local kit = spudFieldRemoteKit() or {}
+            spudTestSay("harvest: FNCHarvestFieldCell " ..
+                (kit.harvest and "is in the kit" or "is MISSING from Modules.Larry"))
+            local hv = findImplement("Harvester", here, nil, true)
+            if not hv then
+                spudTestSay("harvest: no Harvester model on this farm — nothing to test with")
+                return
+            end
+            local spawned = false
+            if equipInStorage(hv) then
+                spudTestSay("harvest: " .. hv.Name .. " is in storage — spawning it")
+                if not managerAction(hv.Name, "Spawn") then
+                    spudTestSay("harvest: could not bring " .. hv.Name .. " out")
+                    return
+                end
+                task.wait(1)
+                hv = findImplement("Harvester", here) or hv
+                spawned = true
+            end
+            local conf = hv:FindFirstChild("Configurations")
+            local cap = conf and conf:FindFirstChild("Capacity")
+            local maxc = conf and conf:FindFirstChild("MaxCapacity")
+            spudTestSay(string.format("harvest: %s tank %s/%s", hv.Name,
+                tostring(cap and cap.Value), tostring(maxc and maxc.Value)))
+            local att = spudToolAttachment(hv)
+            if not att then
+                local names = {}
+                for _, d in ipairs(hv:GetDescendants()) do
+                    if d:IsA("BasePart") then
+                        names[#names + 1] = tostring(d.Name)
+                        if #names >= 8 then break end
+                    end
+                end
+                spudTestSay("harvest: NO attachment on " .. hv.Name
+                    .. " (parts: " .. table.concat(names, ", ") .. ")")
+                if spawned then managerAction(hv.Name, "Store") end
+                return
+            end
+            spudTestSay(string.format("harvest: attachment %s.%s",
+                tostring(att.Parent and att.Parent.Name), tostring(att.Name)))
+            -- one grown cell, on MY fields only
+            local plan, cell, f
+            for _, m in ipairs(fields) do
+                local baseCF, baseSize = fieldFrame(m.d)
+                if baseCF then
+                    local list = cellsAtStage(m.d, grownStage, baseCF, baseSize)
+                    if list and #list > 0 then
+                        plan, cell, f = { baseCF = baseCF, baseSize = baseSize }, list[1], m
+                        break
+                    end
+                end
+            end
+            if not cell then
+                spudTestSay("harvest: no grown cell on any streamed field of mine")
+                if spawned then managerAction(hv.Name, "Store") end
+                return
+            end
+            local before = cellStage(f.d, cell.id)
+            local old = hv:GetPivot()
+            local target = Vector3.new(cell.X, cell.Y + 10, cell.Z)
+            local d0 = (att.WorldPosition - target).Magnitude
+            pcall(function() hv:PivotTo(old + (target - att.WorldPosition)) end)
+            task.wait(0.7)
+            local d1 = (att.WorldPosition - target).Magnitude
+            spudTestSay(string.format(
+                "harvest: cell %d is %s — harvester moved %.0f → %.1f studs off it",
+                cell.id, tostring(before), d0, d1))
+            spudFieldRemoteCall("harvest", f.d, cell.id, att)
+            task.wait(1.2)
+            local after = cellStage(f.d, cell.id)
+            spudTestSay(string.format("harvest: call — %s → %s — %s",
+                tostring(before), tostring(after),
+                (after and before and after ~= before)
+                    and "TAKEN: the harvest call works from a parked machine"
+                    or "IGNORED: the server refused this one call"))
+            pcall(function() hv:PivotTo(old) end)
+            if spawned then
+                managerAction(hv.Name, "Store")
+                spudTestSay("harvest: the spawned harvester is back in storage")
+            end
+            return
+        end
+
         if kind == "fieldremotes" then
             local mods = game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
             local larry = mods and mods:FindFirstChild("Larry")

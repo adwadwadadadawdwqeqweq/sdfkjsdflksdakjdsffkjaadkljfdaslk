@@ -118,8 +118,9 @@ Everything merged into one paste-and-run file:
   `FNCConvertRundownField()` with **no arguments** just to read the shape they
   demand (an error names it; nothing that could rebuild the field is handed to
   them).
-  Every line is logged as `test:` and **Copy report** puts place id, build, player
-  and the whole run on the clipboard. Nothing touches animals or another
+  Every line is logged as `test:` and **Copy report** puts place id, build, player,
+  the whole test run **and the last 60 farm-log lines** on the clipboard — so one
+  press answers a farm question too. Nothing touches animals or another
   player's plot, and the tests refuse to run while a farm pass is going.
   (The settled experiments — seat/stage/attachment checks, the burst, sell,
   carry, spawn, fill, the FieldHelper dump, force-a-tile, the field-packet
