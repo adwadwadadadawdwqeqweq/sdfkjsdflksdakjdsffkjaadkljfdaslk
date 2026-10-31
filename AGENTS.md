@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.94 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.95 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.94
+python tools/run_all.py        # 29/29 checks on v1.95
 ```
 
-Last full run (v1.94): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.95): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -349,8 +349,12 @@ a route any more.
 - **On the field** the work is the field remotes (§3.12), all teleports: the
   call pass, the stop-and-burst grid, the **per-cell hop** (a teleport per
   cell), then **grid → hop again, round after round**, until the field reports
-  none of that stage left (v1.83 — Stop ends it, and the tween sweep is the
-  last resort only when the teleports take nothing). **No row is ever driven**
+  none of that stage left (v1.83 — Stop ends it), and two rounds that take
+  nothing end the pass with
+  `<verb>: N cell(s) never took a call even with the blade on them — leaving
+  them for the next pass` (v1.94). **Nothing drives and nothing tweens** (the
+  serpentine sweep was deleted in v1.95), so every move in a field pass is a
+  teleport. **No row is ever driven**
   (v1.82) — a pass that refuses everything says
   `<verb>: every call on <field> was refused — N cell(s) left, no rows driven`. The old row driver (`keyRow`,
   `alignDriveLeg`, `driveLegKeys`, `throttleRow`) is now unreferenced code;
@@ -602,44 +606,22 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   the seeder/tank budget. Height is free (+80 was taken), so the grid runs 10
   studs above the cells. The stage re-read after the **first** stop is the
   honesty gate: nothing taken = the server refuses a parked blade, the grid
-  ends after one stop and the sweep drives. The final re-read is the proof:
+  ends after one stop and the hop drives. The final re-read is the proof:
   `remote seed: fired 46 of 46 cell(s) from 8 stop(s), 9 per stop — 46 took,
-  0 left`; anything it misses is still swept, hopped and
-  driven, so it can only add speed. Pinned by 18 `field_remote_test.py` checks
-  (a 40×20 field is covered by 2 stops with 15 calls and no tween, a 9×3 field
+  0 left`; anything it misses is still hopped, so it can only add speed. Pinned by 18 `field_remote_test.py` checks
+  (a 40×20 field is covered by 2 stops with 15 calls, a 9×3 field
   by 3 stops with 27 calls, a 4-seed seeder fires 4 and hands back dry, a
   5-stud reach takes nothing and leaves every cell standing, and a server that
   takes nothing ends the grid after **one** stop).
-- **Sweep + fire** (v1.53, user: *"why dont we just make it tween and do that
-  every 500ms so it's super fast"*, answered with **sweep + fire every 500 ms**).
-  Hopping cell→cell is a teleport per id, so after the call pass
-  `spudSweepCells(job, field, ride, impl, stage, baseCF, baseSize, att)` builds a
-  serpentine over the remaining cells (**rows 20 studs apart** since v1.72 —
-  the blade reaches ~2 tiles, so one pass covers three rows — starting at the
-  nearest corner), tweens the ride along it at **45 studs/s** (the attachment
-  lined up with the cell plane), and **every 0.5 s** — 22 studs at that speed —
-  fires at the cells the blade passes. Two kinds of fire (v1.55, owner:
-  *"it does not work so well with the plow"*): a **close fire every tick**
-  (within **4 studs**, so a cell under the blade is called at once instead of
-  waiting up to 22 studs for the next burst), and — **for every job since
-  v1.75** — the **every-0.5 s burst within 20 studs** (v1.72; 14 before) the
-  owner asked for in v1.54.
-  A wide fire never blocks the close fire (that was the plow bug: the refused
-  burst call marked the cell done, so it was never called with the blade over
-  it). **Every job bursts since v1.75**: seed/harvest used to fire close-only,
-  so the rows between the passes waited for the second lap — twice the tween
-  for the same field. The reach is measured now (20 studs taken / 30
-  refused), so a seed call at 20 lands; the seeder/tank budget still caps it
-  and counts **cells, not calls** (`spent`, not `fired`), so a cell the burst
-  took and the close fire then called again costs one seed. Re-reads the stages, then runs a **second lap
-  offset by half a row at 70 % speed** for whatever is left; the budget caps
-  the calls (dry = hand the field back). **The path is laid on the field's
-  original box** (v1.72): re-reading the bounds from the leftover cells moved
-  the half-row offset with them, so a single leftover row never got its second
-  lap. The rest is `spudHopCells`' job, then
-  the drive's, so the sweep can only add speed. Logs
-  `remote seed: swept 46 cell(s) in 6.1s at 45 studs/s, range 20 — 44 took, 2
-  left`.
+- **Teleports only** (v1.95, owner 2026-10-31: *"during the plowing it
+  started doing the fast tp and then kinda strafing the ground"*). Between
+  the grid and the hop there used to be a **serpentine tween sweep**
+  (`spudSweepCells`, 45 studs/s with a burst every 0.5 s) — the one thing
+  that slid the ride along the ground. It is **deleted** with its harness
+  checks: a field pass is the call pass → the 3×3 block grid →
+  `spudHopCells` (one teleport per cell) → grid → hop, round after round,
+  and a cell neither takes is named and left for the next pass. Nothing
+  in a field pass touches a movement key or a tween.
 - **It runs from the field, hitched and seated** — the same state the game fires
   the call from: the attempt sits at the top of `sweepField`, after the ride has
   arrived and the tool is hitched.
@@ -810,7 +792,7 @@ UI/key fallbacks and the three-miss switch-off.
 | Go to the farm | global `spudFarmHop(here, plotPos)` (nil+reason, or centre +5 Y and distance), `milkStorePlotOf(who)`, `milkStandUp(who)` (default `"milk"`); wired at the top of `runFarmingBody` |
 | Whose machine | global `equipOwnerRank(m)` (farm being worked → mine → no readable owner → never another account), used by `findTractor` / `findImplement`; owner tag read by `milkStoreOwnerOf` |
 | Tree soil | global `spudTreeField(typeName, modelName)` (wood/tree/log/forest/timber/lumber/sawmill/stump → no crop harvest) and `spudNoCells(st)` (successful 0-cell read is empty, `nil` read is unknown); used in `probeWork`, `runPass`, `needLeft`, `grownLeft`, growth wait |
-| Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (3×3 blocks: the blade parks on each block's centre and fires its nine cells, serpentine order), `spudSweepCells` (serpentine tween, a burst every 0.5 s), `spudHopCells` (one cell at a time), `spudFillSeederRemote`; state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, **default true** since v1.88); wired at the top of `sweepField` and in `buySeedAndFill` |
+| Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (3×3 blocks: the blade parks on each block's centre and fires its nine cells, serpentine order), `spudHopCells` (one teleport per cell — the tween sweep was deleted in v1.95), `spudFillSeederRemote`; state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, **default true** since v1.88); wired at the top of `sweepField` and in `buySeedAndFill` |
 | Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`, test run + last 60 farm lines), `spudTestCopyConsole` (`setclipboard`, last 150 farm lines only), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Run all**, **Copy report**, **Copy console** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
 | Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job**; the A* planner was deleted in v1.81 and the row driver in v1.82, so a field pass never touches a movement key |
@@ -1585,7 +1567,17 @@ loop got the same rule (`… leaving them for the next cycle`), so neither can
 spin for ever with the toggle on. The earlier "retry until none is left" rule
 still holds while a round makes progress.
 
-**Where it stands:** `rebuild v1.94 · fluent gui`, whole suite green (29/29),
+**The last slide goes too (v1.95).** Owner: *"no but during the plowing it
+started doing the fast tp and then kinda strafing the ground bro"*. The
+teleports were not the complaint — the **serpentine tween** between the grid
+and the hop was: it slid the ride along the field at 45 studs/s, which reads as
+strafing the ground right after a fast teleport. `spudSweepCells` is deleted
+(207 lines) along with its eight harness checks, so a field pass is **grid →
+hop, round after round** and nothing else; a cell both refuse is named
+(`N cell(s) never took a call even with the blade on them — leaving them for
+the next pass`) instead of being tweened over.
+
+**Where it stands:** `rebuild v1.95 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

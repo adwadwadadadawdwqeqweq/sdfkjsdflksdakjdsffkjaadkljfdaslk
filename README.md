@@ -47,9 +47,9 @@ Everything merged into one paste-and-run file:
   movement key: the old row driver is unreferenced and no row is ever driven,
   so a pass that cannot finish says
   `<verb>: every call on <field> was refused — N cell(s) left, no rows driven`
-  instead of driving a lap. The arc lands on the field's own corner and the
-  pathfinder is gone, so the only ground movement left is the last-resort
-  tween sweep, used only when teleports take nothing at all.
+  instead of driving a lap. The arc lands on the field's own corner, the
+  pathfinder is gone and so is the tween sweep, so **every move in a field
+  pass is a teleport** — nothing slides the ride along the ground.
 - **Field work on the game's own remotes** — before a pass drives a single row
   it fires the call the game itself fires on drive-over, once per cell still at
   the job's stage: `EVTPlowFieldCell` / `EVTCultivateFieldCell`
@@ -73,7 +73,7 @@ Everything merged into one paste-and-run file:
   its `Capacity` (empty = no call), the harvester at most its free tank space
   (`MaxCapacity − Capacity`, full = no call), and the planting stage buys and
   fills (up to 3 refills) or the harvest loop sells and comes back. A refused
-  tail gets one retry. Between the call pass and the sweep there is a
+  tail gets one retry. After the call pass there is a
   **3×3 block grid**: the remaining cells are grouped into rows, three rows at
   a time are cut into three-column blocks, and each block gets one stop at its
   own centre — the ride parks with the **blade** on it (the tool trails behind
@@ -89,25 +89,15 @@ Everything merged into one paste-and-run file:
   server still holds the old pose — and only then ends
   (`remote seed: fired 46 of 46 cell(s) from 8 stop(s) across the field
   (reach 20) — 46 took, 0 left`). Whatever it misses is then **hopped**: one
-  teleport per remaining cell with the blade on it. The **serpentine tween**
-  (**45 studs/s**, rows **20** studs apart — the blade reaches two tiles, so a
-  pass covers three rows): a cell the blade is actually over is fired **the
-  moment it is under the blade**, and for plow/cultivate a burst **every 0.5 s**
-  also reaches **20 studs** around the blade — a whole field is covered in about
-  **3–5 s**, and a cell a burst skipped gets a **second lap**
-  offset by half a row and driven slower. Every job bursts — seeding and
-  harvesting used to fire close-only, which is why they needed the second lap
-  for the rows between the passes; the reach is measured now, so a seed call
-  20 studs out lands like a plow's. The machine's own budget is still the cap
-  and counts **cells, not calls** (a cell the burst took is one seed even if
-  the close fire then calls it again). A wide call the server refuses never
-  blocks the close one — that is what made the plow leave a field of
-  leftovers. Anything
-  still standing after the hop is **retried**: grid → hop again, round after
-  round, until the field reports none of that stage left (Stop ends it), with a
-  serpentine tween as the last resort only when teleports take nothing. The
-  sweep logs
-  `remote seed: swept 46 cell(s) in 6.1s at 45 studs/s, range 20 — 44 took, 2 left`.
+  teleport per remaining cell with the blade on it. Anything still standing
+  after the hop is **retried**: grid → hop again, round after round, until the
+  field reports none of that stage left (Stop ends it). Two rounds that take
+  nothing end the pass with an honest line —
+  `<verb>: N cell(s) never took a call even with the blade on them — leaving
+  them for the next pass`. There is **no tween sweep**: the smooth serpentine
+  that slid the ride across the field is gone, so a field pass is teleports
+  only. The machine's own budget is still the cap and counts **cells, not
+  calls** — a cell a stop fires once is one seed whatever else reaches it.
 - **Tests tab** — experiments, none of them a dependency of a
   normal pass. **Batch field remote** tries the abuse the captured shape allows:
   that call already carries a *list* of ids (`{cellId}`), so with the toggle on
@@ -136,8 +126,8 @@ Everything merged into one paste-and-run file:
   removed once they had their answer; their results are in the console history. The lift band is
   the one that matters to play: a field call was taken with the blade **20
   studs to the side at +8** (30 refused) and from **+80 straight up** on three
-  separate runs, and that is what the sweep's 20-stud rows and the
-  stop-and-burst grid are built on. The packet is
+  separate runs, and that is what the stop-and-burst grid's 20-stud reach is
+  built on. The packet is
   server→client only: patching a real packet's stage byte sent nothing back and
   moved no cell. The wrong tool was answered live: cultivate fired from a
   plow's own attachment at a Plowed cell the blade was sitting over stayed
@@ -205,8 +195,9 @@ Everything merged into one paste-and-run file:
   between fields are **arc hops**, and a field is finished by **teleports** —
   the call pass, the stop-and-burst grid, a teleport onto each remaining cell,
   then **grid → hop again, round after round**, until the field reports none of
-  that stage left (Stop ends it). The serpentine tween is the last resort, only
-  when the teleports take nothing. **No row is ever driven**: a pass whose every
+  that stage left (Stop ends it). **No row is ever driven and nothing is
+  tweened**: a cell the grid and the hop both fail is left for the next round
+  or pass, named in the log. A pass whose every
   call was refused says
   `<verb>: every call on <field> was refused — N cell(s) left, no rows driven`.
   Harvesting outranks the other stages: one standing crop sends the harvester

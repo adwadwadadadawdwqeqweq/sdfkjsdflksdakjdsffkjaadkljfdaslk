@@ -32,7 +32,6 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "SpudFarm_Full.lua"
 WANTED = [
     "cellsAtStage",
-    "spudSweepCells",
     "spudRadialFire",
     "spudHopCells",
     "spudFieldRemoteKit",
@@ -578,8 +577,8 @@ check("hop: one seed hops one cell and hands back",
 capVal.Value = 50
 mode.atCell = false
 
--- 12. SWEEP + FIRE: one serpentine tween, a burst every 0.5 s (10 studs at
---     the 20 studs/s default) at the cells the blade is passing
+-- 12. a field is covered by teleports only (the serpentine tween was
+--     removed: every move in a field pass is a teleport)
 local function sweepGrid()
     fieldState[field] = {}
     for x = 1, 5 do
@@ -588,89 +587,6 @@ local function sweepGrid()
         end
     end
 end
-
-mode.seed = "all"
-mode.atCell = true
-acceptR = 20 -- the measured catch range (20 taken, 30 refused live): what
--- the sweep fires at, it takes
-capVal.Value = 50
-sweepGrid()
-resetState()
-local r0 = rides
-local s0 = seedRemote.invokeCalls
-local tookS, dryS = spudSweepCells(seedJob, field, hopRide, tool, "Cultivated",
-    baseCF, baseSize, hopAtt)
-check("sweep: every cell of the field is taken", tookS == 15, tostring(tookS))
-check("sweep: a refused burst still gets its close call (one extra per cell)",
-    seedRemote.invokeCalls - s0 >= 15 and seedRemote.invokeCalls - s0 <= 30,
-    (seedRemote.invokeCalls - s0) .. " call(s)")
-check("sweep: the field is empty afterwards",
-    #spudFieldCellIds(field, "Cultivated") == 0)
-check("sweep: a full seeder means not dry", dryS == false, tostring(dryS))
-check("sweep: the ride is tweened, not teleported", rides - r0 > 50,
-    (rides - r0) .. " pivot(s)")
-check("sweep: the log says what the sweep did",
-    loggedText():find("swept 15 cell") ~= nil
-        and loggedText():find("at 45 studs/s, range 20") ~= nil)
-
--- a seeder can only fire as many calls as it holds seeds
-capVal.Value = 3
-sweepGrid()
-resetState()
-s0 = seedRemote.invokeCalls
-local tookB, dryB = spudSweepCells(seedJob, field, hopRide, tool, "Cultivated",
-    baseCF, baseSize, hopAtt)
-check("sweep: 3 seeds fire 3 calls", seedRemote.invokeCalls - s0 == 3,
-    (seedRemote.invokeCalls - s0) .. " call(s)")
-check("sweep: the seeder runs dry mid-field", dryB == true and tookB == 3,
-    string.format("%s,%s", tostring(tookB), tostring(dryB)))
-
--- a server that only takes a cell under the blade: the near fire catches it
--- even though the bursts are 22 studs apart
-acceptR = 5
-capVal.Value = 50
-sweepGrid()
-resetState()
-s0 = seedRemote.invokeCalls
-local tookN, dryN = spudSweepCells(seedJob, field, hopRide, tool, "Cultivated",
-    baseCF, baseSize, hopAtt)
-check("sweep: a blade-over server still gets every cell", tookN == 15, tostring(tookN))
-check("sweep: a strict server still finishes with a bounded retry",
-    seedRemote.invokeCalls - s0 <= 45,
-    (seedRemote.invokeCalls - s0) .. " call(s)")
-check("sweep: a passing cell never leaves the field dry", dryN == false, tostring(dryN))
-
--- a job with no load to spend (plow/cultivate) also gets the wide burst, and
--- a burst the server refuses must NOT stop the close fire later
-acceptR = 5
-sweepGrid()
-resetState()
-local cultJob = { verb = "cultivate", stage = "Cultivated",
-    remote = "EVTCultivateFieldCell", prog = "cultivating" }
-local cu0 = cultRemote.fireCalls
-local tookC, dryC = spudSweepCells(cultJob, field, hopRide, tool, "Cultivated",
-    baseCF, baseSize, hopAtt)
-check("sweep: a refused wide burst does not block the close fire",
-    tookC == 15, tostring(tookC))
-check("sweep: a close-only budget is never charged for a burst",
-    dryC == false, tostring(dryC))
-check("sweep: a no-load job does burst and then fire close", cultRemote.fireCalls - cu0 >= 15,
-    (cultRemote.fireCalls - cu0) .. " call(s)")
-
--- a server that takes nothing leaves the whole field for the hop/drive
-acceptR = -1
-capVal.Value = 50
-sweepGrid()
-resetState()
-s0 = seedRemote.invokeCalls
-local tookI, dryI = spudSweepCells(seedJob, field, hopRide, tool, "Cultivated",
-    baseCF, baseSize, hopAtt)
-check("sweep: an ignored sweep takes nothing", tookI == 0, tostring(tookI))
-check("sweep: every cell is still standing",
-    #spudFieldCellIds(field, "Cultivated") == 15)
-check("sweep: an ignored sweep never switches the job off",
-    spudFieldRemoteState.off.seed ~= true)
-check("sweep: an ignored sweep is not dry", dryI == false, tostring(dryI))
 
 -- 13. STOP AND BURST: the remaining ids fired from a grid of parked blades —
 --     the live band (20 studs to the side taken, 30 refused, +80 up taken)
