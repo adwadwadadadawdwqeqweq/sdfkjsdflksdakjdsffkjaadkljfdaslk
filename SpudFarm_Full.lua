@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.70 · fluent gui"
+local VERSION    = "rebuild v1.71 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6448,6 +6448,15 @@ local okBuild, errBuild = pcall(function()
             local off = att.Parent.Position - cf.Position
             local rot = cf - cf.Position
             local spent, cur = 0, 1
+            local function shot(c, from)
+                spudFieldRemoteCall(verb, f.d, c.id, att)
+                local deadline, to = os.clock() + 2.0, from
+                while os.clock() < deadline and to == from do
+                    task.wait(0.1)
+                    to = cellStage(f.d, c.id)
+                end
+                return to
+            end
             local function measure(dx, h, label)
                 while cur <= #pts and pts[cur].spent do cur += 1 end
                 local c = pts[cur]
@@ -6456,11 +6465,15 @@ local okBuild, errBuild = pcall(function()
                 pcall(function() tr:PivotTo(CFrame.new(target) * rot) end)
                 task.wait(0.3)
                 local before = cellStage(f.d, c.id)
-                spudFieldRemoteCall(verb, f.d, c.id, att)
-                local deadline, to = os.clock() + 2.0, before
-                while os.clock() < deadline and to == before do
-                    task.wait(0.1)
+                local to = shot(c, before)
+                if to == before then
+                    -- the first call after a long teleport is often refused
+                    -- while the server still holds the old pose (every run so
+                    -- far lost its first reading), and an ignored call leaves
+                    -- the cell untouched — look once more, then retry once
+                    task.wait(0.4)
                     to = cellStage(f.d, c.id)
+                    if to == before then to = shot(c, before) end
                 end
                 local ok2 = to ~= before
                 spudTestSay(string.format("lift: %s on cell %d — %s → %s — %s",
@@ -6854,6 +6867,69 @@ local okBuild, errBuild = pcall(function()
         return took, dry
     end
 
+    -- ▸ ONE SPOT, EVERY ID (live 2026-10-31 lift band: a cell was TAKEN with
+    --   the blade 60 studs to the side at +8, and another from 80 studs
+    --   straight above it — the server checks how close the blade is, not
+    --   that it is over the cell). So the leftovers are fired once more with
+    --   the ride parked above the MIDDLE of the field, where every cell is
+    --   within reach: one teleport instead of a serpentine. The stage re-read
+    --   decides what the server took; anything it misses is still swept,
+    --   hopped and driven, so this can only add speed. The seeder/tank budget
+    --   is the machine's own, exactly like the sweep.
+    function spudRadialFire(job, field, ride, impl, stage, baseCF, baseSize, att)
+        local pts = cellsAtStage(field, stage, baseCF, baseSize)
+        if not pts or #pts == 0 then return 0, false end
+        if not (att and att.Parent) then return 0, false end
+        local before = #pts
+        local sx, sy, sz = 0, 0, 0
+        for _, c in ipairs(pts) do
+            sx += c.X
+            sy += c.Y
+            sz += c.Z
+        end
+        sx, sy, sz = sx / before, sy / before + 10, sz / before
+        local cf = ride:GetPivot()
+        local off = att.Parent.Position - cf.Position
+        local rot = cf - cf.Position
+        local moved = pcall(function()
+            ride:PivotTo(CFrame.new(Vector3.new(sx, sy, sz) - off) * rot)
+        end)
+        if not moved then return 0, false end
+        task.wait(0.5) -- the long teleport needs a beat to reach the server
+        local budget, dry = nil, false
+        if job.verb == "seed" or job.verb == "harvest" then
+            pcall(function()
+                local conf = impl and impl:FindFirstChild("Configurations")
+                local c = conf and conf:FindFirstChild("Capacity")
+                local m = conf and conf:FindFirstChild("MaxCapacity")
+                local cur = c and c:IsA("IntValue") and tonumber(c.Value) or nil
+                if job.verb == "seed" then
+                    budget = cur
+                elseif cur and m and m:IsA("IntValue") then
+                    budget = math.max(0, m.Value - cur)
+                end
+            end)
+        end
+        local fired = 0
+        for _, c in ipairs(pts) do
+            if stopping() then break end
+            if budget and fired >= budget then
+                dry = true
+                break
+            end
+            spudFieldRemoteCall(job.verb, field, c.id, att)
+            fired += 1
+            task.wait(0.04)
+        end
+        local after = cellsAtStage(field, stage, baseCF, baseSize)
+        local left = after and #after or nil
+        local took = left and (before - left) or 0
+        log(string.format(
+            "remote %s: fired %d cell(s) from one spot above the field middle — %d took, %s left",
+            job.verb, fired, took, left and tostring(left) or "unreadable"))
+        return took, dry
+    end
+
     local function sweepField(tr, field, seat, job, impl)
         local baseCF, baseSize = fieldFrame(field)
         if not baseCF then return false, "no bounds" end
@@ -6936,6 +7012,33 @@ local okBuild, errBuild = pcall(function()
                         job.verb, need0 or 0))
                 end
                 return true
+            end
+            -- ▸ ONE SPOT BEATS THE EDGE (live 2026-10-31: 60 studs to the
+            --   side still took a cell), so the pass's leftovers are fired
+            --   again from above the field middle — one teleport, every id.
+            if need0 and need0 > 0 then
+                local tookR, radialDry = spudRadialFire(job, field, tr, impl,
+                    job.grown and grownStage or job.stage, baseCF, baseSize,
+                    spudToolAttachment(impl))
+                if tookR and tookR > 0 then
+                    st0 = countStages(field) or st0
+                    need0 = st0 and whichNeed(job, st0) or need0
+                    if need0 == 0 then
+                        if job.selfPropelled then
+                            harvestSellIfFull(tr, seat, field, "after the single-spot fire")
+                        end
+                        return true
+                    end
+                end
+                if radialDry then
+                    if job.selfPropelled then
+                        harvestSellIfFull(tr, seat, field, "after the single-spot fire")
+                    else
+                        log(string.format("%s: seeder empty with %d cell(s) still to seed here — refilling before driving",
+                            job.verb, need0 or 0))
+                    end
+                    return true
+                end
             end
             -- ▸ one call per cell only lands where the blade is (live: 6 of 46),
             --   so sweep the field in one tween, firing at the cells the blade

@@ -65,8 +65,15 @@ Everything merged into one paste-and-run file:
   its `Capacity` (empty = no call), the harvester at most its free tank space
   (`MaxCapacity − Capacity`, full = no call), and the planting stage buys and
   fills (up to 3 refills) or the harvest loop sells and comes back. A refused
-  tail gets one retry, and a call only lands where the blade is — so after the
-  call pass the ride is **swept across the field in one serpentine tween**
+  tail gets one retry. Between the call pass and the sweep there is a
+  **single-spot fire**: the game does not require the blade to be *over* the
+  cell (live: a take from **60 studs to the side** at +8, and another from
+  **+80 straight up**), so the ride is parked above the field's middle and
+  every remaining id is fired from there — one teleport instead of a
+  serpentine, and the stage re-read decides what it took
+  (`remote seed: fired 48 cell(s) from one spot above the field middle — 48
+  took, 0 left`). Whatever it misses is swept next, so this can only add
+  speed. After that the ride is **swept across the field in one serpentine tween**
   (**45 studs/s**, rows 10 studs apart): a cell the blade is actually over is
   fired **the moment it is under the blade**, and for plow/cultivate a burst
   **every 0.5 s** also reaches **14 studs** around the blade — a whole field is
@@ -99,9 +106,13 @@ Everything merged into one paste-and-run file:
   straight up (0 is the control — if even that is ignored the setup is
   refused, not the height). It ends with
   `lift: verdict — tallest take …, widest take … (N cell(s) spent)`, and the
-  ride is put back where it started. Live so far: a cell was taken from
-  **8 studs above**, and **+40 studs above took it while +80 was ignored** — so
-  the height is neither a flat ground gate nor an unlimited column. Because a
+  ride is put back where it started. A reading that comes back ignored is
+  looked at once more and then retried: the first call after a long teleport
+  is routinely refused while the server still holds the old pose, which cost
+  every run so far its first reading. Live band (cultivator, Plowed cells):
+  **60 studs to the side at +8 TAKEN** (80 refused) and **+80 studs straight
+  up TAKEN** — the server checks how close the blade is, not that it is over
+  the cell, and that is what the single-spot fire above rides on. Because a
   take spends its cell, hitch a tool whose stage your fields hold several
   cells of to get both numbers in one run. **Field remotes** fires
   `FNCSprayFieldCell(field, {id}, {att})` and reports `IsWatered` /

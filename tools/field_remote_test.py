@@ -33,6 +33,7 @@ SRC = ROOT / "SpudFarm_Full.lua"
 WANTED = [
     "cellsAtStage",
     "spudSweepCells",
+    "spudRadialFire",
     "spudHopCells",
     "spudFieldRemoteKit",
     "spudFieldCellIds",
@@ -627,6 +628,56 @@ check("sweep: every cell is still standing",
 check("sweep: an ignored sweep never switches the job off",
     spudFieldRemoteState.off.seed ~= true)
 check("sweep: an ignored sweep is not dry", dryI == false, tostring(dryI))
+
+-- 13. ONE SPOT: every remaining id fired from above the field middle — the
+--     live band (a take 60 studs to the side at +8) means one parked blade
+--     can reach a whole field
+RIDE_POS = Vector3.new(80, 0, 80)
+ATTPARENT.Position = RIDE_POS + Vector3.new(0, 0, -5)
+acceptR = 60
+mode.atCell = true
+capVal.Value = 50
+sweepGrid()
+resetState()
+local rj0 = rides
+local cj0 = seedRemote.invokeCalls
+local tookR, dryR = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+check("radial: every cell takes from one spot", tookR == 15, tostring(tookR))
+check("radial: one call per cell", seedRemote.invokeCalls - cj0 == 15,
+    (seedRemote.invokeCalls - cj0) .. " call(s)")
+check("radial: the field is empty afterwards",
+    #spudFieldCellIds(field, "Cultivated") == 0)
+check("radial: one teleport, no tween", rides - rj0 == 1,
+    (rides - rj0) .. " pivot(s)")
+check("radial: a full seeder means not dry", dryR == false, tostring(dryR))
+check("radial: the log says what it did",
+    loggedText():find("from one spot above the field middle") ~= nil)
+
+-- a seeder can only fire as many calls as it holds seeds
+capVal.Value = 4
+sweepGrid()
+resetState()
+cj0 = seedRemote.invokeCalls
+local tookRB, dryRB = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+check("radial: 4 seeds fire 4 calls", seedRemote.invokeCalls - cj0 == 4,
+    (seedRemote.invokeCalls - cj0) .. " call(s)")
+check("radial: the seeder runs dry", dryRB == true and tookRB == 4,
+    string.format("%s,%s", tostring(tookRB), tostring(dryRB)))
+
+-- a blade that reaches nothing takes nothing, and leaves every cell standing
+acceptR = 5
+capVal.Value = 50
+sweepGrid()
+resetState()
+local tookRI, dryRI = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+check("radial: a small reach takes nothing", tookRI == 0, tostring(tookRI))
+check("radial: every cell is still standing",
+    #spudFieldCellIds(field, "Cultivated") == 15)
+check("radial: an ignored single-spot fire is not dry", dryRI == false, tostring(dryRI))
+
 resetCells()
 mode.atCell = false
 acceptR = 2
