@@ -66,15 +66,19 @@ Everything merged into one paste-and-run file:
   (`MaxCapacity − Capacity`, full = no call), and the planting stage buys and
   fills (up to 3 refills) or the harvest loop sells and comes back. A refused
   tail gets one retry. Between the call pass and the sweep there is a
-  **single-spot fire**: the game does not require the blade to be *over* the
-  cell (live: a take from **20 studs to the side** at +8 — 30 was refused —
-  and another from **+80 straight up**), so the ride is parked above the
-  field's middle and every remaining id is fired from there — one teleport
-  instead of a serpentine, and it clears the block of cells around that spot.
-  Only cells within **24 studs** of it are called — past that the server
-  refuses anyway — and the stage re-read decides what it took
-  (`remote seed: fired 15 of 48 cell(s) from one spot above the field middle
-  (reach 24) — 15 took, 33 left`). Whatever it misses is swept next, so this
+  **stop-and-burst grid**: the game does not require the blade to be *over* the
+  cell (live, three runs in a row: a take from **20 studs to the side** at +8 —
+  30 was refused — and another from **+80 straight up**), so the ride parks
+  with the **blade** on a stop — the tool trails behind the tractor, so the
+  ride goes to `stop − blade offset` — and every remaining id within **20
+  studs** of that stop is fired from there: one teleport per stop, one call per
+  cell, and a cell an earlier stop already fired is never called again. Stops
+  are spaced 1.35 reaches apart, so every cell sits within ~19 studs of one:
+  a 50×100 field takes **8 teleports** and about **3 s** of waiting instead of
+  a 7 s serpentine. The stage re-read after the **first** stop decides — if the
+  server takes nothing from a parked blade the grid ends there and the sweep
+  drives (`remote seed: fired 46 of 46 cell(s) from 8 stop(s) across the field
+  (reach 20) — 46 took, 0 left`). Whatever it misses is swept next, so this
   can only add speed. After that the ride is **swept across the field in one serpentine tween**
   (**45 studs/s**, rows **20** studs apart — the blade reaches two tiles, so a
   pass covers three rows): a cell the blade is actually over is fired **the
@@ -116,8 +120,8 @@ Everything merged into one paste-and-run file:
   had their answer; their results are in the console history. The lift band is
   the one that matters to play: a field call was taken with the blade **20
   studs to the side at +8** (30 refused) and from **+80 straight up** on three
-  separate runs, and that is what the sweep's 20-stud rows and the single-spot
-  fire are built on. The packet is
+  separate runs, and that is what the sweep's 20-stud rows and the
+  stop-and-burst grid are built on. The packet is
   server→client only: patching a real packet's stage byte sent nothing back and
   moved no cell. The wrong tool was answered live: cultivate fired from a
   plow's own attachment at a Plowed cell the blade was sitting over stayed

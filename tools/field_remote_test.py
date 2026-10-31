@@ -632,9 +632,9 @@ check("sweep: an ignored sweep never switches the job off",
     spudFieldRemoteState.off.seed ~= true)
 check("sweep: an ignored sweep is not dry", dryI == false, tostring(dryI))
 
--- 13. ONE SPOT: every remaining id fired from above the field middle — the
---     live band (a take 60 studs to the side at +8) means one parked blade
---     can reach a whole field
+-- 13. STOP AND BURST: the remaining ids fired from a grid of parked blades —
+--     the live band (20 studs to the side taken, 30 refused, +80 up taken)
+--     means one stop reaches ~2 tiles, so a few stops cover a whole field
 RIDE_POS = Vector3.new(80, 0, 80)
 ATTPARENT.Position = RIDE_POS + Vector3.new(0, 0, -5)
 acceptR = 60
@@ -646,16 +646,17 @@ local rj0 = rides
 local cj0 = seedRemote.invokeCalls
 local tookR, dryR = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
     baseCF, baseSize, hopAtt)
-check("radial: every cell takes from one spot", tookR == 15, tostring(tookR))
+check("radial: every cell takes from the stops", tookR == 15, tostring(tookR))
 check("radial: one call per cell", seedRemote.invokeCalls - cj0 == 15,
     (seedRemote.invokeCalls - cj0) .. " call(s)")
 check("radial: the field is empty afterwards",
     #spudFieldCellIds(field, "Cultivated") == 0)
-check("radial: one teleport, no tween", rides - rj0 == 1,
+check("radial: one teleport per stop, no tween", rides - rj0 == 2,
     (rides - rj0) .. " pivot(s)")
 check("radial: a full seeder means not dry", dryR == false, tostring(dryR))
 check("radial: the log says what it did",
-    loggedText():find("from one spot above the field middle") ~= nil)
+    loggedText():find("from 2 stop") ~= nil
+        and loggedText():find("across the field") ~= nil)
 
 -- a seeder can only fire as many calls as it holds seeds
 capVal.Value = 4
@@ -681,9 +682,8 @@ check("radial: every cell is still standing",
     #spudFieldCellIds(field, "Cultivated") == 15)
 check("radial: an ignored single-spot fire is not dry", dryRI == false, tostring(dryRI))
 
--- a cell past the measured reach is never called: on a 9x3 field only the
--- 5x3 middle block (within 24 studs of the middle) is fired, the 12 outer
--- cells stay for the sweep
+-- a long field needs more than one stop: 9x3 is covered by three, one call
+-- per cell and no duplicates
 acceptR = 200
 capVal.Value = 50
 fieldState[field] = {}
@@ -693,16 +693,43 @@ for x = 1, 9 do
     end
 end
 resetState()
+local rf0 = rides
 cj0 = seedRemote.invokeCalls
 local tookRF, dryRF = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
     baseCF, baseSize, hopAtt)
-check("radial: only the cells within reach are fired",
-    seedRemote.invokeCalls - cj0 == 15 and tookRF == 15,
+check("radial: a long field is covered by several stops",
+    tookRF == 27 and seedRemote.invokeCalls - cj0 == 27,
     (seedRemote.invokeCalls - cj0) .. " call(s), took " .. tostring(tookRF))
-check("radial: the log says how many of how many", 
-    loggedText():find("fired 15 of 27 cell") ~= nil)
-check("radial: the far cells are left standing",
-    #spudFieldCellIds(field, "Cultivated") == 12)
+check("radial: the stops are teleports, not a tween", rides - rf0 == 3,
+    (rides - rf0) .. " pivot(s)")
+check("radial: the log says how many of how many",
+    loggedText():find("fired 27 of 27 cell") ~= nil)
+check("radial: the field is empty afterwards",
+    #spudFieldCellIds(field, "Cultivated") == 0)
+
+-- a server that takes nothing from a parked blade pays for ONE stop, then
+-- hands the field to the sweep
+acceptR = -1
+fieldState[field] = {}
+for x = 1, 9 do
+    for y = 1, 3 do
+        fieldState[field][x * 128 + y] = { Stage = "Cultivated" }
+    end
+end
+resetState()
+rf0 = rides
+cj0 = seedRemote.invokeCalls
+local tookRG, dryRG = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+check("radial: an ignored grid stops after one stop", rides - rf0 == 1,
+    (rides - rf0) .. " pivot(s)")
+check("radial: an ignored grid fires only that stop's cells",
+    seedRemote.invokeCalls - cj0 <= 15,
+    (seedRemote.invokeCalls - cj0) .. " call(s)")
+check("radial: an ignored grid leaves every cell standing",
+    tookRG == 0 and #spudFieldCellIds(field, "Cultivated") == 27,
+    tostring(tookRG))
+check("radial: an ignored grid is not dry", dryRG == false, tostring(dryRG))
 
 resetCells()
 mode.atCell = false

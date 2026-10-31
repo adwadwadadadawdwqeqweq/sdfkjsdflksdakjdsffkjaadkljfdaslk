@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.75 · fluent gui"
+local VERSION    = "rebuild v1.76 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6781,36 +6781,34 @@ local okBuild, errBuild = pcall(function()
         return took, dry
     end
 
-    -- ▸ ONE SPOT, EVERY ID (live 2026-10-31 lift band: a cell was TAKEN with
-    --   the blade 20 studs to the side at +8 — 30 was refused — and another
-    --   from 80 studs straight above it, so the server checks the ground
-    --   under the blade within ~2 cells, at any height). The leftovers are
-    --   fired once more with the ride parked above the MIDDLE of the field:
-    --   one teleport instead of a serpentine, and every cell within a couple
-    --   of tiles of that spot lands. The stage re-read decides what the
-    --   server took; anything it misses is still swept, hopped and driven,
-    --   so this can only add speed. The seeder/tank budget
-    --   is the machine's own, exactly like the sweep.
+    -- ▸ STOP AND BURST (live 2026-10-31, three runs in a row: a cell was
+    --   TAKEN with the blade 20 studs to the side at +8 — 30 was refused —
+    --   and another from 80 studs straight above it, so the server checks the
+    --   ground under the blade within ~2 cells, at any height, and never asks
+    --   that the blade be over the cell). One parked blade therefore clears a
+    --   ~20-stud disc, so the leftovers are fired from a GRID of stops spaced
+    --   1.35 reaches apart — every cell sits within ~19 studs of its nearest
+    --   stop — instead of riding a serpentine: one teleport per stop, a burst
+    --   for every cell that stop reaches and no earlier stop fired, one call
+    --   per cell. The re-read after the first stop keeps it honest: a server
+    --   that takes nothing from a parked blade sends the field straight to
+    --   the sweep instead of paying for a whole grid. Anything the grid
+    --   misses is still swept, hopped and driven, so it can only add speed.
+    --   The BLADE lands on a stop, not the tractor: the tool trails behind
+    --   the ride, so the ride goes to `stop - off`.
     function spudRadialFire(job, field, ride, impl, stage, baseCF, baseSize, att)
         local pts = cellsAtStage(field, stage, baseCF, baseSize)
         if not pts or #pts == 0 then return 0, false end
         if not (att and att.Parent) then return 0, false end
         local before = #pts
-        local sx, sy, sz = 0, 0, 0
+        local minX, maxX, minZ, maxZ, sumY = pts[1].X, pts[1].X, pts[1].Z, pts[1].Z, 0
         for _, c in ipairs(pts) do
-            sx += c.X
-            sy += c.Y
-            sz += c.Z
+            sumY += c.Y
+            if c.X < minX then minX = c.X end
+            if c.X > maxX then maxX = c.X end
+            if c.Z < minZ then minZ = c.Z end
+            if c.Z > maxZ then maxZ = c.Z end
         end
-        sx, sy, sz = sx / before, sy / before + 10, sz / before
-        local cf = ride:GetPivot()
-        local off = att.Parent.Position - cf.Position
-        local rot = cf - cf.Position
-        local moved = pcall(function()
-            ride:PivotTo(CFrame.new(Vector3.new(sx, sy, sz) - off) * rot)
-        end)
-        if not moved then return 0, false end
-        task.wait(0.5) -- the long teleport needs a beat to reach the server
         local budget, dry = nil, false
         if job.verb == "seed" or job.verb == "harvest" then
             pcall(function()
@@ -6825,30 +6823,68 @@ local okBuild, errBuild = pcall(function()
                 end
             end)
         end
-        -- only the cells this spot can actually take: the server reaches ~2
-        -- tiles (20 taken, 30 refused live), so a cell past that is a call
-        -- that was never going to land — it stays for the sweep
-        local reach = 24
-        local fired = 0
-        for _, c in ipairs(pts) do
-            if stopping() then break end
-            local dx, dz = c.X - sx, c.Z - sz
-            if dx * dx + dz * dz <= reach * reach then -- out of reach stays for the sweep
-                if budget and fired >= budget then
-                    dry = true
-                    break
-                end
-                spudFieldRemoteCall(job.verb, field, c.id, att)
-                fired += 1
-                task.wait(0.04)
+        local reach = 20 -- the measured take distance (30 was refused live)
+        local step = reach * 1.35
+        local function axisStops(lo, hi)
+            return math.max(1, math.ceil((hi - lo) / step))
+        end
+        local nx, nz = axisStops(minX, maxX), axisStops(minZ, maxZ)
+        while nx * nz > 16 do -- a field too big to stop across: cover the middle
+            step *= 1.25 -- and sweep the rest
+            nx, nz = axisStops(minX, maxX), axisStops(minZ, maxZ)
+        end
+        local stops = {}
+        for ix = 0, nx - 1 do
+            for iz = 0, nz - 1 do
+                stops[#stops + 1] = {
+                    x = minX + (ix + 0.5) * (maxX - minX) / nx,
+                    z = minZ + (iz + 0.5) * (maxZ - minZ) / nz,
+                }
             end
+        end
+        local sy = sumY / before + 10 -- height is free: +80 was taken live
+        local cf = ride:GetPivot()
+        local off = att.Parent.Position - cf.Position
+        local rot = cf - cf.Position
+        local fired, done = 0, {}
+        for i, stop in ipairs(stops) do
+            if stopping() then break end
+            local moved = pcall(function()
+                ride:PivotTo(CFrame.new(Vector3.new(stop.x, sy, stop.z) - off) * rot)
+            end)
+            if not moved then break end
+            -- the first stop follows a long ride, the rest are short hops
+            task.wait(i == 1 and 0.5 or 0.4)
+            for n, c in ipairs(pts) do
+                local key = c.id or ("i" .. n)
+                if not done[key] then
+                    local dx, dz = c.X - stop.x, c.Z - stop.z
+                    if dx * dx + dz * dz <= reach * reach then -- out of reach: a later stop
+                        if budget and fired >= budget then
+                            dry = true
+                            break
+                        end
+                        done[key] = true
+                        spudFieldRemoteCall(job.verb, field, c.id, att)
+                        fired += 1
+                        task.wait(0.04)
+                    end
+                end
+            end
+            if i == 1 then
+                -- one stop decides whether this server takes a parked blade at
+                -- all; if it does not, the sweep below is the honest path
+                local chk = cellsAtStage(field, stage, baseCF, baseSize)
+                if not chk or #chk >= before then break end
+            end
+            if dry then break end
         end
         local after = cellsAtStage(field, stage, baseCF, baseSize)
         local left = after and #after or nil
-        local took = left and (before - left) or 0
+        local took = left and math.max(0, before - left) or 0
         log(string.format(
-            "remote %s: fired %d of %d cell(s) from one spot above the field middle (reach %d) — %d took, %s left",
-            job.verb, fired, before, reach, took,
+            "remote %s: fired %d of %d cell(s) from %d stop(s) across the field (reach %d) — %d took, %s left",
+            job.verb, fired, before, #stops, reach, took,
             left and tostring(left) or "unreadable"))
         return took, dry
     end
@@ -6936,9 +6972,10 @@ local okBuild, errBuild = pcall(function()
                 end
                 return true
             end
-            -- ▸ ONE SPOT BEATS THE EDGE (live 2026-10-31: 60 studs to the
-            --   side still took a cell), so the pass's leftovers are fired
-            --   again from above the field middle — one teleport, every id.
+            -- ▸ A PARKED BLADE BEATS THE EDGE (live 2026-10-31: taken 20
+            --   studs to the side and 80 studs up, refused at 30 to the
+            --   side), so the pass's leftovers are fired from a grid of
+            --   stops — a teleport per stop, one burst, no driving.
             if need0 and need0 > 0 then
                 local tookR, radialDry = spudRadialFire(job, field, tr, impl,
                     job.grown and grownStage or job.stage, baseCF, baseSize,
