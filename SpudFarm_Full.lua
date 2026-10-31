@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.96 · fluent gui"
+local VERSION    = "rebuild v1.97 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5641,6 +5641,29 @@ local okBuild, errBuild = pcall(function()
                 end
             end)
         end
+        -- ▸ WAIT FOR THE BLADE, NOT A FLAT BEAT (owner 2026-10-31: "it just
+        --   used the fast tp"). The ride teleports instantly, but a hitched
+        --   tool follows through physics and trails behind for a moment — the
+        --   live run fired a cell 0.1 s after the jump with the blade still
+        --   ~27 studs away, and the server refused it. Each hop now reads the
+        --   tool's own position until the blade is on the cell (or 1 s), and
+        --   the ride target is measured from that fresh offset so the blade,
+        --   not the tractor, lands where the call needs it.
+        local function bladePos()
+            local p = att and att.Parent
+            if p and p.Position then return p.Position end
+        end
+        local function bladeOn(c, tol, tries)
+            for _ = 1, tries do
+                if stopping() then return false end
+                local b = bladePos()
+                if b and (Vector3.new(b.X, c.Y, b.Z) - Vector3.new(c.X, c.Y, c.Z)).Magnitude <= tol then
+                    return true
+                end
+                task.wait(0.05)
+            end
+            return false
+        end
         local fired = 0
         for _, c in ipairs(pts) do
             if stopping() then break end
@@ -5651,16 +5674,27 @@ local okBuild, errBuild = pcall(function()
                 end
                 local cf = ride:GetPivot()
                 local rot = cf - cf.Position
+                local b0 = bladePos()
+                local off2 = b0 and (b0 - cf.Position) or off
                 local target
-                if off then
-                    target = Vector3.new(c.X, c.Y, c.Z) - off
+                if off2 then
+                    target = Vector3.new(c.X, c.Y, c.Z) - off2
                 else
                     target = Vector3.new(c.X, c.Y + 2, c.Z)
                 end
                 ride:PivotTo(CFrame.new(target) * rot)
-                task.wait(0.1) -- the CFrame needs a beat to reach the server
+                if not bladeOn(c, 8, 20) then
+                    -- the tool was still swinging: park once more from where it
+                    -- actually is, then give it another second
+                    local b1 = bladePos()
+                    if b1 then
+                        ride:PivotTo(CFrame.new(Vector3.new(c.X, c.Y, c.Z) - (b1 - ride:GetPivot().Position)) * rot)
+                        bladeOn(c, 8, 20)
+                    end
+                end
                 spudFieldRemoteCall(job.verb, field, c.id, att)
                 fired += 1
+                if b0 then off = (bladePos() or b0) - ride:GetPivot().Position end
             end
         end
         local after = cellsAtStage(field, stage, baseCF, baseSize)
@@ -5787,14 +5821,55 @@ local okBuild, errBuild = pcall(function()
                 end
             end
         end
+        -- ▸ WAIT FOR THE BLADE, NOT A FLAT BEAT (owner 2026-10-31: "it just
+        --   used the fast tp"). A hitched tool follows the ride through physics
+        --   and trails behind by up to ~30 studs for a moment after a jump;
+        --   the live run fired a whole 8-stop grid in 7 s while the plow was
+        --   still catching up (17 of 50 took). Each stop now polls the blade's
+        --   own position until it is on the block, re-parks once from the
+        --   fresh offset if it is still swinging, and refreshes the offset
+        --   afterwards so the next jump starts from the settled trail.
+        local function bladePos()
+            local p = att and att.Parent
+            if p and p.Position then return p.Position end
+        end
+        local function bladeOn(stop, tol, tries)
+            local t = Vector3.new(stop.x, sy, stop.z)
+            for _ = 1, tries do
+                if stopping() then return false end
+                local b = bladePos()
+                if b and (Vector3.new(b.X, t.Y, b.Z) - t).Magnitude <= tol then return true end
+                task.wait(0.05)
+            end
+            return false
+        end
         for i, stop in ipairs(stops) do
             if stopping() then break end
-            local moved = pcall(function()
+            local parked = pcall(function()
+                local b0 = bladePos()
+                if b0 then off = b0 - ride:GetPivot().Position end
                 ride:PivotTo(CFrame.new(Vector3.new(stop.x, sy, stop.z) - off) * rot)
             end)
-            if not moved then break end
-            -- the first stop follows a long ride, the rest are short hops
-            task.wait(i == 1 and 0.6 or 0.5)
+            if not parked then break end
+            -- the first stop follows a long ride, the rest are short trips
+            if not bladeOn(stop, 12, i == 1 and 40 or 30) then
+                local b1 = bladePos()
+                if b1 then
+                    pcall(function()
+                        ride:PivotTo(CFrame.new(Vector3.new(stop.x, sy, stop.z)
+                            - (b1 - ride:GetPivot().Position)) * rot)
+                    end)
+                    bladeOn(stop, 12, 24)
+                end
+            end
+            local bs = bladePos()
+            if bs then
+                local away = (Vector3.new(bs.X, sy, bs.Z) - Vector3.new(stop.x, sy, stop.z)).Magnitude
+                if away > 20 then
+                    log(string.format("remote %s: the blade is %.0f studs off stop %d — firing anyway", job.verb, away, i))
+                end
+                off = bs - ride:GetPivot().Position
+            end
             burst(stop)
             if i == 1 then
                 -- ▸ THE FIRST CALL AFTER A LONG RIDE IS ROUTINELY REFUSED while

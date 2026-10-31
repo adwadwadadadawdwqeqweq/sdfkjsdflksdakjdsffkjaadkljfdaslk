@@ -85,7 +85,10 @@ Everything merged into one paste-and-run file:
   take from **20 studs to the side** at +8 (30 refused) and from **+80 straight
   up**. The stage re-read after the **first** stop decides — if the
   server takes nothing from a parked blade the grid fires **that same stop
-  once more** — the first call after a long ride is routinely refused while the
+  once more**; between stops it **waits for the blade**, not a fixed beat — a
+  hitched tool trails the tractor for a moment after a jump, so the call only
+  fires once the blade is actually on the block (re-parking once if it is
+  still swinging) — the first call after a long ride is routinely refused while the
   server still holds the old pose — and only then ends
   (`remote seed: fired 46 of 46 cell(s) from 8 stop(s) across the field
   (reach 20) — 46 took, 0 left`). Whatever it misses is then **hopped**: one

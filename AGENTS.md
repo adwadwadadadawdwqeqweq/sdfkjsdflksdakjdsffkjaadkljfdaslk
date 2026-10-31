@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.96 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.97 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.96
+python tools/run_all.py        # 29/29 checks on v1.97
 ```
 
-Last full run (v1.96): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.97): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -604,7 +604,13 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   pose reaches the server is refused, the artifact every lift run hit) and
   fires **that block's nine cells**, 40 ms apart, **one call per cell**, capped by
   the seeder/tank budget. Height is free (+80 was taken), so the grid runs 10
-  studs above the cells. The stage re-read after the **first** stop is the
+  studs above the cells. **The stop waits for its blade** (v1.97): a hitched
+  tool follows the ride through physics and trails behind for a moment after a
+  jump, so the pass polls the attachment's own position until the blade is on
+  the block (re-parking once from the fresh offset if it is still swinging) and
+  only then fires — the flat 0.5 s beat let a live run fire all 8 stops in 7 s
+  with the plow 27 studs behind and only **17 of 50** calls land. The per-cell
+  hop waits the same way (was a flat 0.1 s). The stage re-read after the **first** stop is the
   honesty gate: nothing taken = the server refuses a parked blade, the grid
   ends after one stop and the hop drives. The final re-read is the proof:
   `remote seed: fired 46 of 46 cell(s) from 8 stop(s), 9 per stop — 46 took,
@@ -1600,7 +1606,21 @@ is still up; the log says `<Menu> closed (handler)` or names the menu it could
 not shut. No harness (the live GUI is the only judge) — the next shop trip's
 line is the verdict.
 
-**Where it stands:** `rebuild v1.96 · fluent gui`, whole suite green (29/29),
+**The blade, not the beat (v1.97).** Owner: *"IT JUST USED THE FAST TP BRO"*
+with a crop of `fired 50 of 50 cell(s) from 8 stop(s), 9 per stop — 17 took, 33
+left` and `hopped the ride over 33 cell(s) — 5 took`. The teleports were right;
+what was wrong was the clock. `hitch gap at arrival: 26.9 studs` says the plow
+was still catching up, and both passes fired on a flat wait (0.5 s per stop,
+0.1 s per hop) long before the blade arrived — so the server, which judges the
+ground under the blade, refused most calls. Both now poll the attachment's own
+position until the blade is on the target (12 studs for a stop, 8 for a cell),
+re-park once from the measured offset if it is still swinging, and refresh the
+offset so the next jump starts from the settled trail. A stop that still ends
+more than 20 studs off logs `the blade is N studs off stop K — firing anyway`.
+No harness (the stub moves the blade with the ride) — the next live grid is the
+verdict: `took` should climb towards `fired`.
+
+**Where it stands:** `rebuild v1.97 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
