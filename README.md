@@ -48,8 +48,8 @@ Everything merged into one paste-and-run file:
   (never below 30 %), and every steady 3 s gives a step back — so a wobbling row
   settles into a slow straight pass. If W can't finish a leg, the align mover
   takes over. **Travel between fields is an arc hop, not a drive** — every
-  job, not just the harvester — so a tour is teleports, arcs and bursts and
-  the pathfinder only runs when a field has no readable corner.
+  job, not just the harvester — so a tour is teleports, arcs and bursts, and
+  there is no pathfinder any more.
 - **Field work on the game's own remotes** — before a pass drives a single row
   it fires the call the game itself fires on drive-over, once per cell still at
   the job's stage: `EVTPlowFieldCell` / `EVTCultivateFieldCell`
@@ -175,16 +175,16 @@ Everything merged into one paste-and-run file:
   so standing trees are not cut. A field whose cell read succeeds but returns
   **0 cells** is also skipped (empty is not the same as unreadable). Every pass
   prints the real field type, so a differently named soil shows up in the log.
-- **Pathfinding** — a top-level `SpudPath` engine (outside the 200-local build
-  closure): binary-heap A* with a closed set, **Lazy Theta\*** any-angle routes,
-  exact voxel line-of-sight, a cached and **height-aware** obstacle map, and
-  corner arcs kept only while their samples stay clear of gear and under a
-  curvature cap. On synthetic 1-stud grids ([tools/path_bench.py](tools/path_bench.py))
-  the old planner returned **no path** on the cluttered and walled maps at its
-  own pop cap; the new A* solves them **≈3× faster**, and Theta* cuts the
-  clutter route from **167 to 61 waypoints** and the walled route from
-  **139 to 14**. The console now prints the cost of each plan:
-  `theta* 1,204 pops / 11 ms, min clear 3`
+- **No pathfinding** — the A* engine (`SpudPath`: heap Lazy Theta*, clearance
+  field, line-of-sight, Bézier smoothing, obstacle caches) was **removed**: the
+  only thing left that needed a route was the fallback for a field with no
+  readable frame, and that field cannot be swept by the remotes either. Trips
+  between fields are **arc hops**, and a field is finished by **teleports** —
+  the call pass, the stop-and-burst grid, one more grid for leftovers, then a
+  teleport onto each remaining cell. Rows are driven only if **every** field
+  call was refused; otherwise the pass says
+  `<verb>: N cell(s) left after the teleport passes — leaving them, no rows
+  driven`.
 - **Working width** — the sweep measures the tool's ground width across the
   row axis (every BasePart's oriented box, unioned) and plans rows at
   `width / 10` **tiles** instead of the old fixed one tile, so a **3-wide**

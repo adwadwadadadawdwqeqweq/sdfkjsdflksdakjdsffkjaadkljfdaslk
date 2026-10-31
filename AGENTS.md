@@ -71,10 +71,11 @@ description — it is the long-form manual and it is kept in sync with behaviour
 
 ### 1.4 Script limits (these have broken the build before)
 
-13. **Luau's 200-local limit is real and we are 2 away from the practical
-    ceiling.** Run `python tools/local_budget.py`. As of v1.80:
-    `4-space locals before milkCycle: 183 (practical ceiling 185)`,
-    whole body `190 / 200`, **headroom 2**. Do **not** add a `local` inside the
+13. **Luau's 200-local limit is real** (it was 2 away from the practical
+    ceiling until the path engine was deleted in v1.81). Run
+    `python tools/local_budget.py`. As of v1.81:
+    `4-space locals before milkCycle: 175 (practical ceiling 185)`,
+    whole body `182 / 200`, **headroom 10**. Do **not** add a `local` inside the
     main build closure. Reuse an existing local, convert the feature to a
     **global** (the established pattern), or restructure — and re-run the budget.
 14. **A bare global assignment silently clobbers.** That is exactly how
@@ -140,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 30/30 checks on v1.80
+python tools/run_all.py        # 29/29 checks on v1.81
 ```
 
-Last full run (v1.80): **30/30 checks passed** (27 harnesses + 3 gates).
+Last full run (v1.81): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -163,7 +164,6 @@ Last full run (v1.80): **30/30 checks passed** (27 harnesses + 3 gates).
 | `herd_send_test.py` | The wrong-barn regression: no fallback to a stranger's `AutoWoodenBarn`. |
 | `hop_test.py` | The arc hop's landing height: a return leg from the lower pad lands ON the field (never keeps the pad's height, which flew it under the ground), a trip down still lands at the takeoff height, the arc clears the landing by ~12 studs and arrives from above, a level hop stays level, a missing target Y keeps the takeoff height, a zero-length hop is one move, and stopping aborts without landing. |
 | `milk_arrivals_test.py` | The arrival wait watches stall `Occupant` values and scans a handful of times, not five times a second. |
-| `path_test.py` | The path engine: heap order, A* gap/corner rules, exact LOS through a single blocked cell, clearance refusal, Theta* straight-line and shorter-than-8-way paths, arcs refused near a wall, curvature cap, height-banded marking, cell sizing. |
 | `farm_width_test.py` | Working width and row plan: studs→tiles rounding, oriented-box union width, rotated bars, 1/2/3-wide plans (step, headland, row half-extent) and an interval-coverage proof on 100/200-stud and narrow fields; owner match rules. |
 | `equip_owner_test.py` | Whose tractor/tool is picked: the farm being worked first, mine next, an unreadable owner after that, a stranger's never; stored machines are reported for spawning; the implement distance/basis stay honest. |
 | `field_soil_test.py` | Tree/wood field types and names are never crop-harvest targets; a successful cell read with 0 cells is empty (skipped), while a failed read stays unknown (never a skip reason). |
@@ -187,8 +187,6 @@ numbers in the README):
 
 - `cow_scan_bench.py` — instance calls per cow scan (cache effect).
 - `stall_scan_bench.py` — calls/name reads to find 12 stalls (narrow scan).
-- `path_bench.py` — old HEAD `astarPath` vs the new heap A*/Theta* on synthetic
-  maps (best-of-8 ms, cells, length, pops); the README numbers come from it.
 - `store_timing.py` — milk store pass on a virtual clock with latency.
 
 ### 2.3 What green does **not** prove
@@ -317,69 +315,29 @@ Consequences that are deliberate and tested:
 - The stay line explains a skipped switch:
   `milk: desbiens1235 has 6 ready cow(s) - under the 12 per herd, but the fullest other is Miou2251: 4 ready - working this one`.
 
-### 3.6 Travel and Theta*
+### 3.6 Travel: arcs and teleports, no pathfinding
 
-The engine is a **top-level global module** (`SpudPath`) in
-[SpudFarm_Full.lua](SpudFarm_Full.lua) — outside the build closure, because
-that closure is at Luau's 200-local wall. The closure keeps `pathfindAround`
-(grid, obstacle map, calls) and `driveRoute` (the follower).
+The A* engine (a top-level `SpudPath` module: heap Lazy Theta*, clearance
+field, Bézier smoothing, obstacle caches, the `driveRoute` follower) was
+**removed in v1.81** at the owner's call: *"i want to remove the a* pathfinding
+and have it tp fast untill the whole fielld is done"*. Nothing in a tour needs
+a route any more.
 
-1. **Grid**: rectangle from start+goal plus 50 studs; cell size
-   `clamp(trip / 70, 6, 16)`; more than **90,000 cells is refused**. Keys are
-   `ix * 100000 + iz`. The old long-haul grid went to 24 studs and erased gates;
-   the heap makes the extra cells affordable.
-2. **Blocked cells**: `SpudPath.worldParts` caches the recursive walk of
-   `Objects.Equipment`, `Objects.Buildings`, `Objects.Fences`,
-   `Stores.Buildings` and plot `Foliage` (static, **1 s TTL**), plus
-   `Objects.DraggableObjects` and `Objects.Animals` (**0.5 s TTL**); **only
-   `CanCollide` parts**; rotated parts projected onto the ground plane; pad
-   `6 + hull`; the ride and its tool are skipped by **owner** (the scanned
-   folder's top-level child). `SpudPath.markParts` also drops parts whose
-   vertical span misses the ride's band (`minY−2 … maxY+10`), so roofs,
-   overhead pipes and raised pad edges no longer block the ground under them.
-3. **Search**: **binary-heap A*** with a closed set, stale-entry skip and
-   `f`-then-`h` tie-break; 8-connected, `1`/`1.4142` step cost, octile
-   heuristic, no corner cutting; `maxPops = max(12,000, nx·nz)`. The default is
-   **Lazy Theta\*** — a neighbour may inherit the expanded node's parent, and
-   the long edge is line-of-sight checked when it is expanded — so routes are
-   straight wherever the grid is open instead of 8-way staircases. If the
-   any-angle search exhausts its pop budget, `SpudPath.search` falls back to
-   8-connected A*.
-4. **Hug penalty**: multi-source BFS `clearanceField` (capped at 5) multiplies a
-   step's cost — ≥4 cells `×1`, 3 `×1.5`, 2 `×2.5`, ≤1 `×4.5`. Step cost uses
-   the destination cell; Theta*'s long edge is validated with `losClear = 2`
-   on interior cells only (endpoints are exempt — the ride may be parked beside
-   a tool).
-5. **Line of sight**: **exact voxel traversal (DDA)**, not half-cell sampling —
-   a thin fence post between samples used to be invisible. A corner crossing is
-   refused unless both side cells are free (the towed tool has width).
-6. **Post-processing**: `SpudPath.smooth` replaces each >20° vertex with a
-   **quintic Bézier** blend sampled every ~1.4 studs (radius 22 → 14 → 8) and
-   keeps it only while every interior sample is free, keeps `arcMargin = 2`
-   cells of clearance, and the sampled-curvature is ≤ **0.08 rad/stud**. The
-   control factor is `a = 0.30·d`: the old `0.55` overshot the corner, so a
-   nominal "22-stud radius" actually measured ~4 studs. If no radius fits, the
-   vertex stays sharp and the speed profile slows for it.
-7. **Fallback**: four attempts — base cell/full hull, **base × 0.75/full hull**
-   (finer first: a narrow gap is more likely to be found on a finer grid),
-   `×1.5`/half hull, `×2.2`/no hull. Then `nil` + reason + `direct` only if
-   `SpudPath.los` verifies the straight line. `driveRoute` replans ~1 s while
-   moving.
-
-Verified numbers ([tools/path_bench.py](tools/path_bench.py), synthetic
-1-stud grids, best of 8): the **old** linear-scan A* returned **no path** on
-the cluttered 120×120 and walled 80×80 maps at its own pop cap; the new A*
-solves them in **≈80–105 ms / ≈29–37 ms** (the old spent ≈90–250 ms before
-failing).
-Theta* cut the clutter route from **167 to 61 waypoints** (length 196.7 → 187.9)
-and the walled route from **139 to 14** (144.6 → 136.8). Theta* costs more
-search time on dense 1-stud grids (58–221 ms), but the game's cells are 6–16
-studs and the replan budget is ~1 s. The console line is
-`path: 9 point(s) (corners are arcs), 412 part(s), theta* 1,204 pops / 11 ms, min clear 3 (tool margin 6)`.
-
-It cannot know about a gate that closes after planning, a moving vehicle, or
-geometry thinner than the current cell; a part that moves inside the cache TTL
-marks its old spot for that second.
+- **Field to field** is `hopTo(ride, fieldCornerTarget(...), SELL_HOP_SPEED)` —
+  a 140-stud/s sine arc that lands on the plate's corner. Every job takes it;
+  `driveToField`/`driveRoute`/`pathfindAround` are gone.
+- A field with **no readable frame** (`fieldFrame` → nil) is named
+  (`SKIP <field> — no readable field frame`) and the pass stops there instead
+  of driving at it — that field cannot be swept by the remotes either.
+- **On the field** the work is the field remotes (§3.12): the call pass, the
+  stop-and-burst grid, **one more grid round** for leftover cells, then the
+  per-cell hop (a teleport per cell). Rows are driven **only** when every call
+  on the field was refused (`need0` never fell) — the game's own drive-over is
+  the last door. Otherwise the pass logs
+  `<verb>: N cell(s) left after the teleport passes — leaving them, no rows
+  driven`.
+- Deleting the planner also freed the 200-local budget: **headroom 2 → 10**
+  (175 before `milkCycle`, 182 whole body).
 
 ### 3.7 Whose tractor and tool
 
@@ -793,7 +751,6 @@ UI/key fallbacks and the three-miss switch-off.
 | Area | Function / thing |
 |---|---|
 | Build identity | `VERSION` at the top of the file (`rebuild vX.YY · fluent gui`) |
-| Pathfinding | top-level `SpudPath` (`heapPush`/`heapPop`, `astar`, `thetastar`, `search`, `los`, `clearance`, `smooth`, `markParts`, `worldParts`), then `pathfindAround`, `driveRoute`, `driveToField`, `driveWatchTick` |
 | Farm width / owner | top-level `SpudFarm` (`widthTiles`, `widthFromParts`, `rowPlan`, `ownerWanted`, `workTiles`, `partBoxes`, `declaredWidth`), `spudOwnerChoices`, global `farmOwnerPick`, `spudFarmOwnerDrop`; `sweepField` plans rows from `rowPlan` |
 | Go to the farm | global `spudFarmHop(here, plotPos)` (nil+reason, or centre +5 Y and distance), `milkStorePlotOf(who)`, `milkStandUp(who)` (default `"milk"`); wired at the top of `runFarmingBody` |
 | Whose machine | global `equipOwnerRank(m)` (farm being worked → mine → no readable owner → never another account), used by `findTractor` / `findImplement`; owner tag read by `milkStoreOwnerOf` |
@@ -801,7 +758,7 @@ UI/key fallbacks and the three-miss switch-off.
 | Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (stop-and-burst grid: the blade parks on each stop, every in-reach id fired), `spudSweepCells` (serpentine tween, a burst every 0.5 s), `spudHopCells` (one cell at a time), `spudFillSeederRemote`; state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, default false); wired at the top of `sweepField` and in `buySeedAndFill` |
 | Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Run all**, **Copy report** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
-| Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job since v1.77** — `driveToField` only runs when a field has no readable corner |
+| Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job** and the A* planner was deleted in v1.81, so rows run only when every field call was refused |
 | Dirt line | global `milkDirtLine = 24`; `milkDirtHigh(spot)` (the single "is this dirty?" answer) |
 | Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)`, `spudFulfillSpots()` (Deposit_Warehouse top), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
 | Clean pass | pre-pass offer watch (0.96 s) → clean watch (2.2 s); per-cow clean `≤2.25 s` |
@@ -1373,9 +1330,27 @@ grid). One caveat recorded for honesty: the test changed hitched-ness and
 seated-ness together (the player stood on the ground), so a build that ever
 accepts a loose implement would need the probe re-run.
 
-**Where it stands:** `rebuild v1.80 · fluent gui`, whole suite green (30/30),
+**The A* engine comes out (v1.81).** Owner: *"ok, no i want to remove the a*
+pathfinding and have it tp fast untill the whole fielld is done bor"*. The
+planner had one caller left — `driveToField`, the fallback for a field with no
+readable corner — so the whole engine went: the `SpudPath` module (~600 lines:
+heap, Lazy Theta*, clearance BFS, DDA line of sight, Bézier smoothing, obstacle
+caches), `obstacleCells`, `clearanceField`, `pathfindAround`, `towMargin`,
+`driveRoute` (~350 lines), `driveToField`, the route-preview debug studs
+(`dbgRoute`/`dbgRouteClear`), and the `path_test.py`/`path_bench.py` harnesses
+(**29/29** now, was 30/30). Every job already arc-hopped to the field, so the
+only behaviour change is honest: a field whose plate has no readable frame is
+named `SKIP <field> — no readable field frame` instead of being pathfound to.
+The field itself now finishes on teleports — call pass → grid → **one more
+grid** for leftovers → per-cell hop — and rows are driven only when every
+single call was refused (`<verb>: N cell(s) left after the teleport passes —
+leaving them, no rows driven` otherwise). The 200-local budget went from
+headroom **2 to 10**.
+
+**Where it stands:** `rebuild v1.81 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
-test is a live pass watching `path: … theta* N pops / N ms, min clear N`, the
+test is a live pass watching the arc hop on **every** job (no `field corner
+target:`/pathfinding line may appear), the
 new width line (`tool … — 3-wide …; rows every 30`), the Farm owner picker
 showing ONLY that owner's fields (`Field · Miou2251`), the equipment owner
 column (`· ZM80 = Tractor [spawned] · oksimba_1`), a
@@ -1492,8 +1467,9 @@ for this session`), and the equipment lines (`✅ mounted … (FNCEnterEquipment
    run and the take should equal N, so the field ends with **no sweep line at
    all**; a `swept …` line means stops were refused, and a grid that ends
    after one stop means the server took nothing from a parked blade) and v1.77
-   (a tour must log `arc hop to the <field> corner` for **every** job — a
-   `field corner target:` / pathfinding line means something still drove. The
+   (a tour must log `arc hop to the <field> corner` for **every** job and no
+   `path:` / `field corner target:` line may appear anywhere — the planner was
+   deleted in v1.81, so any route line means an old build. The
    Tool apart question is answered **IGNORED** and its probe retired: a plow off
    the tractor with its blade 0.0 studs from an Empty cell still took nothing,
    so the implement must be on a ride — never fire a field call with the tool
@@ -1511,14 +1487,11 @@ for this session`), and the equipment lines (`✅ mounted … (FNCEnterEquipment
    bug — report the number if you see it.
 3. **The store deposit and feed top-up paths are untested** (they need a fake
    carrier + dispenser).
-4. **Long trips plan coarse or get refused** (>30,000 cells at the chosen cell
-   size). The fallback is a verified-clear straight line, otherwise a logged
-   failure.
-5. **"Modified client" is executor detection**, not movement or timing. No edit
+4. **"Modified client" is executor detection**, not movement or timing. No edit
    to this script changes it; the README's Stealth section says so explicitly
    and should keep saying so. The probes are louder than the farm script (they
    hook `__namecall`); don't run them on an account you care about.
-6. **Codes are disabled** in-game (mid-2026); any "working codes" list is fake.
+5. **Codes are disabled** in-game (mid-2026); any "working codes" list is fake.
 
 ---
 
