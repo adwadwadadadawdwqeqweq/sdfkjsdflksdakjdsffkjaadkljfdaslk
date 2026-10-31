@@ -90,10 +90,11 @@ Everything merged into one paste-and-run file:
   see — a bulk field door we never fired would only show up there. **Wrong
   tool** fires a different job's call at the cell the hitched blade is over: if
   it takes, the server checks the blade's position, not which implement it
-  belongs to, and one tool could plow, cultivate and seed in one sweep.
-  **Lift test** parks the ride with the blade 0/8/20/40 studs directly above
-  one cell and fires: a take at height means the position check raycasts down
-  and the field could be flown over. **Field remotes** fires
+  belongs to, and one tool could plow, cultivate and seed in one sweep — it
+  hops onto the cell itself, so you only need a tool hitched.
+  **Lift test** hops the ride onto the nearest waiting cell, then parks the
+  blade 0/8/20/40 studs directly above it and fires: a take at height means the
+  position check raycasts down and the field could be flown over. **Field remotes** fires
   `FNCSprayFieldCell(field, {id}, {att})` and reports `IsWatered` /
   `PlantGrowth` / `Stage`, then invokes `FNCEditField()` and
   `FNCConvertRundownField()` with **no arguments** just to read the shape they

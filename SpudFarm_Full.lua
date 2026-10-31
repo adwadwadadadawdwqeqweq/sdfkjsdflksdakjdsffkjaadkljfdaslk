@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.66 · fluent gui"
+local VERSION    = "rebuild v1.67 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6422,12 +6422,30 @@ local okBuild, errBuild = pcall(function()
                 or (ttype == "Planter" and "seed")
                 or (impl.Name == "KADL" and "seed")
                 or (impl.Name == "KQF3000" and "cultivate") or "plow"
-            local job = jobFor(verb)
             local baseCF, baseSize = fieldFrame(f.d)
             if not baseCF then spudTestSay("lift: " .. f.d.Name .. " has no bounds") return end
-            local pts = cellsAtStage(f.d, job.stage, baseCF, baseSize)
-            if not pts or #pts == 0 then
-                spudTestSay("lift: no cell of ours is waiting for " .. verb)
+            local function cellsFor(v)
+                local j = jobFor(v)
+                local pts2 = cellsAtStage(f.d, j.stage, baseCF, baseSize)
+                if pts2 and #pts2 > 0 then return j, pts2 end
+            end
+            local job, pts = cellsFor(verb)
+            if not job then
+                -- the field has nothing at this tool's stage: use any stage that
+                -- has a cell (that call doubles as the wrong-tool experiment)
+                for _, v2 in ipairs({ "cultivate", "seed", "plow" }) do
+                    if v2 ~= verb then
+                        job, pts = cellsFor(v2)
+                        if job then
+                            spudTestSay("lift: no cell needs " .. verb
+                                .. " — firing " .. v2 .. " with this tool instead")
+                            break
+                        end
+                    end
+                end
+            end
+            if not job then
+                spudTestSay("lift: no cell of ours needs any stage right now")
                 return
             end
             local cell, cd
@@ -6619,15 +6637,20 @@ local okBuild, errBuild = pcall(function()
                     .. own .. " — nothing to test with this tool hitched")
                 return
             end
-            if bd > 8 then
-                spudTestSay(string.format(
-                    "wrongtool: the nearest %s cell is %.0f studs from the blade — drive onto the field first",
-                    best.job.verb, bd))
-                return
-            end
+            -- ▸ the blade must be over the cell for any of these calls, so hop
+            --   the ride onto it first — the test no longer needs you to stand
+            --   on the field (live: 43 studs away refused to guess).
+            local tr = findTractor()
+            if not tr then spudTestSay("wrongtool: no tractor to move onto the cell") return end
+            local cf = tr:GetPivot()
+            local off = blade - cf.Position
+            local rot = cf - cf.Position
+            local target = Vector3.new(best.c.X, best.c.Y, best.c.Z) - off
+            pcall(function() tr:PivotTo(CFrame.new(target) * rot) end)
+            task.wait(0.3)
             local before = cellStage(f.d, best.c.id)
             spudTestSay(string.format(
-                "wrongtool: %s (%s) firing %s on cell %d — really %s, blade %.1f studs away",
+                "wrongtool: %s (%s) firing %s on cell %d — really %s, hopped %.0f studs onto it",
                 impl.Name, ttype, best.job.verb, best.c.id, tostring(before), bd))
             spudFieldRemoteCall(best.job.verb, f.d, best.c.id, att)
             local deadline, to = os.clock() + 2.5, cellStage(f.d, best.c.id)
@@ -6640,6 +6663,7 @@ local okBuild, errBuild = pcall(function()
                 took and ("TAKEN: the server accepted " .. best.job.verb .. " from a " .. ttype
                     .. " — the tool type is NOT checked")
                     or "IGNORED: the server wants the right implement for that verb"))
+            pcall(function() tr:PivotTo(cf) end)
             return
         end
 
