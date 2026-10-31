@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.77 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.78 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -72,7 +72,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 ### 1.4 Script limits (these have broken the build before)
 
 13. **Luau's 200-local limit is real and we are 2 away from the practical
-    ceiling.** Run `python tools/local_budget.py`. As of v1.77:
+    ceiling.** Run `python tools/local_budget.py`. As of v1.78:
     `4-space locals before milkCycle: 183 (practical ceiling 185)`,
     whole body `190 / 200`, **headroom 2**. Do **not** add a `local` inside the
     main build closure. Reuse an existing local, convert the feature to a
@@ -140,10 +140,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 30/30 checks on v1.77
+python tools/run_all.py        # 30/30 checks on v1.78
 ```
 
-Last full run (v1.77): **30/30 checks passed** (27 harnesses + 3 gates).
+Last full run (v1.78): **30/30 checks passed** (27 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -685,14 +685,17 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
     used but the tractor does not move"*). Every field call so far was fired
     with the tool hitched, and only the blade's ground was ever tested, so the
     open question is whether the server cares that an implement is on a ride at
-    all. It finds a plow/cultivator/seeder plus one of our fields holding a cell
-    of that tool's stage, records the blade's distance to the cell and whether
-    a ride has the tool (`hitchedImplementName`), teleports the **tool model**
-    so the blade sits 10 studs above the cell, re-reads the blade, fires that
-    one cell with the tool's own attachment, and lets the cell's stage answer:
+    all. It finds a plow/cultivator/seeder plus a cell of that tool's stage on
+    **any** of our fields (the first run was asked on a fully grown field and
+    had nothing to fire at), prints every field's stage counts when there is
+    none, and brings a **stored** tool out with `managerAction(name, "Spawn")`
+    — storing it again afterwards — because a finished pass puts every tool
+    back in storage. It records the blade's distance to the cell and whether a
+    ride has the tool (`hitchedImplementName`), teleports the **tool model** so
+    the blade sits 10 studs above the cell, re-reads the blade, fires that one
+    cell with the tool's own attachment, and lets the cell's stage answer:
     `TAKEN: the tractor never has to move` or `IGNORED: the server wants the
-    implement on a ride`. The tool is pivoted back to where it was, nothing
-    else is touched.
+    implement on a ride`. The tool is put back exactly as it was found.
   **Run all** runs the three probes (remote list, field remotes, tool apart);
   all refuse while `loopThread` is live and touch no animals or other plots.
   There is **no harness** for them — the live read is the only verdict.
@@ -1352,7 +1355,16 @@ never has to move again and the grid could fire from a parked tool, IGNORED
 means the server wants the implement on a ride and the stop-and-burst grid's
 teleports stay.
 
-**Where it stands:** `rebuild v1.77 · fluent gui`, whole suite green (30/30),
+**The probe's first run (v1.78).** The report came back
+`toolapart: need a plow/cultivator/seeder and a field with the right cell` —
+two real gaps, not a refusal: the field was fully grown (`Harvestable`, so
+nothing a towed tool can stage) and all three implements were in storage, and
+`findImplement` skips stored ones by design. The probe now scans **every**
+streamed field, prints each field's stage counts when it finds no usable cell,
+and spawns a stored tool through the captured call (`managerAction(name,
+"Spawn")`), storing it again at the end.
+
+**Where it stands:** `rebuild v1.78 · fluent gui`, whole suite green (30/30),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching `path: … theta* N pops / N ms, min clear N`, the
 new width line (`tool … — 3-wide …; rows every 30`), the Farm owner picker

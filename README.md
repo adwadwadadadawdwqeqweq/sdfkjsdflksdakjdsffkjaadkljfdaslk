@@ -114,12 +114,14 @@ Everything merged into one paste-and-run file:
   `FNCConvertRundownField()` with **no arguments** just to read the shape they
   demand (an error names it; nothing that could rebuild the field is handed to
   them).
-  **Tool apart** answers whether the tractor has to be there at all: it
-  teleports a parked plow/cultivator/seeder onto one of your own cells, fires
-  that cell with the tool's own attachment, and lets the cell's own stage
-  answer — `TAKEN` means the tool alone is enough (the tractor never has to
-  move), `IGNORED` means the server wants the implement on a ride. The tool is
-  put back exactly where it was.
+  **Tool apart** answers whether the tractor has to be there at all: it takes a
+  plow/cultivator/seeder (bringing a stored one out, storing it again after),
+  finds a cell of that tool's stage on **any** of your fields — it prints every
+  field's stage counts when a field is fully grown and has none — teleports
+  **only the tool** onto that cell, fires it with the tool's own attachment, and
+  lets the cell's own stage answer: `TAKEN` means the tool alone is enough (the
+  tractor never has to move), `IGNORED` means the server wants the implement on
+  a ride. The tool is put back exactly as it was found.
   Every line is logged as `test:` and **Copy report** puts place id, build, player
   and the whole run on the clipboard. Nothing touches animals or another
   player's plot, and the tests refuse to run while a farm pass is going.

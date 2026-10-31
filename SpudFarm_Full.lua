@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.77 · fluent gui"
+local VERSION    = "rebuild v1.78 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6414,31 +6414,74 @@ local okBuild, errBuild = pcall(function()
         --   server wants the implement on a vehicle. The tool goes back where
         --   it was afterwards; nothing else is touched.
         if kind == "toolapart" then
-            local f = fields[1]
-            if not f then spudTestSay("toolapart: no field of ours is streamed") return end
-            local baseCF, baseSize = fieldFrame(f.d)
-            if not baseCF then spudTestSay("toolapart: the field has no readable bounds") return end
-            local plan, pts, impl
-            for _, j in ipairs(JOBS) do
-                if not j.selfPropelled then
-                    local list = cellsAtStage(f.d, j.stage, baseCF, baseSize)
-                    local m = findImplement(j.typeName, here)
-                    if list and #list > 0 and m then
-                        plan, pts, impl = j, list, m
-                        break
+            if not fields[1] then
+                spudTestSay("toolapart: no field of ours is streamed")
+                return
+            end
+            -- the first cell of a stage a TOWED tool can take, on ANY of our
+            -- fields, with every field's stages spelled out — the first run
+            -- was asked on a field that was fully grown, where no such cell
+            -- exists at all
+            local plan, cell, f, stagesSeen
+            local seen = {}
+            for _, m in ipairs(fields) do
+                local baseCF, baseSize = fieldFrame(m.d)
+                local st = countStages(m.d)
+                local parts = {}
+                for name, n in pairs(st or {}) do
+                    if name ~= "total" then parts[#parts + 1] = name .. "=" .. tostring(n) end
+                end
+                table.sort(parts)
+                seen[#seen + 1] = string.format("%s [%s]", m.d.Name,
+                    #parts > 0 and table.concat(parts, " ") or "no stages")
+                if baseCF then
+                    for _, j in ipairs(JOBS) do
+                        if not j.selfPropelled and not plan then
+                            local list = cellsAtStage(m.d, j.stage, baseCF, baseSize)
+                            if list and #list > 0 then
+                                plan, cell, f = j, list[1], m
+                            end
+                        end
                     end
                 end
             end
+            stagesSeen = table.concat(seen, " · ")
             if not plan then
-                spudTestSay("toolapart: need a plow/cultivator/seeder and a field with the right cell")
+                -- a grown field has nothing a towed tool can stage, so the
+                -- probe has to say WHICH stage it found and when to press it
+                spudTestSay("toolapart: no Empty, Plowed or Cultivated cell anywhere — "
+                    .. stagesSeen .. " — press it again right after a harvest or a plow pass")
                 return
             end
+            -- the tools are normally put back in storage after a pass, so a
+            -- stored one is spawned for the test and stored again at the end
+            local impl = findImplement(plan.typeName, here, nil, true)
+            if not impl then
+                spudTestSay(string.format(
+                    "toolapart: no %s on this farm (working %s) — %s",
+                    plan.typeName, tostring(f.ownerName or "mine"), stagesSeen))
+                return
+            end
+            local spawned = false
+            if equipInStorage(impl) then
+                spudTestSay("toolapart: " .. impl.Name .. " is in storage — spawning it")
+                if not managerAction(impl.Name, "Spawn") then
+                    spudTestSay("toolapart: could not bring " .. impl.Name .. " out")
+                    return
+                end
+                task.wait(1)
+                local again = findImplement(plan.typeName, here)
+                if again then impl = again end
+                spawned = true
+            end
+            spudTestSay(string.format("toolapart: testing %s (%s) on %s, cell %d",
+                impl.Name, plan.verb, f.d.Name, cell.id))
             local att = spudToolAttachment(impl)
             if not (att and att.Parent) then
                 spudTestSay("toolapart: " .. impl.Name .. " has no attachment to fire")
+                if spawned then managerAction(impl.Name, "Store") end
                 return
             end
-            local cell = pts[1]
             local before = cellStage(f.d, cell.id)
             local hitchedTo = hitchedImplementName()
             local old = impl:GetPivot()
@@ -6463,8 +6506,13 @@ local okBuild, errBuild = pcall(function()
                 (after and before and after ~= before)
                     and "TAKEN: the tractor never has to move"
                     or "IGNORED: the server wants the implement on a ride"))
-            pcall(function() impl:PivotTo(old) end)
-            spudTestSay("toolapart: the tool is back where it was")
+            if spawned then
+                managerAction(impl.Name, "Store")
+                spudTestSay("toolapart: the spawned tool is back in storage")
+            else
+                pcall(function() impl:PivotTo(old) end)
+                spudTestSay("toolapart: the tool is back where it was")
+            end
             return
         end
 
