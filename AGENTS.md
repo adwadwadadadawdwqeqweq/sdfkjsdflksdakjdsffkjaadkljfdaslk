@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.69 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.70 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -72,7 +72,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 ### 1.4 Script limits (these have broken the build before)
 
 13. **Luau's 200-local limit is real and we are 2 away from the practical
-    ceiling.** Run `python tools/local_budget.py`. As of v1.69:
+    ceiling.** Run `python tools/local_budget.py`. As of v1.70:
     `4-space locals before milkCycle: 183 (practical ceiling 185)`,
     whole body `190 / 200`, **headroom 2**. Do **not** add a `local` inside the
     main build closure. Reuse an existing local, convert the feature to a
@@ -105,7 +105,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 
 ### 1.6 Working tree state (read before editing)
 
-`HEAD` is the latest committed build (v1.69, the lift probe measures the band on cells the tool can stage),
+`HEAD` is the latest committed build (v1.70, the lift probe measures the sideways band first),
 `main`
 tracks `origin/main`, and the tree is clean. Keep it that way: make the change,
 run the gates, and commit only the files the change touches. `git add -A` is
@@ -140,10 +140,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 30/30 checks on v1.69
+python tools/run_all.py        # 30/30 checks on v1.70
 ```
 
-Last full run (v1.69): **30/30 checks passed** (27 harnesses + 3 gates).
+Last full run (v1.70): **30/30 checks passed** (27 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -633,21 +633,26 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
     `UnreliableRemoteEvent` by path. The per-cell field calls are only the ones
     the game fired by hand; a bulk/field door that was never fired would show
     up here and nowhere else.
-  - **Lift test** (v1.69) — how much slack does the blade check allow? The
-    first live reading (2026-10-31) took a cell from **8 studs above** it, so
-    the height is not a flat gate. The v1.68 run then proved a *cell the tool
+  - **Lift test** (v1.70) — how much slack does the blade check allow? The
+    height is not a flat gate: **+40 studs above a cell TAKEN, +80 ignored**
+    (live 2026-10-31, plow, Empty → Plowed), and the first reading of the day
+    took one from 8 studs above. The v1.68 run also proved a *cell the tool
     cannot advance answers nothing* (plow at a Plowed cell: `Plowed → Plowed —
-    ignored` at +8) and burned its only usable cell on that no-op, so v1.69
-    measures **only cells the hitched tool can stage**, in whichever of our
-    fields holds the most of them. An ignored call leaves its cell untouched,
-    so one cell serves a whole ladder and only a TAKEN reading spends it; each
-    ladder walks **far → near** and stops at the first take, so the answer is
-    the widest distance that still works: straight up **80/40/20/8/0** (0 is
-    the control — if even that is ignored the setup is refused, not the
-    height), then sideways **60/45/30/20/14/8/4** at +8, ending in a
-    `lift: verdict — tallest take …, widest take … (N cell(s) spent)` line.
-    It teleports the ride so the blade sits at each reading and puts it back
-    afterwards.
+    ignored` at +8), so the probe measures **only cells the hitched tool can
+    stage**, in whichever of our fields holds the most of them. An ignored call
+    leaves its cell untouched, so one cell serves a whole ladder and only a
+    TAKEN reading spends it; each ladder walks **far → near** and stops at the
+    first take, so the answer is the widest distance that still works:
+    sideways **80/60/45/30/20/14/8/4** at +8 **first** (that is the number a
+    sweep pass depends on, and a one-cell farm gets it), then straight up
+    **80/40/20/8/0** (0 is the control — if even that is ignored the setup is
+    refused, not the height). It ends in
+    `lift: verdict — tallest take …, widest take … (N cell(s) spent)` (a
+    dimension with no cell left says `not measured`), teleports the ride so the
+    blade sits at each reading, and puts it back afterwards. The v1.69 run
+    spent the farm's only Empty cell on the height take, so the sideways band
+    is still unmeasured: hitch a tool whose stage your fields hold **several**
+    of (a cultivator on Plowed cells, a planter on Cultivated).
   - **Field remotes** (v1.66) — the three field calls the capture never fired.
     `FNCSprayFieldCell(field, {id}, {att})` is tried with the plow/seed shape and
     judged on `IsWatered` / `PlantGrowth` / `Stage`; `FNCEditField()` and
@@ -701,16 +706,16 @@ the server never reads the client's copy. A cell only holds `Alternate,
 GrowthMultiplier, IsWatered, PlantGrowth, Position, SeedType, Stage` (50 cells,
 `Stage=Plowed` on the live field). `spudSweepCells` therefore forces *position*,
 not state — the only input the server accepts. Answered since: the blade's
-**height is not a flat gate** (the first lift reading took a cell from 8 studs
-above it — the sweep may fly over the field), the three untouched field calls
-are readers/no-ops live (`FNCSprayFieldCell` changes nothing, `FNCEditField()`
-returns a table, `FNCConvertRundownField()` wants an instance), and the
-**tool identity is checked** (v1.69: cultivate fired from a plow's own
-attachment at a Plowed cell the blade was over stayed `Plowed → Plowed —
-IGNORED`), so one sweep cannot run every stage. Still open: **how much**
-height and sideways slack the check allows — the v1.69 lift band measures it
-(80/40/20/8/0 up, 60…4 to the side), and the v1.68 run could not (it fired a
-plow at a Plowed cell, which is a no-op at any distance).
+**height is not a flat gate** — **+40 studs above a cell took it, +80 was
+ignored** (live 2026-10-31), and the first reading of the day took one from 8
+studs above; the three untouched field calls are readers/no-ops live
+(`FNCSprayFieldCell` changes nothing, `FNCEditField()` returns a table,
+`FNCConvertRundownField()` wants an instance); and the **tool identity is
+checked** (cultivate fired from a plow's own attachment at a Plowed cell the
+blade was over stayed `Plowed → Plowed — IGNORED`), so one sweep cannot run
+every stage. Still open: the **sideways** slack — the v1.69 run spent the
+farm's only Empty cell on the +40 take, so the lateral ladder never ran; it is
+the number that decides how wide a sweep pass may fire.
 
 `field_remote_test.py` pins the ids, the attachment pick, the call shape, the
 full/partial/ignored outcomes, the session switch-off, the fill fallback, the
@@ -1221,7 +1226,18 @@ them), reuses a cell until a take spends it, walks each ladder far → near and
 stops at the first take (80/40/20/8/0 up, 0 as the control; 60…4 to the side
 at +8), and retires **Wrong tool** with its verdict recorded.
 
-**Where it stands:** `rebuild v1.69 · fluent gui`, whole suite green (30/30),
+**The band, measured (v1.69 run, 2026-10-31).** With the plow hitched and one
+Empty cell left on the whole farm: `+80 studs above — ignored`, `+40 studs above
+— Empty → Plowed — TAKEN` → `tallest take +40 studs, widest take none (1 cell(s)
+spent)`. So the blade may sit **40 studs above** a cell (the check is not a flat
+ground gate and not an unlimited column either — 80 was refused), which matches
+the 8-stud take from the first run. The sideways band never ran: the take spent
+the only usable cell, so the far → near lateral ladder had nothing left to fire
+at. **→ v1.70** runs the **lateral ladder first** (80/60/45/30/20/14/8/4 at +8)
+so a one-cell farm still gets the number a sweep depends on, keeps the height
+ladder second, and marks a dimension `not measured` when no cell is left.
+
+**Where it stands:** `rebuild v1.70 · fluent gui`, whole suite green (30/30),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching `path: … theta* N pops / N ms, min clear N`, the
 new width line (`tool … — 3-wide …; rows every 30`), the Farm owner picker
@@ -1334,11 +1350,11 @@ for this session`), and the equipment lines (`✅ mounted … (FNCEnterEquipment
    input) and v1.59 (Tests → **Remote list**: paste it. A remote that looks
    like a field/bulk door names the next experiment. The wrong-tool question is
    answered — the tool identity IS checked, so each verb keeps its own
-   implement) and v1.69 (Tests → **Lift test**: paste the
-   `lift: verdict — tallest take …, widest take … (N cell(s) spent)` line. It
-   needs a field with at least one cell the hitched tool can stage — Empty for
-   a plow, Plowed for a cultivator, Cultivated for a planter — and it says so
-   when there is none) and v1.57/v1.58 (Tests → **Force a tile**: the live FieldHelper dump has
+   implement) and v1.70 (Tests → **Lift test**: paste the
+   `lift: verdict — tallest take …, widest take … (N cell(s) spent)` line. Hitch
+   a tool whose stage your fields hold SEVERAL cells of — Empty for a plow,
+   Plowed for a cultivator, Cultivated for a planter — because a take spends
+   its cell; the sideways number is the one the sweep waits on) and v1.57/v1.58 (Tests → **Force a tile**: the live FieldHelper dump has
    **no setter**, and the client cell table is **writable** (`UpdateCell` keeps
    a forged stage), so the remaining question is whether the server uses it —
    the verdict is `reads Seeded` = TAKEN (a real abuse) or `reads Cultivated`

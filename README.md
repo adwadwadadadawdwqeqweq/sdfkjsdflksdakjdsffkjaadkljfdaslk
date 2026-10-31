@@ -94,13 +94,16 @@ Everything merged into one paste-and-run file:
   the most of them — a cell of another stage answers nothing, whatever the
   distance. An ignored call leaves its cell untouched, so one cell serves a
   whole ladder and only a take spends it; each ladder walks far → near and
-  stops at the first take: 80/40/20/8/0 studs straight up (0 is the control —
-  if even that is ignored the setup is refused, not the height), then
-  60/45/30/20/14/8/4 studs to the side at +8. It ends with
+  stops at the first take: **80/60/45/30/20/14/8/4 studs to the side at +8
+  first** (that is what a sweep pass rides on), then 80/40/20/8/0 studs
+  straight up (0 is the control — if even that is ignored the setup is
+  refused, not the height). It ends with
   `lift: verdict — tallest take …, widest take … (N cell(s) spent)`, and the
-  ride is put back where it started. The first live reading already took a cell
-  from **8 studs above** it while the flat call under the blade was ignored —
-  the height is not a flat gate a flyover would have to clear. **Field remotes** fires
+  ride is put back where it started. Live so far: a cell was taken from
+  **8 studs above**, and **+40 studs above took it while +80 was ignored** — so
+  the height is neither a flat ground gate nor an unlimited column. Because a
+  take spends its cell, hitch a tool whose stage your fields hold several
+  cells of to get both numbers in one run. **Field remotes** fires
   `FNCSprayFieldCell(field, {id}, {att})` and reports `IsWatered` /
   `PlantGrowth` / `Stage`, then invokes `FNCEditField()` and
   `FNCConvertRundownField()` with **no arguments** just to read the shape they

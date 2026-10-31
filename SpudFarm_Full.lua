@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.69 · fluent gui"
+local VERSION    = "rebuild v1.70 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6400,9 +6400,10 @@ local okBuild, errBuild = pcall(function()
         --   most of them. An ignored call leaves its cell untouched, so ONE
         --   cell serves a whole ladder and only a TAKEN reading spends it;
         --   each ladder walks FAR → NEAR and stops at the first take, so the
-        --   answer is the widest distance that still works: straight up
+        --   answer is the widest distance that still works: sideways 80…4 at
+        --   +8 first (the number a sweep pass depends on), then straight up
         --   80/40/20/8/0 (0 is the control — if even that is ignored the
-        --   setup is refused, not the height), then sideways 60…4 at +8.
+        --   setup is refused, not the height).
         if kind == "lift" then
             local hname = hitchedImplementName()
             local impl
@@ -6471,27 +6472,32 @@ local okBuild, errBuild = pcall(function()
             spudTestSay(string.format(
                 "lift: %s (%s) firing %s on %s — %d %s cell(s) to measure",
                 impl.Name, ttype, verb, f.d.Name, #pts, job.stage))
-            local tall, wide = 0, 0
+            -- sideways FIRST: the height band is already bracketed live
+            -- (2026-10-31: +40 took, +80 refused), and on a farm with a single
+            -- usable cell this is the number a sweep pass depends on
+            local tall, wide, tallRan, wideRan = 0, 0, false, false
+            for _, dx in ipairs({ 80, 60, 45, 30, 20, 14, 8, 4 }) do
+                local ok2 = measure(dx, 8, dx .. " studs to the side at +8")
+                if ok2 == nil then break end
+                wideRan = true
+                if ok2 then wide = dx break end
+            end
             for _, h in ipairs({ 80, 40, 20, 8, 0 }) do
                 local ok2 = measure(0, h, "+" .. h .. " studs above")
                 if ok2 == nil then break end
+                tallRan = true
                 if ok2 then tall = h break end
             end
             if spent == 0 then
-                spudTestSay("lift: nothing took even flat on the cell — this tool and a "
+                spudTestSay("lift: nothing took at any distance — this tool and a "
                     .. job.stage .. " cell are refused here, so there is no band to measure")
-            else
-                for _, dx in ipairs({ 60, 45, 30, 20, 14, 8, 4 }) do
-                    local ok2 = measure(dx, 8, dx .. " studs to the side at +8")
-                    if ok2 == nil then break end
-                    if ok2 then wide = dx break end
-                end
             end
             pcall(function() tr:PivotTo(cf) end)
             spudTestSay(string.format(
                 "lift: verdict — tallest take %s, widest take %s (%d cell(s) spent)",
-                tall > 0 and ("+" .. tall .. " studs") or "none",
-                wide > 0 and (wide .. " studs to the side") or "none", spent))
+                tallRan and (tall > 0 and ("+" .. tall .. " studs") or "none") or "not measured",
+                wideRan and (wide > 0 and (wide .. " studs to the side") or "none") or "not measured",
+                spent))
             return
         end
 
