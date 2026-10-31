@@ -92,9 +92,13 @@ Everything merged into one paste-and-run file:
   it takes, the server checks the blade's position, not which implement it
   belongs to, and one tool could plow, cultivate and seed in one sweep — it
   hops onto the cell itself, so you only need a tool hitched.
-  **Lift test** hops the ride onto the nearest waiting cell, then parks the
-  blade 0/8/20/40 studs directly above it and fires: a take at height means the
-  position check raycasts down and the field could be flown over. **Field remotes** fires
+  **Lift test** measures how much slack the blade check allows, on one cell
+  per reading so a slow earlier take can't be credited to the next one: it
+  fires from 8/20/40/80 studs above a cell (0 last as the control) and then
+  from 4/8/14/20/30 studs to the side at +8, and ends with a verdict line.
+  The first live run already took a cell from **8 studs above** it while the
+  flat call under the blade was ignored — the height is not the gate a flyover
+  would have to clear. **Field remotes** fires
   `FNCSprayFieldCell(field, {id}, {att})` and reports `IsWatered` /
   `PlantGrowth` / `Stage`, then invokes `FNCEditField()` and
   `FNCConvertRundownField()` with **no arguments** just to read the shape they

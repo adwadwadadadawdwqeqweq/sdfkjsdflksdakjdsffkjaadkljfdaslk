@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.67 · fluent gui"
+local VERSION    = "rebuild v1.68 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6351,7 +6351,7 @@ local okBuild, errBuild = pcall(function()
     end
 
     function spudTestRunAll()
-        for _, k in ipairs({ "remotes", "wrongtool", "lift", "fieldremotes" }) do
+        for _, k in ipairs({ "remotes", "lift", "wrongtool", "fieldremotes" }) do
             spudTestRun(k)
             task.wait(0.3)
         end
@@ -6393,11 +6393,14 @@ local okBuild, errBuild = pcall(function()
         end
 
 
-        -- ▸ LIFT TEST — is the blade's HEIGHT checked, or only its ground spot?
-        --   If the server raycasts down from the attachment, a flyover 20–40
-        --   studs above the field still stages cells. The ride is parked with
-        --   the blade directly over one cell at 0/8/20/40 studs and the call is
-        --   fired at each height; the stage says which heights it accepts.
+        -- ▸ LIFT / REACH — how much slack does the blade check allow?
+        --   First live measurement: a cell was TAKEN from 8 studs ABOVE it
+        --   (and the flat call under the blade was ignored), so the height is
+        --   not the gate a flyover would have to clear. Measure the band on
+        --   ONE CELL PER MEASUREMENT so a slow earlier take can never be
+        --   credited to the next reading: straight up 8/20/40/80 (0 last as
+        --   the control), then sideways at +8 (4/8/14/20/30). Tallest and
+        --   widest take = how far a flyover can be from a cell.
         if kind == "lift" then
             local f = fields[1]
             if not f then spudTestSay("lift: no field of ours is streamed") return end
@@ -6438,7 +6441,7 @@ local okBuild, errBuild = pcall(function()
                         job, pts = cellsFor(v2)
                         if job then
                             spudTestSay("lift: no cell needs " .. verb
-                                .. " — firing " .. v2 .. " with this tool instead")
+                                .. " — using a " .. v2 .. "-stage cell (this reading is also a wrong-tool answer)")
                             break
                         end
                     end
@@ -6448,43 +6451,59 @@ local okBuild, errBuild = pcall(function()
                 spudTestSay("lift: no cell of ours needs any stage right now")
                 return
             end
-            local cell, cd
-            for _, c in ipairs(pts) do
-                local dx, dz = c.X - here.X, c.Z - here.Z
-                local dd = math.sqrt(dx * dx + dz * dz)
-                if not cd or dd < cd then cell, cd = c, dd end
-            end
+            -- nearest cells first; one per measurement
+            local order = {}
+            for i, c in ipairs(pts) do order[i] = c end
+            table.sort(order, function(a, b)
+                local ad = (Vector3.new(a.X, here.Y, a.Z) - here).Magnitude
+                local bd = (Vector3.new(b.X, here.Y, b.Z) - here).Magnitude
+                return ad < bd
+            end)
             local cf = tr:GetPivot()
             local off = att.Parent.Position - cf.Position
             local rot = cf - cf.Position
-            local before = cellStage(f.d, cell.id)
-            spudTestSay(string.format(
-                "lift: %s (%s) on cell %d (%s), %.0f studs away — testing the blade height",
-                impl.Name, ttype, cell.id, tostring(before), cd))
-            local takenAt
-            for _, h in ipairs({ 0, 8, 20, 40 }) do
-                local target = Vector3.new(cell.X, cell.Y + h, cell.Z) - off
+            local used = 0
+            local function measure(dx, h)
+                local c = order[used + 1]
+                if not c then return nil end
+                used += 1
+                local target = Vector3.new(c.X + dx, c.Y + h, c.Z) - off
                 pcall(function() tr:PivotTo(CFrame.new(target) * rot) end)
-                task.wait(0.2)
-                spudFieldRemoteCall(verb, f.d, cell.id, att)
-                local deadline, to = os.clock() + 1.3, before
+                task.wait(0.3)
+                local before = cellStage(f.d, c.id)
+                spudFieldRemoteCall(verb, f.d, c.id, att)
+                local deadline, to = os.clock() + 2.0, before
                 while os.clock() < deadline and to == before do
                     task.wait(0.1)
-                    to = cellStage(f.d, cell.id)
+                    to = cellStage(f.d, c.id)
                 end
-                if to ~= before then
-                    takenAt = h
-                    spudTestSay(string.format(
-                        "lift: TAKEN at %d studs above the cell (%s → %s) — height is NOT checked",
-                        h, tostring(before), tostring(to)))
-                    break
-                end
-                spudTestSay(string.format("lift: %d studs above — still %s", h, tostring(to)))
+                return to ~= before, c.id, before, to
+            end
+            spudTestSay(string.format(
+                "lift: %s (%s) firing %s — measuring how far from a cell it still takes",
+                impl.Name, ttype, verb))
+            local tall = 0
+            for _, h in ipairs({ 8, 20, 40, 80, 0 }) do
+                local ok2, id2, b2, a2 = measure(0, h)
+                if ok2 == nil then break end
+                spudTestSay(string.format("lift: +%d studs above cell %d — %s → %s — %s",
+                    h, id2, tostring(b2), tostring(a2), ok2 and "TAKEN" or "ignored"))
+                if ok2 then tall = math.max(tall, h) end
+            end
+            local wide = 0
+            for _, dx in ipairs({ 4, 8, 14, 20, 30 }) do
+                local ok2, id2, b2, a2 = measure(dx, 8)
+                if ok2 == nil then break end
+                spudTestSay(string.format(
+                    "lift: %d studs to the side at +8 on cell %d — %s → %s — %s",
+                    dx, id2, tostring(b2), tostring(a2), ok2 and "TAKEN" or "ignored"))
+                if ok2 then wide = math.max(wide, dx) end
             end
             pcall(function() tr:PivotTo(cf) end)
-            if not takenAt then
-                spudTestSay("lift: IGNORED at 0/8/20/40 studs — the blade has to be at the cell")
-            end
+            spudTestSay(string.format(
+                "lift: verdict — tallest take %s, widest take %s (%d cell(s) used)",
+                tall > 0 and ("+" .. tall .. " studs") or "none",
+                wide > 0 and (wide .. " studs to the side") or "none", used))
             return
         end
 
