@@ -56,9 +56,13 @@ Everything merged into one paste-and-run file:
   (`FireServer(field, {cellId}, {raycastAttachment})`) and
   `FNCSeedFieldCell` / `FNCHarvestFieldCell` (`InvokeServer`, same arguments).
   The ids are the `FieldHelper.GetCells` keys the script already reads, and the
-  attachment is the tool's own — the `RaycastPart` when it has one, otherwise
-  any attachment on the machine (the harvester's head is not named that way),
-  and the pick is logged once (`attachment: <tool> → <part>.<attachment>`). The
+  attachment is the tool's own — the `RaycastPart` when it has one, otherwise a
+  harvest-sounding point (`HarvestHead`, `Cutter`, `Blade`, `Gather`…), then a
+  `Seed`/`Detect` one, and only then any attachment on the machine. The pick is
+  logged once (`attachment: <tool> → <part>.<attachment> (raycast|harvest|seed|any)`),
+  and a non-raycast pick also logs every point and part name on the machine —
+  the live SRC6 sent `EquipmentRoot.L0StrutAttachment` (a wheel strut) and the
+  server refused all 46 calls, so the point has to be the harvesting one. The
   stage re-read is the proof: a full batch logs
   `✅ remote seed: 50 cell(s) in 2.4s — the field is done without driving`, a
   partial batch drives the rest, and a batch the server ignores logs it and

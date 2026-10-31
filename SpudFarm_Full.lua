@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.88 · fluent gui"
+local VERSION    = "rebuild v1.89 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -2606,41 +2606,58 @@ local okBuild, errBuild = pcall(function()
 
     -- the tool's own raycast attachment (the captured call's third argument:
     -- <tool>.Components.<part>.RaycastPart.Attachment). Seeding tools may name
-    -- it Seed/Detect, so that is the fallback; none = drive instead.
+    -- it Seed/Detect, and a self-propelled harvester has no RaycastPart at all,
+    -- so a harvest-sounding part (head/header/cutter/blade/gather/…) comes
+    -- next; none = drive instead.
+    -- ▸ WHY THE ORDER MATTERS (live 2026-10-31): the SRC6 picked
+    --   EquipmentRoot.L0StrutAttachment — a wheel strut, because "any" was the
+    --   only fallback — and the server refused all 46 harvest calls from 8
+    --   stops, from a hop onto every cell and from the sweep. The call is
+    --   checked against the tool that owns it (see the Wrong tool result), so a
+    --   strut is not a harvesting point.
     function spudToolAttachment(impl)
         if not impl then return nil end
         local state = spudFieldRemoteState
         state.attLogged = state.attLogged or {}
-        local ok, found, how = pcall(function()
-            local loose, any, anyHow
+        local function harvesty(pn)
+            return pn:find("harvest", 1, true) or pn:find("header", 1, true)
+                or pn:find("cutter", 1, true) or pn:find("blade", 1, true)
+                or pn:find("gather", 1, true) or pn:find("reel", 1, true)
+                or pn:find("knife", 1, true) or pn:find("scythe", 1, true)
+                or pn:find("combine", 1, true) or pn:find("pickup", 1, true)
+        end
+        local ok, found, how, kind, inventory, parts = pcall(function()
+            local loose, looseHow, any, anyHow, hd, hdHow
+            local all, ps = {}, {}
             for _, d in ipairs(impl:GetDescendants()) do
+                if d:IsA("BasePart") and #ps < 24 then ps[#ps + 1] = tostring(d.Name) end
                 if d:IsA("Attachment") then
                     local p = d.Parent
                     local pn = p and tostring(p.Name):lower() or ""
+                    local path = tostring(p and p.Name or "?") .. "." .. tostring(d.Name)
+                    if #all < 24 then all[#all + 1] = path end
                     if pn:find("raycast", 1, true) then
-                        return d, tostring(p.Name) .. "." .. tostring(d.Name)
+                        return d, path, "raycast", all, ps
+                    end
+                    if not hd and harvesty(pn) then
+                        hd, hdHow = d, path
                     end
                     if not loose and (pn:find("seed", 1, true)
                         or pn:find("detect", 1, true)) then
                         loose = d
-                        how = tostring(p.Name) .. "." .. tostring(d.Name)
+                        looseHow = path
                     end
-                    -- ▸ THE HARVESTER HAS NO RAYCAST PART: a SEEDER-style
-                    --   "Seed/Detect" name is the documented fallback, but the
-                    --   harvester's head may be named anything (harvest, head,
-                    --   cutter, blade, gather …). Without a third fallback the
-                    --   whole harvest remote pass switched itself off and the
-                    --   machine harvested nothing. Any attachment on the tool
-                    --   is better than none: the server only needs a point on
-                    --   the machine, and the blade reach is ~2 tiles.
+                    -- the harvester's head may be named anything, so ANY
+                    -- attachment still beats none — but it is the last resort.
                     if not any then
                         any = d
-                        anyHow = tostring(p and p.Name or "?") .. "." .. tostring(d.Name)
+                        anyHow = path
                     end
                 end
             end
-            if loose then return loose, how end
-            return any, anyHow
+            if hd then return hd, hdHow, "harvest", all, ps end
+            if loose then return loose, looseHow, "seed", all, ps end
+            return any, anyHow, "any", all, ps
         end)
         if not ok or not found then
             if not state.attLogged[impl] then
@@ -2659,7 +2676,18 @@ local okBuild, errBuild = pcall(function()
         end
         if not state.attLogged[impl] then
             state.attLogged[impl] = true
-            log(string.format("attachment: %s → %s", tostring(impl.Name), tostring(how or "?")))
+            log(string.format("attachment: %s → %s (%s)", tostring(impl.Name),
+                tostring(how or "?"), tostring(kind)))
+            -- the full list rides along whenever the pick is not a proven
+            -- raycast point, so the next report names the part that should win
+            if kind ~= "raycast" and #inventory > 0 then
+                log("attachment: every point on " .. tostring(impl.Name) .. ": "
+                    .. table.concat(inventory, ", "))
+            end
+            if kind ~= "raycast" and #parts > 0 then
+                log("attachment: " .. tostring(impl.Name) .. " parts: "
+                    .. table.concat(parts, ", "))
+            end
         end
         return found
     end

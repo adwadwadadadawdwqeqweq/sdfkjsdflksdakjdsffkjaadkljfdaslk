@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.88 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.89 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.88
+python tools/run_all.py        # 29/29 checks on v1.89
 ```
 
-Last full run (v1.88): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.89): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -201,6 +201,23 @@ Known gaps: the **store deposit** and **feed top-up** paths have no harness (the
 need a fake carrier + dispenser), and nothing in the suite proves the live game
 exposes these fields. The per-cow clean path is covered by
 `cow_in_stall_test.py`.
+
+### 2.4 Reading a live run from the emulator (no copy-paste)
+
+The game runs in **MuMu Player** (instance `Android Device-1`, adb
+`127.0.0.1:16416`), and every `log(msg)` reaches Roblox's CreatorOutput, so
+Android's logcat already carries the whole farm console:
+
+```bash
+MGR="/c/Program Files/Netease/MuMuPlayer/nx_main"
+"$MGR/adb.exe" connect 127.0.0.1:16416
+"$MGR/adb.exe" -s 127.0.0.1:16416 logcat -d | grep -F "[spud]" | sed 's/.*\[spud\] //'
+"$MGR/adb.exe" -s 127.0.0.1:16416 exec-out screencap -p > screen.png   # what is on screen
+```
+
+The owner's executor fetches the latest build from the repo, so the loop is
+**push → reload in game → read logcat**: no pasting needed. A screenshot also
+shows the Tests panel, the HUD and the tank label.
 
 ---
 
@@ -1423,11 +1440,15 @@ call's third argument was only ever taken from a part named `Raycast*` or
 `Seed`/`Detect`, and the harvester's head may be named anything — with no match
 `spudFieldRemotePass` switched the whole job off for the session
 (`no raycast attachment … — driving instead`) and, since rows are gone, nothing
-harvested at all. It now falls back to **any attachment on the machine**
-(`harvester` head included) and logs the pick once:
-`attachment: <tool> → <part>.<attachment>`; a tool with **no** attachment
-anywhere logs its first part names instead, so the next report names the real
-part. (2) **A 0/0 tank read posed as a full tank**: `budget = MaxCapacity −
+harvested at all. The pick now ranks **RaycastPart → harvest-sounding part**
+(head/header/cutter/blade/gather/reel/knife/scythe/combine/pickup) →
+Seed/Detect → any attachment (v1.89), logs the class of the pick
+(`attachment: <tool> → <part>.<attachment> (harvest)`), and a non-raycast
+pick also logs **every attachment path and every part name** on the machine, so
+one live run names the harvesting point instead of another guess. The v1.89
+evidence: the SRC6 sent `EquipmentRoot.L0StrutAttachment` — a wheel strut —
+and the server refused **all 46** harvest calls from 8 stops, from a hop onto
+every cell and from the sweep. (2) **A 0/0 tank read posed as a full tank**: `budget = MaxCapacity −
 Capacity` was `0` when both values were unreadable, and the pass bailed as
 `the tank is full` before firing a call. The budget is only used when
 `MaxCapacity > 0` now, in both `spudFieldRemotePass` and `spudRadialFire`, so an
@@ -1484,7 +1505,24 @@ refused call at the corner. `field_remote_test.py` and `dropoff_test.py` pin
 all three (one free slot against two cells fires **no** call; a far pad is not
 called; a close pad is).
 
-**Where it stands:** `rebuild v1.88 · fluent gui`, whole suite green (29/29),
+**Harvest never lands: the strut (v1.89).** Owner: *"you know bro why dont you
+just use mumumplayer to debug bro"* — and the emulator answered it. MuMu
+(instance `Android Device-1`, adb `127.0.0.1:16416`) runs the game with the
+executor fetching the latest build, and **every `log()` reaches Roblox's
+CreatorOutput**, so `adb logcat | grep "[spud]"` is the whole farm console (the
+loop is documented in §2.4). The v1.88 run it read: `attachment: SRC6 →
+EquipmentRoot.L0StrutAttachment`, then `batch test: the server ignored the id
+list`, `remote harvest: the game ignored 92 call(s)`, and **0 took** from 8
+stops, from a hop onto every cell and from the sweep — 46 crops untouched. So
+the tank/sell fixes were never the harvest fault: the picker's last-resort "any
+attachment" chose a **wheel strut**. It now ranks RaycastPart → a
+harvest-sounding part (head/header/cutter/blade/gather/reel/knife/scythe/
+combine/pickup) → Seed/Detect → any, logs the class, and on a non-raycast pick
+logs **every attachment path and every part name** on the machine, so the next
+live run names the real harvesting point. `field_remote_test.py` pins the rank
+(a `HarvestHead` point beats a `EquipmentRoot.Bolt`).
+
+**Where it stands:** `rebuild v1.89 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

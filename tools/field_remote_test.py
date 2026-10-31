@@ -282,6 +282,15 @@ check("the RaycastPart attachment is chosen", spudToolAttachment(tool) == att)
 --   rather than switching the whole remote pass off (which harvested nothing)
 check("a tool with only a plain attachment still gives one (the harvester)",
     spudToolAttachment(decoyTool) ~= nil)
+-- a harvest-sounding part outranks a plain one and "any" (live 2026-10-31: the
+-- SRC6 sent EquipmentRoot.L0StrutAttachment and every call was refused)
+local headTool = newInst("SRC6", "Model")
+local headPart = adopt(headTool, newInst("HarvestHead", "Part"))
+local headAtt = adopt(headPart, newInst("Attachment", "Attachment"))
+local strut = adopt(adopt(headTool, newInst("EquipmentRoot", "Part")), newInst("Bolt", "Attachment"))
+check("a HarvestHead point outranks a strut",
+    spudToolAttachment(headTool) == headAtt,
+    strut and tostring(strut.Name) or nil)
 check("a tool with no attachment at all returns nil",
     spudToolAttachment(noAttTool) == nil)
 check("nil tool -> nil", spudToolAttachment(nil) == nil)
