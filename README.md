@@ -81,10 +81,14 @@ Everything merged into one paste-and-run file:
   moment it is under the blade**, and for plow/cultivate a burst **every 0.5 s**
   also reaches **20 studs** around the blade — a whole field is covered in about
   **3–5 s**, and a cell a burst skipped gets a **second lap**
-  offset by half a row and driven slower. Seeding and harvesting fire
-  close-only, so seeds and tank space are spent on cells the server takes. A
-  wide call the server refuses never blocks the close one — that is what made
-  the plow leave a field of leftovers. Anything
+  offset by half a row and driven slower. Every job bursts — seeding and
+  harvesting used to fire close-only, which is why they needed the second lap
+  for the rows between the passes; the reach is measured now, so a seed call
+  20 studs out lands like a plow's. The machine's own budget is still the cap
+  and counts **cells, not calls** (a cell the burst took is one seed even if
+  the close fire then calls it again). A wide call the server refuses never
+  blocks the close one — that is what made the plow leave a field of
+  leftovers. Anything
   still standing after the sweep is **hopped** onto cell by cell with the
   tool's attachment lined up and that single id fired (`remote plow: hopped the
   ride over 46 cell(s) — 46 took`), and only then is the field driven — so the

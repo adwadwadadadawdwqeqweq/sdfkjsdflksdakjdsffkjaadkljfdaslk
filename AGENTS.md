@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.74 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.75 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -72,7 +72,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 ### 1.4 Script limits (these have broken the build before)
 
 13. **Luau's 200-local limit is real and we are 2 away from the practical
-    ceiling.** Run `python tools/local_budget.py`. As of v1.74:
+    ceiling.** Run `python tools/local_budget.py`. As of v1.75:
     `4-space locals before milkCycle: 183 (practical ceiling 185)`,
     whole body `190 / 200`, **headroom 2**. Do **not** add a `local` inside the
     main build closure. Reuse an existing local, convert the feature to a
@@ -140,10 +140,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 30/30 checks on v1.74
+python tools/run_all.py        # 30/30 checks on v1.75
 ```
 
-Last full run (v1.74): **30/30 checks passed** (27 harnesses + 3 gates).
+Last full run (v1.75): **30/30 checks passed** (27 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -608,13 +608,17 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   fires at the cells the blade passes. Two kinds of fire (v1.55, owner:
   *"it does not work so well with the plow"*): a **close fire every tick**
   (within **4 studs**, so a cell under the blade is called at once instead of
-  waiting up to 22 studs for the next burst), and — for **plow/cultivate only**
-  — the **every-0.5 s burst within 20 studs** (v1.72; 14 before) the owner
-  asked for in v1.54.
+  waiting up to 22 studs for the next burst), and — **for every job since
+  v1.75** — the **every-0.5 s burst within 20 studs** (v1.72; 14 before) the
+  owner asked for in v1.54.
   A wide fire never blocks the close fire (that was the plow bug: the refused
   burst call marked the cell done, so it was never called with the blade over
-  it); seed/harvest are close-only so seeds and tank space are not spent on
-  cells the server refuses. Re-reads the stages, then runs a **second lap
+  it). **Every job bursts since v1.75**: seed/harvest used to fire close-only,
+  so the rows between the passes waited for the second lap — twice the tween
+  for the same field. The reach is measured now (20 studs taken / 30
+  refused), so a seed call at 20 lands; the seeder/tank budget still caps it
+  and counts **cells, not calls** (`spent`, not `fired`), so a cell the burst
+  took and the close fire then called again costs one seed. Re-reads the stages, then runs a **second lap
   offset by half a row at 70 % speed** for whatever is left; the budget caps
   the calls (dry = hand the field back). **The path is laid on the field's
   original box** (v1.72): re-reading the bounds from the leftover cells moved
@@ -1287,7 +1291,18 @@ nothing left to say. The verdict and the numbers it produced live in §3.12 and
 in `spudRadialFire`/`spudSweepCells`' comments, so the sweep's 20-stud reach
 and 20-stud rows stay justified if the question ever comes back.
 
-**Where it stands:** `rebuild v1.74 · fluent gui`, whole suite green (30/30),
+**Seeding at range (v1.75).** Owner: *"why cant we make it seed/plant etc in
+a larger range because when we ran testes it did and then can we eliminate
+driving cuz now we can just use tp/tween"*. The tests did prove the range —
+the sweep was the part not using it: seed and harvest fired **close-only**
+(4 studs) so the rows between the passes waited for the second lap. They now
+burst at **20** like the plow, and the budget counts cells instead of calls so
+a burst call plus a close call on the same cell is one seed. Driving is
+already the last resort: the finish is remote-call → single-spot fire →
+tween → **hop (a teleport per remaining cell, live 46/46)** and only a cell
+the server refuses even with the blade over it is driven.
+
+**Where it stands:** `rebuild v1.75 · fluent gui`, whole suite green (30/30),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching `path: … theta* N pops / N ms, min clear N`, the
 new width line (`tool … — 3-wide …; rows every 30`), the Farm owner picker
@@ -1405,7 +1420,9 @@ for this session`), and the equipment lines (`✅ mounted … (FNCEnterEquipment
    right after the call pass — N is the cells within ~2 tiles of the field
    middle and K should equal N on a healthy field — and the sweep must log
    `range 20`; watch that a field finishes in one or two serpentine passes
-   without leftovers) and v1.57/v1.58 (Tests → **Force a tile**: the live FieldHelper dump has
+   without leftovers, and that a seed pass does **not** stop early with
+   `seeder empty` before the field is seeded (that would mean the wide seed
+   calls are being refused and eating the budget) and v1.57/v1.58 (Tests → **Force a tile**: the live FieldHelper dump has
    **no setter**, and the client cell table is **writable** (`UpdateCell` keeps
    a forged stage), so the remaining question is whether the server uses it —
    the verdict is `reads Seeded` = TAKEN (a real abuse) or `reads Cultivated`

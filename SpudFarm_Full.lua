@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.74 · fluent gui"
+local VERSION    = "rebuild v1.75 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6627,7 +6627,7 @@ local okBuild, errBuild = pcall(function()
         local radius = 20                -- catch range around the blade
         local tick = 0.03
         local rowGap = 20                -- 2 cells: the blade reaches that far
-        local fired, took = 0, 0
+        local fired, took, spent = 0, 0, 0
         local t0 = os.clock()
         local left = nil
         -- ▸ THE PATH IS BUILT ON THE FIELD'S OWN BOX, not on what is left:
@@ -6702,11 +6702,15 @@ local okBuild, errBuild = pcall(function()
             --   costs a distance compare. A wide fire NEVER blocks it: the
             --   burst's call at 14 studs is usually refused, and marking that
             --   cell "done" is what left the plow with a field of leftovers.
-            --   The burst runs only for the jobs with no load to spend
-            --   (plow/cultivate); seed/harvest fire close-only so the seeds
-            --   are spent on cells the server will actually take.
+            -- ▸ EVERY JOB BURSTS (v1.75). Seeding and harvesting used to fire
+            --   close-only, so the rows between the passes waited for the
+            --   second lap — twice the tween for the same field. The band is
+            --   measured now (20 studs taken, 30 refused), so a seed call at
+            --   20 studs lands like a plow's; the machine's own budget is
+            --   still the cap, and a refused call still never blocks the
+            --   close fire below.
             local nearR = 4
-            local wide = (budget == nil)
+            local wide = true
             local function fireWithin(cx, cz, rad, isNear)
                 for _, c in ipairs(live) do
                     local eligible
@@ -6718,13 +6722,18 @@ local okBuild, errBuild = pcall(function()
                     if eligible then
                         local dx, dz = c.X - cx, c.Z - cz
                         if dx * dx + dz * dz <= rad * rad then
-                            if budget and fired >= budget then
+                            -- the budget counts CELLS, not calls: a cell the
+                            -- burst was refused for and that the close fire
+                            -- later takes is one seed, not two
+                            if budget and spent >= budget then
                                 dry = true
                                 return false
                             end
+                            local first = not c.near and not c.wide
                             spudFieldRemoteCall(job.verb, field, c.id, att)
                             if isNear then c.near = true else c.wide = true end
                             fired += 1
+                            if first then spent += 1 end
                         end
                     end
                 end
@@ -6763,8 +6772,11 @@ local okBuild, errBuild = pcall(function()
             pts = keep
         end
         took = left and math.max(0, before - left) or 0
+        -- `spent` is the distinct cells called (a cell the burst took and the
+        -- close fire then called again is one cell); the log reports that, not
+        -- the raw call count
         log(string.format("remote %s: swept %d cell(s) in %.1fs at %.0f studs/s, range %.0f — %d took, %s left",
-            job.verb, fired, os.clock() - t0, spd, radius, took,
+            job.verb, spent, os.clock() - t0, spd, radius, took,
             left and tostring(left) or "unreadable"))
         return took, dry
     end
