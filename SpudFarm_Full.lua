@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.90 · fluent gui"
+local VERSION    = "rebuild v1.91 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -1928,7 +1928,11 @@ local okBuild, errBuild = pcall(function()
             -- align+creep), then the game's Hitch prompt gates the X press.
             -- Retry until the tug-test passes.
             local attempt, forceCreep = 0, false
-            while not stopping() do
+            -- ▸ A CEILING (live 2026-10-31: the seeder's hitch prompt never
+            --   appeared and the loop ran 27+ attempts with the loop toggle
+            --   still ON — the run looked alive and did nothing). Ten tries,
+            --   then name it and let the stage be skipped instead of hanging.
+            while not stopping() and attempt < 10 do
                 attempt += 1
                 if not (impl and impl:IsDescendantOf(workspace)) then
                     log("the tool disappeared (despawned?) — stopping retries")
@@ -1948,6 +1952,18 @@ local okBuild, errBuild = pcall(function()
                 if stopping() then return false end
                 if not crept then
                     log(string.format("attempt %d: hitch prompt never showed within 20 studs — re-aligning", attempt))
+                    if attempt == 3 then
+                        -- ▸ THE HITCH MAY STILL HOLD ANOTHER TOOL even when
+                        --   the HUD label reads empty (live 2026-10-31: the
+                        --   cultivator stayed on and the seeder's prompt never
+                        --   appeared). X frees it when the game offers the
+                        --   unhitch here; with nothing attached it does
+                        --   nothing.
+                        log("hitch: no prompt after 3 tries — pressing X in case another tool is still on")
+                        pressKey(Enum.KeyCode.X)
+                        task.wait(0.8)
+                        if stopping() then return false end
+                    end
                     if lined then
                         -- parts found but prompt still dead: line-up pose is
                         -- wrong for the game → stop trusting it, creep from now
@@ -1981,7 +1997,11 @@ local okBuild, errBuild = pcall(function()
                     end
                 end
             end
-            if not didHitch then return false end -- killed (toggle off)
+            if not didHitch then
+                log(string.format("hitch: gave up on %s after %d attempt(s) — this pass runs without it",
+                    tostring(impl and impl.Name or "?"), attempt))
+                return false --- killed (toggle off) or out of attempts
+            end
         end
         return true
     end

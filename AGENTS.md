@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.90 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.91 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.90
+python tools/run_all.py        # 29/29 checks on v1.91
 ```
 
-Last full run (v1.90): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.91): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1540,7 +1540,17 @@ log line is now `fired N of M cell(s) from K stop(s), 9 per stop — K took, L
 left`. The previous grid took 46/46 live in the emulator that day; this block
 version had not been run live when it was committed.
 
-**Where it stands:** `rebuild v1.90 · fluent gui`, whole suite green (29/29),
+**A hitch that never ends (v1.91).** The first live run of the 3×3 grid never
+reached a field: the seeder's Hitch prompt never appeared and `hitchTool`'s
+`while not stopping()` loop ran **27+ attempts** while the toggle stayed ON — a
+run that looks alive and does nothing. Two changes: the loop now stops after
+ten attempts and logs `hitch: gave up on KADL after 10 attempt(s) — this pass
+runs without it`, and attempt 3 presses **X** once in case another tool is
+still on the hitch even when the HUD label reads empty (the cultivator from the
+previous pass was still attached in that run). Neither is pinned by a harness
+(the hitch path needs a live prompt), so the next live run is the verdict.
+
+**Where it stands:** `rebuild v1.91 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
