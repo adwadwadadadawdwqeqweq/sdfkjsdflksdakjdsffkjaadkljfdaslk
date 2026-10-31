@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.73 · fluent gui"
+local VERSION    = "rebuild v1.74 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6351,7 +6351,7 @@ local okBuild, errBuild = pcall(function()
     end
 
     function spudTestRunAll()
-        for _, k in ipairs({ "remotes", "lift", "fieldremotes" }) do
+        for _, k in ipairs({ "remotes", "fieldremotes" }) do
             spudTestRun(k)
             task.wait(0.3)
         end
@@ -6393,126 +6393,14 @@ local okBuild, errBuild = pcall(function()
         end
 
 
-        -- ▸ LIFT / REACH — how much slack does the blade check allow?
-        --   A cell this tool cannot advance answers nothing (live 2026-10-31:
-        --   a plow at a Plowed cell was ignored at any height), so the band is
-        --   measured on cells THIS TOOL can stage, in the field that has the
-        --   most of them. An ignored call leaves its cell untouched, so ONE
-        --   cell serves a whole ladder and only a TAKEN reading spends it;
-        --   each ladder walks FAR → NEAR and stops at the first take, so the
-        --   answer is the widest distance that still works: sideways 80…4 at
-        --   +8 first (the number a sweep pass depends on), then straight up
-        --   80/40/20/8/0 (0 is the control — if even that is ignored the
-        --   setup is refused, not the height).
-        if kind == "lift" then
-            local hname = hitchedImplementName()
-            local impl
-            for _, d in ipairs(equipList()) do
-                if d:IsA("Model") and hname and d.Name == hname then impl = d break end
-            end
-            if not impl then
-                spudTestSay("lift: nothing is hitched — mount the tractor with a tool first")
-                return
-            end
-            local att = spudToolAttachment(impl)
-            if not (att and att.Parent and att.Parent.Position) then
-                spudTestSay("lift: " .. impl.Name .. " has no blade attachment to send")
-                return
-            end
-            local tr = findTractor()
-            if not tr then spudTestSay("lift: no tractor found") return end
-            local ttype = tostring(equipTypeOf(impl) or "?")
-            local verb = (ttype == "Cultivator" and "cultivate")
-                or (ttype == "Planter" and "seed")
-                or (impl.Name == "KADL" and "seed")
-                or (impl.Name == "KQF3000" and "cultivate") or "plow"
-            local job = jobFor(verb)
-            local f, pts
-            for _, f2 in ipairs(fields) do
-                local bcf, bsz = fieldFrame(f2.d)
-                local p = bcf and cellsAtStage(f2.d, job.stage, bcf, bsz)
-                if p and #p > 0 and (not pts or #p > #pts) then f, pts = f2, p end
-            end
-            if not f then
-                spudTestSay("lift: no field of ours has a " .. job.stage .. " cell to "
-                    .. verb .. " — hitch the tool for a stage your fields still have")
-                return
-            end
-            -- nearest cells first: a reading teleports the ride onto it
-            table.sort(pts, function(a, b)
-                local ad = (Vector3.new(a.X, here.Y, a.Z) - here).Magnitude
-                local bd = (Vector3.new(b.X, here.Y, b.Z) - here).Magnitude
-                return ad < bd
-            end)
-            local cf = tr:GetPivot()
-            local off = att.Parent.Position - cf.Position
-            local rot = cf - cf.Position
-            local spent, cur = 0, 1
-            local function shot(c, from)
-                spudFieldRemoteCall(verb, f.d, c.id, att)
-                local deadline, to = os.clock() + 2.0, from
-                while os.clock() < deadline and to == from do
-                    task.wait(0.1)
-                    to = cellStage(f.d, c.id)
-                end
-                return to
-            end
-            local function measure(dx, h, label)
-                while cur <= #pts and pts[cur].spent do cur += 1 end
-                local c = pts[cur]
-                if not c then return nil end
-                local target = Vector3.new(c.X + dx, c.Y + h, c.Z) - off
-                pcall(function() tr:PivotTo(CFrame.new(target) * rot) end)
-                task.wait(0.3)
-                local before = cellStage(f.d, c.id)
-                local to = shot(c, before)
-                if to == before then
-                    -- the first call after a long teleport is often refused
-                    -- while the server still holds the old pose (every run so
-                    -- far lost its first reading), and an ignored call leaves
-                    -- the cell untouched — look once more, then retry once
-                    task.wait(0.4)
-                    to = cellStage(f.d, c.id)
-                    if to == before then to = shot(c, before) end
-                end
-                local ok2 = to ~= before
-                spudTestSay(string.format("lift: %s on cell %d — %s → %s — %s",
-                    label, c.id, tostring(before), tostring(to),
-                    ok2 and "TAKEN" or "ignored"))
-                if ok2 then c.spent = true; spent += 1 end
-                return ok2
-            end
-            spudTestSay(string.format(
-                "lift: %s (%s) firing %s on %s — %d %s cell(s) to measure",
-                impl.Name, ttype, verb, f.d.Name, #pts, job.stage))
-            -- sideways FIRST: the height band is already bracketed live
-            -- (2026-10-31: +40 took, +80 refused), and on a farm with a single
-            -- usable cell this is the number a sweep pass depends on
-            local tall, wide, tallRan, wideRan = 0, 0, false, false
-            for _, dx in ipairs({ 80, 60, 45, 30, 20, 14, 8, 4 }) do
-                local ok2 = measure(dx, 8, dx .. " studs to the side at +8")
-                if ok2 == nil then break end
-                wideRan = true
-                if ok2 then wide = dx break end
-            end
-            for _, h in ipairs({ 80, 40, 20, 8, 0 }) do
-                local ok2 = measure(0, h, "+" .. h .. " studs above")
-                if ok2 == nil then break end
-                tallRan = true
-                if ok2 then tall = h break end
-            end
-            if spent == 0 then
-                spudTestSay("lift: nothing took at any distance — this tool and a "
-                    .. job.stage .. " cell are refused here, so there is no band to measure")
-            end
-            pcall(function() tr:PivotTo(cf) end)
-            spudTestSay(string.format(
-                "lift: verdict — tallest take %s, widest take %s (%d cell(s) spent)",
-                tallRan and (tall > 0 and ("+" .. tall .. " studs") or "none") or "not measured",
-                wideRan and (wide > 0 and (wide .. " studs to the side") or "none") or "not measured",
-                spent))
-            return
-        end
+        -- ▸ LIFT / REACH — ANSWERED and retired in v1.74. Measured on cells
+        --   the hitched tool could stage: a call was TAKEN with the blade 20
+        --   studs to the side at +8 (30 refused) and another from +80 studs
+        --   straight above it, three runs in a row. The server takes a cell
+        --   whose ground is within ~2 tiles of the blade's, at any height —
+        --   which is what `spudRadialFire` and the sweep's 20-stud rows ride
+        --   on (§3.12). Bring the probe back if a game update ever changes
+        --   how a field call is accepted.
 
         -- ▸ FIELD REMOTES — the three field calls the probe never fired.
         --   FNCSprayFieldCell is tried with the same (field, {id}, {att}) shape
@@ -8398,9 +8286,6 @@ local okBuild, errBuild = pcall(function()
     end
     Tabs.Tests:CreateButton({ Title = "Remote list", Callback = function()
         task.spawn(function() spudTestRun("remotes") end)
-    end })
-    Tabs.Tests:CreateButton({ Title = "Lift test", Callback = function()
-        task.spawn(function() spudTestRun("lift") end)
     end })
     Tabs.Tests:CreateButton({ Title = "Field remotes", Callback = function()
         task.spawn(function() spudTestRun("fieldremotes") end)

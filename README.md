@@ -98,26 +98,7 @@ Everything merged into one paste-and-run file:
   cell(s) took the id list`), so the normal one-call-per-cell pass finishes it.
   **Remote list** prints every `RemoteEvent`/`RemoteFunction` the client can
   see — a bulk field door we never fired would only show up there.
-  **Lift test** measures how much slack the blade check allows. It fires only
-  at cells the hitched tool can actually advance (Empty for a plow, Plowed for
-  a cultivator, Cultivated for a planter), in whichever of your fields holds
-  the most of them — a cell of another stage answers nothing, whatever the
-  distance. An ignored call leaves its cell untouched, so one cell serves a
-  whole ladder and only a take spends it; each ladder walks far → near and
-  stops at the first take: **80/60/45/30/20/14/8/4 studs to the side at +8
-  first** (that is what a sweep pass rides on), then 80/40/20/8/0 studs
-  straight up (0 is the control — if even that is ignored the setup is
-  refused, not the height). It ends with
-  `lift: verdict — tallest take …, widest take … (N cell(s) spent)`, and the
-  ride is put back where it started. A reading that comes back ignored is
-  looked at once more and then retried: the first call after a long teleport
-  is routinely refused while the server still holds the old pose, which cost
-  every run so far its first reading. Live band (cultivator, Plowed cells):
-  **60 studs to the side at +8 TAKEN** (80 refused) and **+80 studs straight
-  up TAKEN** — the server checks how close the blade is, not that it is over
-  the cell, and that is what the single-spot fire above rides on. Because a
-  take spends its cell, hitch a tool whose stage your fields hold several
-  cells of to get both numbers in one run. **Field remotes** fires
+  **Field remotes** fires
   `FNCSprayFieldCell(field, {id}, {att})` and reports `IsWatered` /
   `PlantGrowth` / `Stage`, then invokes `FNCEditField()` and
   `FNCConvertRundownField()` with **no arguments** just to read the shape they
@@ -127,8 +108,12 @@ Everything merged into one paste-and-run file:
   player's plot, and the tests refuse to run while a farm pass is going.
   (The settled experiments — seat/stage/attachment checks, the burst, sell,
   carry, spawn, fill, the FieldHelper dump, force-a-tile, the field-packet
-  watch/forge and the wrong-tool probe — were removed once they had their
-  answer; their results are in the console history. The packet is
+  watch/forge, the wrong-tool probe and the lift test — were removed once they
+  had their answer; their results are in the console history. The lift band is
+  the one that matters to play: a field call was taken with the blade **20
+  studs to the side at +8** (30 refused) and from **+80 straight up** on three
+  separate runs, and that is what the sweep's 20-stud rows and the single-spot
+  fire are built on. The packet is
   server→client only: patching a real packet's stage byte sent nothing back and
   moved no cell. The wrong tool was answered live: cultivate fired from a
   plow's own attachment at a Plowed cell the blade was sitting over stayed
