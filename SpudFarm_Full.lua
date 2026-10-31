@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.76 · fluent gui"
+local VERSION    = "rebuild v1.77 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6351,7 +6351,7 @@ local okBuild, errBuild = pcall(function()
     end
 
     function spudTestRunAll()
-        for _, k in ipairs({ "remotes", "fieldremotes" }) do
+        for _, k in ipairs({ "remotes", "fieldremotes", "toolapart" }) do
             spudTestRun(k)
             task.wait(0.3)
         end
@@ -6401,6 +6401,72 @@ local okBuild, errBuild = pcall(function()
         --   which is what `spudRadialFire` and the sweep's 20-stud rows ride
         --   on (§3.12). Bring the probe back if a game update ever changes
         --   how a field call is accepted.
+
+        -- ▸ TOOL APART (owner 2026-10-31: "can we abuse the power that the
+        --   tools can like be seperated from the tractor to make it like so
+        --   that the tool gets used but the tractor does not move"). Every
+        --   field call so far was fired with the tool HITCHED and only the
+        --   blade's ground tested, so the open question is whether the server
+        --   cares that an implement is on a ride at all. This moves the
+        --   parked tool onto one of our own cells, fires that cell with the
+        --   tool's own attachment, and lets the cell's own stage answer:
+        --   TAKEN = the tractor never has to move again, IGNORED = the
+        --   server wants the implement on a vehicle. The tool goes back where
+        --   it was afterwards; nothing else is touched.
+        if kind == "toolapart" then
+            local f = fields[1]
+            if not f then spudTestSay("toolapart: no field of ours is streamed") return end
+            local baseCF, baseSize = fieldFrame(f.d)
+            if not baseCF then spudTestSay("toolapart: the field has no readable bounds") return end
+            local plan, pts, impl
+            for _, j in ipairs(JOBS) do
+                if not j.selfPropelled then
+                    local list = cellsAtStage(f.d, j.stage, baseCF, baseSize)
+                    local m = findImplement(j.typeName, here)
+                    if list and #list > 0 and m then
+                        plan, pts, impl = j, list, m
+                        break
+                    end
+                end
+            end
+            if not plan then
+                spudTestSay("toolapart: need a plow/cultivator/seeder and a field with the right cell")
+                return
+            end
+            local att = spudToolAttachment(impl)
+            if not (att and att.Parent) then
+                spudTestSay("toolapart: " .. impl.Name .. " has no attachment to fire")
+                return
+            end
+            local cell = pts[1]
+            local before = cellStage(f.d, cell.id)
+            local hitchedTo = hitchedImplementName()
+            local old = impl:GetPivot()
+            local target = Vector3.new(cell.X, cell.Y + 10, cell.Z)
+            local d0 = (att.WorldPosition - target).Magnitude
+            local moved = pcall(function()
+                impl:PivotTo(old + (target - att.WorldPosition))
+            end)
+            task.wait(0.7)
+            local d1 = (att.WorldPosition - target).Magnitude
+            spudTestSay(string.format(
+                "toolapart: %s (%s), %s — blade was %.0f studs off cell %d, %s to %.1f studs",
+                impl.Name, plan.verb,
+                hitchedTo and ("on the " .. tostring(hitchedTo)) or "free of a ride",
+                d0, cell.id, moved and "teleported" or "REFUSED the move", d1))
+            spudFieldRemoteCall(plan.verb, f.d, cell.id, att)
+            task.wait(1.2)
+            local after = cellStage(f.d, cell.id)
+            spudTestSay(string.format(
+                "toolapart: call with the tool off the tractor — %s → %s — %s",
+                tostring(before), tostring(after),
+                (after and before and after ~= before)
+                    and "TAKEN: the tractor never has to move"
+                    or "IGNORED: the server wants the implement on a ride"))
+            pcall(function() impl:PivotTo(old) end)
+            spudTestSay("toolapart: the tool is back where it was")
+            return
+        end
 
         -- ▸ FIELD REMOTES — the three field calls the probe never fired.
         --   FNCSprayFieldCell is tried with the same (field, {id}, {att}) shape
@@ -7727,19 +7793,18 @@ local okBuild, errBuild = pcall(function()
                             job.verb, m.d.Name, m.typeName,
                             tostring(m.ownerName or "?"),
                             need and (need .. " cells need it") or "state unknown"))
-                        -- ▸ THE HARVESTER ARCS EVERYWHERE (user: "the harvester
-                        --   is not using the arc tween bro, make it use it to
-                        --   and back"): the self-propelled ride does not need a
-                        --   path — it hops, so the trip to the field and every
-                        --   sell trip are the same visible arc.
+                        -- ▸ NO DRIVING TO A FIELD (owner 2026-10-31: "why is
+                        --   it driving to the field i dont want that"). The
+                        --   arc used to be the harvester's alone; every job
+                        --   takes it now, so a tour is teleports, arcs and
+                        --   bursts and the pathfinder only runs when the field
+                        --   has no readable corner.
                         local arrived, how
-                        if job.selfPropelled then
-                            local goal = fieldCornerTarget(m.d, ride:GetPivot().Position)
-                            if goal then
-                                log("arc hop to the " .. m.d.Name .. " corner")
-                                arrived = hopTo(ride, goal, SELL_HOP_SPEED) and true or false
-                                how = "arc hop"
-                            end
+                        local goal = fieldCornerTarget(m.d, ride:GetPivot().Position)
+                        if goal then
+                            log("arc hop to the " .. m.d.Name .. " corner")
+                            arrived = hopTo(ride, goal, SELL_HOP_SPEED) and true or false
+                            how = "arc hop"
                         end
                         if arrived == nil then
                             arrived, how = driveToField(ride, m.d, rideSeat, impl)
@@ -8338,6 +8403,9 @@ local okBuild, errBuild = pcall(function()
     end })
     Tabs.Tests:CreateButton({ Title = "Field remotes", Callback = function()
         task.spawn(function() spudTestRun("fieldremotes") end)
+    end })
+    Tabs.Tests:CreateButton({ Title = "Tool apart", Callback = function()
+        task.spawn(function() spudTestRun("toolapart") end)
     end })
     Tabs.Tests:CreateButton({ Title = "Run all", Callback = function()
         task.spawn(function() spudTestRunAll() end)

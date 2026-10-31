@@ -47,7 +47,9 @@ Everything merged into one paste-and-run file:
   **slows itself down**: three direction changes take a step off the throttle
   (never below 30 %), and every steady 3 s gives a step back — so a wobbling row
   settles into a slow straight pass. If W can't finish a leg, the align mover
-  takes over. Travel between fields is **34 studs/s**.
+  takes over. **Travel between fields is an arc hop, not a drive** — every
+  job, not just the harvester — so a tour is teleports, arcs and bursts and
+  the pathfinder only runs when a field has no readable corner.
 - **Field work on the game's own remotes** — before a pass drives a single row
   it fires the call the game itself fires on drive-over, once per cell still at
   the job's stage: `EVTPlowFieldCell` / `EVTCultivateFieldCell`
@@ -111,7 +113,14 @@ Everything merged into one paste-and-run file:
   `PlantGrowth` / `Stage`, then invokes `FNCEditField()` and
   `FNCConvertRundownField()` with **no arguments** just to read the shape they
   demand (an error names it; nothing that could rebuild the field is handed to
-  them). Every line is logged as `test:` and **Copy report** puts place id, build, player
+  them).
+  **Tool apart** answers whether the tractor has to be there at all: it
+  teleports a parked plow/cultivator/seeder onto one of your own cells, fires
+  that cell with the tool's own attachment, and lets the cell's own stage
+  answer — `TAKEN` means the tool alone is enough (the tractor never has to
+  move), `IGNORED` means the server wants the implement on a ride. The tool is
+  put back exactly where it was.
+  Every line is logged as `test:` and **Copy report** puts place id, build, player
   and the whole run on the clipboard. Nothing touches animals or another
   player's plot, and the tests refuse to run while a farm pass is going.
   (The settled experiments — seat/stage/attachment checks, the burst, sell,

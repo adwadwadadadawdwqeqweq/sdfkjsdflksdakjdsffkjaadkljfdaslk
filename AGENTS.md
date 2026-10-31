@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.76 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.77 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -72,7 +72,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 ### 1.4 Script limits (these have broken the build before)
 
 13. **Luau's 200-local limit is real and we are 2 away from the practical
-    ceiling.** Run `python tools/local_budget.py`. As of v1.76:
+    ceiling.** Run `python tools/local_budget.py`. As of v1.77:
     `4-space locals before milkCycle: 183 (practical ceiling 185)`,
     whole body `190 / 200`, **headroom 2**. Do **not** add a `local` inside the
     main build closure. Reuse an existing local, convert the feature to a
@@ -140,10 +140,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 30/30 checks on v1.76
+python tools/run_all.py        # 30/30 checks on v1.77
 ```
 
-Last full run (v1.76): **30/30 checks passed** (27 harnesses + 3 gates).
+Last full run (v1.77): **30/30 checks passed** (27 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -680,9 +680,22 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
     `FNCConvertRundownField()` refuses with
     `ConstructionHandler:686: attempt to index nil with 'Name'` — it wants an
     instance, so it is not a free field reset.
-  **Run all** runs the two remaining probes (remote list, field remotes); both
-  refuse while `loopThread` is live and touch no animals or other plots. There
-  is **no harness** for them — the live read is the only verdict.
+  - **Tool apart** (v1.77, owner: *"can we abuse the power that the tools can
+    like be seperated from the tractor to make it like so that the tool gets
+    used but the tractor does not move"*). Every field call so far was fired
+    with the tool hitched, and only the blade's ground was ever tested, so the
+    open question is whether the server cares that an implement is on a ride at
+    all. It finds a plow/cultivator/seeder plus one of our fields holding a cell
+    of that tool's stage, records the blade's distance to the cell and whether
+    a ride has the tool (`hitchedImplementName`), teleports the **tool model**
+    so the blade sits 10 studs above the cell, re-reads the blade, fires that
+    one cell with the tool's own attachment, and lets the cell's stage answer:
+    `TAKEN: the tractor never has to move` or `IGNORED: the server wants the
+    implement on a ride`. The tool is pivoted back to where it was, nothing
+    else is touched.
+  **Run all** runs the three probes (remote list, field remotes, tool apart);
+  all refuse while `loopThread` is live and touch no animals or other plots.
+  There is **no harness** for them — the live read is the only verdict.
   **Removed once answered** (v1.44–v1.74; every result is in §5 and the console):
   From here / Wrong stage / No attachment / All at once (seat, stage and
   attachment are checked, and a multi-id list is only partly taken), Sell abuse
@@ -795,9 +808,9 @@ UI/key fallbacks and the three-miss switch-off.
 | Whose machine | global `equipOwnerRank(m)` (farm being worked → mine → no readable owner → never another account), used by `findTractor` / `findImplement`; owner tag read by `milkStoreOwnerOf` |
 | Tree soil | global `spudTreeField(typeName, modelName)` (wood/tree/log/forest/timber/lumber/sawmill/stump → no crop harvest) and `spudNoCells(st)` (successful 0-cell read is empty, `nil` read is unknown); used in `probeWork`, `runPass`, `needLeft`, `grownLeft`, growth wait |
 | Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (stop-and-burst grid: the blade parks on each stop, every in-reach id fired), `spudSweepCells` (serpentine tween, a burst every 0.5 s), `spudHopCells` (one cell at a time), `spudFillSeederRemote`; state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, default false); wired at the top of `sweepField` and in `buySeedAndFill` |
-| Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Run all**, **Copy report** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74) |
+| Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes` / `toolapart`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Tool apart**, **Run all**, **Copy report** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74) |
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
-| Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18 |
+| Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job since v1.77** — `driveToField` only runs when a field has no readable corner |
 | Dirt line | global `milkDirtLine = 24`; `milkDirtHigh(spot)` (the single "is this dirty?" answer) |
 | Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)`, `spudFulfillSpots()` (Deposit_Warehouse top), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
 | Clean pass | pre-pass offer watch (0.96 s) → clean watch (2.2 s); per-cow clean `≤2.25 s` |
@@ -1324,7 +1337,22 @@ the live check is the new log line
 `fired N of M cell(s) from K stop(s) across the field (reach 20)` and whether
 a field finishes with **no** sweep at all.
 
-**Where it stands:** `rebuild v1.76 · fluent gui`, whole suite green (30/30),
+**No driving, and can the tool go alone? (v1.77).** Owner: *"bro why is it
+driving to the field i dont want that, by the way can we abuse the power that
+the tools can like be seperated from the tractor to make it like so that the
+tool get's used but the tractor does not move"*. Two answers. (1) The arc hop
+was the harvester's alone, so every other job still pathfound to each field —
+now **every job arcs to the field corner**, and `driveToField`/`driveRoute`
+only run when a field has no readable corner (`fieldCornerTarget` → nil). A
+tour is teleports, arcs and bursts. (2) Whether the tractor is needed at all is
+a live question and is now the **Tool apart** probe: it parks a tool's blade on
+one of our own cells (moving only the tool model), fires that cell with the
+tool's own attachment, and lets the stage answer — TAKEN means the tractor
+never has to move again and the grid could fire from a parked tool, IGNORED
+means the server wants the implement on a ride and the stop-and-burst grid's
+teleports stay.
+
+**Where it stands:** `rebuild v1.77 · fluent gui`, whole suite green (30/30),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching `path: … theta* N pops / N ms, min clear N`, the
 new width line (`tool … — 3-wide …; rows every 30`), the Farm owner picker
@@ -1442,8 +1470,13 @@ for this session`), and the equipment lines (`✅ mounted … (FNCEnterEquipment
    right after the call pass — N should equal the field's cells on a healthy
    run and the take should equal N, so the field ends with **no sweep line at
    all**; a `swept …` line means stops were refused, and a grid that ends
-   after one stop means the server took nothing from a parked blade. Watch
-   that a seed pass does **not** stop early with
+   after one stop means the server took nothing from a parked blade) and v1.77
+   (a tour must log `arc hop to the <field> corner` for **every** job — a
+   `field corner target:` / pathfinding line means something still drove —
+   and Tests → **Tool apart** must answer
+   `TAKEN: the tractor never has to move` or
+   `IGNORED: the server wants the implement on a ride`; quote the cell's
+   before → after with it. Watch that a seed pass does **not** stop early with
    `seeder empty` before the field is seeded (that would mean the wide seed
    calls are being refused and eating the budget) and v1.57/v1.58 (Tests → **Force a tile**: the live FieldHelper dump has
    **no setter**, and the client cell table is **writable** (`UpdateCell` keeps
