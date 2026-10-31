@@ -150,7 +150,11 @@ Everything merged into one paste-and-run file:
   `InStorage` flag (or a >100-stud move for a rebuilt spawn), hands filling or
   emptying, the tank dropping (sell) and the balance or crate count moving
   (buy). A call that does not land falls back to the old F/X/E/Q/UI path in the
-  same step, and three misses switch that one call off for the session. The
+  same step, and three misses switch that one call off for the session. After a
+  seed is bought the **shop menu is closed** on the way out: the open menu is
+  read from `GuiViews.Menus`, its own close control is clicked inside it, the
+  result is re-read, and F is only the fallback — so the UI does not stay up
+  over the field. The
   **Fulfillment** pad needs no key: parked on it, the pad unloads the harvester
   by itself, so that trip only waits for the tank (its own order call was never
   captured, and it is not needed).

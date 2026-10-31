@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.95 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.96 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.95
+python tools/run_all.py        # 29/29 checks on v1.96
 ```
 
-Last full run (v1.95): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.96): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -769,6 +769,18 @@ EVTRequestToCarry(draggable) / EVTRequestToDrop()
   new crate is the proof; the menu click is the fallback). **Fulfillment**
   makes no call and presses no key: the pad unloads a parked harvester itself
   (v1.41), so the trip only waits on the tank.
+- **The shop closes itself after a buy** (v1.96, owner 2026-10-31: *"after it
+  buys a seed can you make it close the ui"*). The old close step searched the
+  whole `GuiViews` tree for a "close" button and then pressed F whenever **any**
+  GuiButton was on screen — the HUD and top bar always are — so F fired every
+  time and the shop menu stayed up. `buySeedAndFill` now reads the actual open
+  menus (`GuiViews.Menus` plus any `*Menu` layer beside it, by
+  `LayerCollector.Enabled`), clicks that menu's own close control **inside** it
+  (text/name close/exit/back/cancel/dismiss, or an `X`), re-reads `Enabled`, and
+  only presses F if it is still up. Every run logs
+  `seed shop: <Menu> closed (handler)` or the honest
+  `<Menu> is still open after F — close it by hand once`; a run with nothing
+  open says `seed shop: no shop menu is open — nothing to close`.
 - **The old path always remains**: F for a mount, X for hitch/unhitch, E for a
   crate, the Equipment Manager UI for spawn/store. `spudEquipRemoteMiss` counts
   ignored calls; three switch that one action back to keys/UI for the session.
@@ -1577,7 +1589,18 @@ hop, round after round** and nothing else; a cell both refuse is named
 (`N cell(s) never took a call even with the blade on them — leaving them for
 the next pass`) instead of being tweened over.
 
-**Where it stands:** `rebuild v1.95 · fluent gui`, whole suite green (29/29),
+**The shop stays shut (v1.96).** Owner: *"after it buys a seed can you make it
+close the ui"*. The close step that ran after a purchase looked for a "close"
+button anywhere in `GuiViews` and then pressed F whenever any GuiButton was on
+screen — which is always, since the HUD and top bar live in that tree — so F
+fired every buy and the shop menu stayed up. It now reads the open menus
+(`GuiViews.Menus`, plus any `*Menu` layer beside it, by `Enabled`), clicks that
+menu's own close control inside it, re-reads `Enabled`, and presses F only if it
+is still up; the log says `<Menu> closed (handler)` or names the menu it could
+not shut. No harness (the live GUI is the only judge) — the next shop trip's
+line is the verdict.
+
+**Where it stands:** `rebuild v1.96 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.95 · fluent gui"
+local VERSION    = "rebuild v1.96 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -3898,27 +3898,68 @@ local okBuild, errBuild = pcall(function()
         log(string.format("seed shop: balance %s → %s%s",
             tostring(before), tostring(after),
             box and (" · " .. box) or ""))
-        -- close the menu (its own close button if it has one, else F)
-        local closed = false
-        for _, g in ipairs(views:GetDescendants()) do
-            if g:IsA("TextButton") and isShown(g) then
-                local t = (guiTextOf(g) .. " " .. g.Name):lower()
-                if t:find("close", 1, true) or t:find("exit", 1, true) then
-                    invokeHandlers(g)
-                    closed = true
-                    break
+        -- ▸ CLOSE THE SHOP UI (owner 2026-10-31: "after it buys a seed can you
+        --   make it close the ui"). The old check searched the WHOLE GuiViews
+        --   tree for a "close" button and then pressed F if ANY GuiButton was
+        --   on screen — the HUD, the top bar and the coat buttons always are,
+        --   so F was pressed every time and the shop menu stayed up. Now the
+        --   OPEN MENU is read from GuiViews.Menus (and any *Menu layer next to
+        --   it by Enabled), its own close button is clicked INSIDE that menu,
+        --   and F is only the fallback for a menu with no readable close.
+        --   Every attempt is re-read, so the log says whether it really shut.
+        local function closeWords(d)
+            local t = (guiTextOf(d) .. " " .. d.Name):lower()
+            for _, w in ipairs({ "close", "exit", "back", "cancel", "dismiss" }) do
+                if t:find(w, 1, true) then return true end
+            end
+            local txt = guiTextOf(d)
+            return txt == "X" or txt == "x" or d.Name == "X"
+        end
+        local function openMenus()
+            local out, seen = {}, {}
+            local function add(m)
+                if m and not seen[m] and m:IsA("LayerCollector") and m.Enabled then
+                    seen[m] = true
+                    out[#out + 1] = m
                 end
             end
-        end
-        if not closed then
-            -- the confirm popup closes itself on Purchase, so only press F when
-            -- a menu is actually still on screen (F would re-open the owner)
-            local stillOpen = false
-            for _, g in ipairs(views:GetDescendants()) do
-                if g:IsA("GuiButton") and isShown(g) then stillOpen = true break end
+            local menus = views:FindFirstChild("Menus")
+            if menus then
+                for _, m in ipairs(menus:GetChildren()) do add(m) end
             end
-            if stillOpen then pressKey(Enum.KeyCode.F)
-            else log("seed shop: the popup closed itself — no F needed") end
+            for _, m in ipairs(views:GetChildren()) do
+                if m.Name:lower():find("menu", 1, true) then add(m) end
+            end
+            return out
+        end
+        local function closeItself(m)
+            for _, d in ipairs(m:GetDescendants()) do
+                if d:IsA("GuiButton") and isShown(d) and closeWords(d) then
+                    local called = invokeHandlers(d)
+                    if not called then pcall(function() d:Activate() end) end
+                    return called and "handler" or "Activate"
+                end
+            end
+            return nil
+        end
+        local left = openMenus()
+        if #left == 0 then
+            log("seed shop: no shop menu is open — nothing to close")
+        end
+        for _, m in ipairs(left) do
+            local how = closeItself(m)
+            task.wait(0.5)
+            if m.Enabled then
+                pressKey(Enum.KeyCode.F) -- the NPC menu's own toggle
+                task.wait(0.6)
+                how = how and (how .. " then F") or "F"
+            end
+            if m.Enabled then
+                log(string.format("seed shop: ⚠ %s is still open after %s — close it by hand once",
+                    m.Name, tostring(how)))
+            else
+                log(string.format("seed shop: %s closed (%s)", m.Name, tostring(how)))
+            end
         end
         task.wait(0.6)
         if not bought then
