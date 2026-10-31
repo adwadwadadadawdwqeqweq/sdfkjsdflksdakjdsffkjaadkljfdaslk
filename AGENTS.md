@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.97 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.98 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.97
+python tools/run_all.py        # 29/29 checks on v1.98
 ```
 
-Last full run (v1.97): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.98): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1618,9 +1618,13 @@ re-park once from the measured offset if it is still swinging, and refresh the
 offset so the next jump starts from the settled trail. A stop that still ends
 more than 20 studs off logs `the blade is N studs off stop K — firing anyway`.
 No harness (the stub moves the blade with the ride) — the next live grid is the
-verdict: `took` should climb towards `fired`.
+verdict: `took` should climb towards `fired`. The first live run of the
+settle alone lifted the cultivate grid from **17/50 to 29/41** and the hop from
+**5/33 to 11/12**, but the client's blade position runs ahead of the server's,
+so both passes now also take a short beat (**0.25 s** after a stop lands,
+**0.2 s** after a cell) before firing — v1.98.
 
-**Where it stands:** `rebuild v1.97 · fluent gui`, whole suite green (29/29),
+**Where it stands:** `rebuild v1.98 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

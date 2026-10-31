@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.97 · fluent gui"
+local VERSION    = "rebuild v1.98 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5683,15 +5683,19 @@ local okBuild, errBuild = pcall(function()
                     target = Vector3.new(c.X, c.Y + 2, c.Z)
                 end
                 ride:PivotTo(CFrame.new(target) * rot)
-                if not bladeOn(c, 8, 20) then
+                local settled = bladeOn(c, 8, 20)
+                if not settled then
                     -- the tool was still swinging: park once more from where it
                     -- actually is, then give it another second
                     local b1 = bladePos()
                     if b1 then
                         ride:PivotTo(CFrame.new(Vector3.new(c.X, c.Y, c.Z) - (b1 - ride:GetPivot().Position)) * rot)
-                        bladeOn(c, 8, 20)
+                        settled = bladeOn(c, 8, 20)
                     end
                 end
+                -- what we read is the CLIENT's blade; the server sees it a beat
+                -- later, so a call fired the frame it arrives is still refused
+                if settled then task.wait(0.2) end
                 spudFieldRemoteCall(job.verb, field, c.id, att)
                 fired += 1
                 if b0 then off = (bladePos() or b0) - ride:GetPivot().Position end
@@ -5852,16 +5856,20 @@ local okBuild, errBuild = pcall(function()
             end)
             if not parked then break end
             -- the first stop follows a long ride, the rest are short trips
-            if not bladeOn(stop, 12, i == 1 and 40 or 30) then
+            local settled = bladeOn(stop, 12, i == 1 and 40 or 30)
+            if not settled then
                 local b1 = bladePos()
                 if b1 then
                     pcall(function()
                         ride:PivotTo(CFrame.new(Vector3.new(stop.x, sy, stop.z)
                             - (b1 - ride:GetPivot().Position)) * rot)
                     end)
-                    bladeOn(stop, 12, 24)
+                    settled = bladeOn(stop, 12, 24)
                 end
             end
+            -- what we read is the CLIENT's blade; the server sees it a beat
+            -- later, so a burst fired the frame it arrives is still refused
+            if settled then task.wait(0.25) end
             local bs = bladePos()
             if bs then
                 local away = (Vector3.new(bs.X, sy, bs.Z) - Vector3.new(stop.x, sy, stop.z)).Magnitude
