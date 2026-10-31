@@ -684,7 +684,7 @@ check("radial: one teleport per stop, no tween", rides - rj0 == 2,
 check("radial: a full seeder means not dry", dryR == false, tostring(dryR))
 check("radial: the log says what it did",
     loggedText():find("from 2 stop") ~= nil
-        and loggedText():find("across the field") ~= nil)
+        and loggedText():find("9 per stop") ~= nil)
 
 -- a seeder can only fire as many calls as it holds seeds
 capVal.Value = 4
@@ -752,7 +752,7 @@ local tookRG, dryRG = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated"
 check("radial: an ignored grid stops after one stop", rides - rf0 == 1,
     (rides - rf0) .. " pivot(s)")
 check("radial: an ignored grid retries that stop exactly once",
-    seedRemote.invokeCalls - cj0 == 24,
+    seedRemote.invokeCalls - cj0 == 18,
     (seedRemote.invokeCalls - cj0) .. " call(s)")
 check("radial: an ignored grid leaves every cell standing",
     tookRG == 0 and #spudFieldCellIds(field, "Cultivated") == 27,

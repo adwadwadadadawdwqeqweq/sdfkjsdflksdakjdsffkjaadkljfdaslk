@@ -74,16 +74,16 @@ Everything merged into one paste-and-run file:
   (`MaxCapacity − Capacity`, full = no call), and the planting stage buys and
   fills (up to 3 refills) or the harvest loop sells and comes back. A refused
   tail gets one retry. Between the call pass and the sweep there is a
-  **stop-and-burst grid**: the game does not require the blade to be *over* the
-  cell (live, three runs in a row: a take from **20 studs to the side** at +8 —
-  30 was refused — and another from **+80 straight up**), so the ride parks
-  with the **blade** on a stop — the tool trails behind the tractor, so the
-  ride goes to `stop − blade offset` — and every remaining id within **20
-  studs** of that stop is fired from there: one teleport per stop, one call per
-  cell, and a cell an earlier stop already fired is never called again. Stops
-  are spaced 1.35 reaches apart, so every cell sits within ~19 studs of one:
-  a 50×100 field takes **8 teleports** and about **3 s** of waiting instead of
-  a 7 s serpentine. The stage re-read after the **first** stop decides — if the
+  **3×3 block grid**: the remaining cells are grouped into rows, three rows at
+  a time are cut into three-column blocks, and each block gets one stop at its
+  own centre — the ride parks with the **blade** on it (the tool trails behind
+  the tractor, so the ride goes to `stop − blade offset`), fires that block's
+  **nine cells** 40 ms apart, then walks **forward** to the next block (each
+  band alternates direction). Every cell belongs to exactly one block, so
+  nothing is skipped and nothing is fired twice; a 50-cell field is **8
+  teleports** of nine calls each. The band it relies on was measured live: a
+  take from **20 studs to the side** at +8 (30 refused) and from **+80 straight
+  up**. The stage re-read after the **first** stop decides — if the
   server takes nothing from a parked blade the grid fires **that same stop
   once more** — the first call after a long ride is routinely refused while the
   server still holds the old pose — and only then ends

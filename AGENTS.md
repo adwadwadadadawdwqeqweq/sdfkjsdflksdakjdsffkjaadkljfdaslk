@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.89 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.90 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.89
+python tools/run_all.py        # 29/29 checks on v1.90
 ```
 
-Last full run (v1.89): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.90): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -586,22 +586,24 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   straight up taken) means the server takes a cell whose ground is within ~2
   tiles of the blade's, so a parked blade clears the disc around it. Between
   the call pass and the sweep, `spudRadialFire(job, field, ride, impl, stage,
-  baseCF, baseSize, att)` walks a **grid of stops** spaced `1.35 × reach` over
-  the remaining cells' box (so every cell is within ~19 studs of one, capped at
-  16 stops — a field too big for that gets a coarser grid and the sweep takes
-  the rest) and at each one parks the **blade** on the stop — the tool trails
+  baseCF, baseSize, att)` walks the remaining cells as **3×3 blocks** (v1.90,
+  owner: *"i wanted it to tp to a spot, do the closest 9 areas then go forwards
+  then so on"*): cells are grouped into rows, three rows at a time are cut into
+  three-column blocks, and each block gets one stop at its own centre, in
+  serpentine order (each band alternates direction, so the ride always moves
+  forward). Every cell belongs to exactly one block, so nothing is skipped and
+  nothing is fired twice. At each stop it parks the **blade** on the stop — the tool trails
   behind the tractor, so the ride goes to `stop − (blade.Position −
   ride.Pivot)` with the ride's own rotation kept — waits (0.5 s for the first
-  stop after the long ride, 0.4 s for the short hops; a call fired before the
+  stop after the long ride, 0.5 s for the short hops; a call fired before the
   pose reaches the server is refused, the artifact every lift run hit) and
-  fires every remaining id within **20 studs** of it, 40 ms apart, **one call
-  per cell** (a cell an earlier stop fired is never called twice), capped by
+  fires **that block's nine cells**, 40 ms apart, **one call per cell**, capped by
   the seeder/tank budget. Height is free (+80 was taken), so the grid runs 10
   studs above the cells. The stage re-read after the **first** stop is the
   honesty gate: nothing taken = the server refuses a parked blade, the grid
   ends after one stop and the sweep drives. The final re-read is the proof:
-  `remote seed: fired 46 of 46 cell(s) from 8 stop(s) across the field (reach
-  20) — 46 took, 0 left`; anything it misses is still swept, hopped and
+  `remote seed: fired 46 of 46 cell(s) from 8 stop(s), 9 per stop — 46 took,
+  0 left`; anything it misses is still swept, hopped and
   driven, so it can only add speed. Pinned by 18 `field_remote_test.py` checks
   (a 40×20 field is covered by 2 stops with 15 calls and no tween, a 9×3 field
   by 3 stops with 27 calls, a 4-seed seeder fires 4 and hands back dry, a
@@ -807,7 +809,7 @@ UI/key fallbacks and the three-miss switch-off.
 | Go to the farm | global `spudFarmHop(here, plotPos)` (nil+reason, or centre +5 Y and distance), `milkStorePlotOf(who)`, `milkStandUp(who)` (default `"milk"`); wired at the top of `runFarmingBody` |
 | Whose machine | global `equipOwnerRank(m)` (farm being worked → mine → no readable owner → never another account), used by `findTractor` / `findImplement`; owner tag read by `milkStoreOwnerOf` |
 | Tree soil | global `spudTreeField(typeName, modelName)` (wood/tree/log/forest/timber/lumber/sawmill/stump → no crop harvest) and `spudNoCells(st)` (successful 0-cell read is empty, `nil` read is unknown); used in `probeWork`, `runPass`, `needLeft`, `grownLeft`, growth wait |
-| Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (stop-and-burst grid: the blade parks on each stop, every in-reach id fired), `spudSweepCells` (serpentine tween, a burst every 0.5 s), `spudHopCells` (one cell at a time), `spudFillSeederRemote`; state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, **default true** since v1.88); wired at the top of `sweepField` and in `buySeedAndFill` |
+| Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (3×3 blocks: the blade parks on each block's centre and fires its nine cells, serpentine order), `spudSweepCells` (serpentine tween, a burst every 0.5 s), `spudHopCells` (one cell at a time), `spudFillSeederRemote`; state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, **default true** since v1.88); wired at the top of `sweepField` and in `buySeedAndFill` |
 | Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`, test run + last 60 farm lines), `spudTestCopyConsole` (`setclipboard`, last 150 farm lines only), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Run all**, **Copy report**, **Copy console** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
 | Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job**; the A* planner was deleted in v1.81 and the row driver in v1.82, so a field pass never touches a movement key |
@@ -1334,7 +1336,7 @@ cell within 20 studs is fired — one call per cell, across all stops. The first
 stop's re-read ends the grid if the server takes nothing from a parked blade,
 so a refusing build still falls straight through to the sweep. Harness green;
 the live check is the new log line
-`fired N of M cell(s) from K stop(s) across the field (reach 20)` and whether
+`fired N of M cell(s) from K stop(s), 9 per stop` and whether
 a field finishes with **no** sweep at all.
 
 **No driving, and can the tool go alone? (v1.77).** Owner: *"bro why is it
@@ -1522,7 +1524,23 @@ logs **every attachment path and every part name** on the machine, so the next
 live run names the real harvesting point. `field_remote_test.py` pins the rank
 (a `HarvestHead` point beats a `EquipmentRoot.Bolt`).
 
-**Where it stands:** `rebuild v1.89 · fluent gui`, whole suite green (29/29),
+**Nine cells a stop, then forward (v1.90).** Owner: *"i spotted a bug, it tps
+too fast. i wanted it to tp to a spot, do the closest 9 areas then go forwards
+then so on and so fourth"*. The grid used to fire **every** remaining id within
+20 studs of each stop, so stops overlapped heavily and the ride jumped around
+the field. Now the remaining cells are grouped into **rows**, three rows at a
+time are cut into **three-column blocks**, and each block gets one stop at its
+own centre in **serpentine** order (each band alternates direction), where the
+blade fires exactly that block's nine cells and moves forward. Blocks partition
+the cells, so nothing is skipped and nothing is fired twice; the settle before
+each stop went back to 0.5 s. `field_remote_test.py` pins the shape (a 15-cell
+field = 2 stops / 15 calls, a 27-cell 9×3 field = 3 stops / 27 calls, an ignored
+grid = one stop and 18 calls, the retry still 3+3 on a one-row field) and the
+log line is now `fired N of M cell(s) from K stop(s), 9 per stop — K took, L
+left`. The previous grid took 46/46 live in the emulator that day; this block
+version had not been run live when it was committed.
+
+**Where it stands:** `rebuild v1.90 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
@@ -1638,7 +1656,7 @@ for this session`), and the equipment lines (`✅ mounted … (FNCEnterEquipment
    like a field/bulk door names the next experiment. The wrong-tool question is
    answered — the tool identity IS checked, so each verb keeps its own
    implement) and v1.76 (a field job must log `remote <verb>: fired N of M
-   cell(s) from K stop(s) across the field (reach 20) — K took, L left`
+   cell(s) from K stop(s), 9 per stop — K took, L left`
    right after the call pass — N should equal the field's cells on a healthy
    run and the take should equal N, so the field ends with **no sweep line at
    all**; a `swept …` line means stops were refused, and a grid that ends

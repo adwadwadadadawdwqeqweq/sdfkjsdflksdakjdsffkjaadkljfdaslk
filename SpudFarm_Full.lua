@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.89 · fluent gui"
+local VERSION    = "rebuild v1.90 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5839,14 +5839,8 @@ local okBuild, errBuild = pcall(function()
         if not pts or #pts == 0 then return 0, false end
         if not (att and att.Parent) then return 0, false end
         local before = #pts
-        local minX, maxX, minZ, maxZ, sumY = pts[1].X, pts[1].X, pts[1].Z, pts[1].Z, 0
-        for _, c in ipairs(pts) do
-            sumY += c.Y
-            if c.X < minX then minX = c.X end
-            if c.X > maxX then maxX = c.X end
-            if c.Z < minZ then minZ = c.Z end
-            if c.Z > maxZ then maxZ = c.Z end
-        end
+        local sumY = 0
+        for _, c in ipairs(pts) do sumY += c.Y end
         local budget, dry = nil, false
         if job.verb == "seed" or job.verb == "harvest" then
             pcall(function()
@@ -5861,51 +5855,83 @@ local okBuild, errBuild = pcall(function()
                 end
             end)
         end
-        local reach = 20 -- the measured take distance (30 was refused live)
-        local step = reach * 1.35
-        local function axisStops(lo, hi)
-            return math.max(1, math.ceil((hi - lo) / step))
+        -- ▸ ONE STOP = ONE 3×3 BLOCK (owner 2026-10-31: "i wanted it to tp to a
+        --   spot, do the closest 9 areas then go forwards then so on"). The
+        --   cells are grouped into rows, three rows at a time are cut into
+        --   three-column blocks, and each block gets one stop at its own
+        --   centre: the blade lands, fires those nine cells, then walks
+        --   FORWARD to the next block (alternating direction per band), so
+        --   nothing is skipped and nothing is fired twice.
+        local rows, rowIndex = {}, {}
+        for _, c in ipairs(pts) do
+            local k = math.floor(c.Z / 5 + 0.5)
+            local r = rowIndex[k]
+            if not r then
+                r = { z = c.Z, cells = {} }
+                rowIndex[k] = r
+                rows[#rows + 1] = r
+            end
+            r.cells[#r.cells + 1] = c
         end
-        local nx, nz = axisStops(minX, maxX), axisStops(minZ, maxZ)
-        while nx * nz > 16 do -- a field too big to stop across: cover the middle
-            step *= 1.25 -- and sweep the rest
-            nx, nz = axisStops(minX, maxX), axisStops(minZ, maxZ)
+        table.sort(rows, function(a, b) return a.z < b.z end)
+        for _, r in ipairs(rows) do
+            table.sort(r.cells, function(a, b) return a.X < b.X end)
         end
         local stops = {}
-        for ix = 0, nx - 1 do
-            for iz = 0, nz - 1 do
-                stops[#stops + 1] = {
-                    x = minX + (ix + 0.5) * (maxX - minX) / nx,
-                    z = minZ + (iz + 0.5) * (maxZ - minZ) / nz,
-                }
+        local flip = false
+        for band = 1, #rows, 3 do
+            local bandRows = {}
+            for k = band, math.min(band + 2, #rows) do
+                bandRows[#bandRows + 1] = rows[k].cells
             end
+            local ncols = 0
+            for _, cs in ipairs(bandRows) do
+                if #cs > ncols then ncols = #cs end
+            end
+            local chunks = math.max(1, math.ceil(ncols / 3))
+            for ci = 1, chunks do
+                local idx = flip and (chunks - ci + 1) or ci
+                local block, sx, sz = {}, 0, 0
+                for _, cs in ipairs(bandRows) do
+                    for col = (idx - 1) * 3 + 1, math.min(idx * 3, #cs) do
+                        local c = cs[col]
+                        if c then
+                            block[#block + 1] = c
+                            sx += c.X
+                            sz += c.Z
+                        end
+                    end
+                end
+                if #block > 0 then
+                    stops[#stops + 1] = { x = sx / #block, z = sz / #block, cells = block }
+                end
+            end
+            flip = not flip
         end
         local sy = sumY / before + 10 -- height is free: +80 was taken live
         local cf = ride:GetPivot()
         local off = att.Parent.Position - cf.Position
         local rot = cf - cf.Position
         local fired, done, charged = 0, {}, {}
-        -- ▸ THE BURST AT ONE STOP. `done` is "already called at this stop" and
-        --   is cleared for the one retry below; `charged` is "already paid for
-        --   by the seeder/tank", so a retried cell is never counted twice.
+        -- ▸ THE BURST AT ONE STOP: exactly that block's cells. `done` is
+        --   "already called at this stop" and is cleared for the one retry
+        --   below; `charged` is "already paid for by the seeder/tank", so a
+        --   retried cell is never counted twice.
         local function burst(stop)
-            for n, c in ipairs(pts) do
-                local key = c.id or ("i" .. n)
+            for _, c in ipairs(stop.cells) do
+                local key = c.id or ("i" .. tostring(c))
                 if not done[key] then
-                    local dx, dz = c.X - stop.x, c.Z - stop.z
-                    if dx * dx + dz * dz <= reach * reach then -- out of reach: a later stop
-                        if budget and not charged[key] and fired >= budget then
-                            dry = true
-                            return
-                        end
-                        done[key] = true
-                        if not charged[key] then
-                            charged[key] = true
-                            fired += 1
-                        end
-                        spudFieldRemoteCall(job.verb, field, c.id, att)
-                        task.wait(0.04)
+                    if budget and not charged[key] and fired >= budget then
+                        dry = true
+                        return
                     end
+                    done[key] = true
+                    if not charged[key] then
+                        charged[key] = true
+                        fired += 1
+                    end
+                    spudFieldRemoteCall(job.verb, field, c.id, att)
+                    task.wait(0.04)
                 end
             end
         end
@@ -5916,7 +5942,7 @@ local okBuild, errBuild = pcall(function()
             end)
             if not moved then break end
             -- the first stop follows a long ride, the rest are short hops
-            task.wait(i == 1 and 0.6 or 0.4)
+            task.wait(i == 1 and 0.6 or 0.5)
             burst(stop)
             if i == 1 then
                 -- ▸ THE FIRST CALL AFTER A LONG RIDE IS ROUTINELY REFUSED while
@@ -5942,8 +5968,8 @@ local okBuild, errBuild = pcall(function()
         local left = after and #after or nil
         local took = left and math.max(0, before - left) or 0
         log(string.format(
-            "remote %s: fired %d of %d cell(s) from %d stop(s) across the field (reach %d) — %d took, %s left",
-            job.verb, fired, before, #stops, reach, took,
+            "remote %s: fired %d of %d cell(s) from %d stop(s), 9 per stop — %d took, %s left",
+            job.verb, fired, before, #stops, took,
             left and tostring(left) or "unreadable"))
         return took, dry
     end
