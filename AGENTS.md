@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.91 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.92 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.91
+python tools/run_all.py        # 29/29 checks on v1.92
 ```
 
-Last full run (v1.91): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.92): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1550,7 +1550,21 @@ still on the hitch even when the HUD label reads empty (the cultivator from the
 previous pass was still attached in that run). Neither is pinned by a harness
 (the hitch path needs a live prompt), so the next live run is the verdict.
 
-**Where it stands:** `rebuild v1.91 · fluent gui`, whole suite green (29/29),
+**A small budget is spent by the blocks (v1.92).** The first live seed pass
+with the 3×3 grid never reached a block: the seeder held **28 seeds against 46
+cells**, fired all 28 from the field corner — nearly all out of reach — and
+handed the field back (`remote seed: the seeder holds 28 seed(s) — 28 call(s)
+sent, 40 cell(s) still need it`). `spudFieldRemotePass` now returns before
+firing when `budget < #ids` and logs `N cell(s) need it but the machine holds M
+— going straight to the blocks`, so the blade is over every cell it spends a
+seed on. `field_remote_test.py` pins it (one seed against two cells fires
+**nothing** at the corner and is not dry; one seed against one cell still fires
+one call). The reload button also fetches the **newest commit sha** now
+(`reload: newest commit is <sha>`): three reloads in a row served the previous
+build from the client's HTTP cache even with a query buster, and an immutable
+SHA path cannot be stale.
+
+**Where it stands:** `rebuild v1.92 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

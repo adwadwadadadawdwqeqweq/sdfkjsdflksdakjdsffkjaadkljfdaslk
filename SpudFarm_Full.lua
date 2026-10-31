@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.91 · fluent gui"
+local VERSION    = "rebuild v1.92 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -2814,6 +2814,16 @@ local okBuild, errBuild = pcall(function()
                     job.verb, before))
             end
             return true, before, true
+        end
+        -- ▸ A BUDGET SMALLER THAN THE FIELD IS SPENT WHERE IT LANDS (live
+        --   2026-10-31: a seeder holding 28 seeds against 46 cells fired all
+        --   28 from the field CORNER — nearly all out of reach — and handed the
+        --   field back without ever parking the blade). The blocks put the
+        --   blade over every cell they call, so let them spend it.
+        if budget and budget < before then
+            log(string.format("remote %s: %d cell(s) need it but the machine holds %d — going straight to the blocks",
+                job.verb, before, budget))
+            return true, before, false
         end
         local sent, threw, batchDone = 0, 0, 0
         local t0 = os.clock()
@@ -12014,11 +12024,24 @@ local okBuild, errBuild = pcall(function()
         Title = "🔄 Reload latest update",
         Callback = function()
             log("fetching latest build…")
-            -- ▸ CACHE BUSTER. GitHub's raw CDN holds a branch URL for a few
-            --   minutes, so a fresh push could reload as the OLD build and
-            --   look like "the button isn't there". A unique query string
-            --   makes the executor fetch the current file instead.
-            local bust = string.format("%s?t=%d&r=%d", SCRIPT_URL,
+            -- ▸ BY COMMIT, NOT BY BRANCH (live 2026-10-31: the raw branch path
+            --   served the PREVIOUS build three times after a push — a query
+            --   cache buster is not enough, the client keys its HTTP cache on
+            --   the path). Ask GitHub for the newest commit sha and fetch THAT
+            --   path: an immutable URL cannot be stale.
+            local url = SCRIPT_URL
+            local okc, sha = pcall(function()
+                local src = game:HttpGet(
+                    "https://api.github.com/repos/simba13231/spud-farm/commits?per_page=1", true)
+                local data = game:GetService("HttpService"):JSONDecode(src)
+                return data and data[1] and tostring(data[1].sha)
+            end)
+            if okc and sha and #sha >= 7 then
+                url = string.format(
+                    "https://raw.githubusercontent.com/simba13231/spud-farm/%s/SpudFarm_Full.lua", sha)
+                log("reload: newest commit is " .. string.sub(sha, 1, 7))
+            end
+            local bust = string.format("%s?t=%d&r=%d", url,
                 math.floor(os.time()), math.random(1, 999999))
             local ok, src = pcall(function() return game:HttpGet(bust, true) end)
             -- ▸ a CDN error page is a string too. Only a real build carries the

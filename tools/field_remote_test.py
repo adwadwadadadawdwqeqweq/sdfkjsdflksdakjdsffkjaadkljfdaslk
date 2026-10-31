@@ -415,10 +415,22 @@ resetCells()
 resetState()
 d0 = seedRemote.invokeCalls
 done, left, dry = spudFieldRemotePass(seedJob, field, tool)
-check("one seed: exactly one call", seedRemote.invokeCalls - d0 == 1,
+-- a budget smaller than the field is spent by the BLOCKS, not at the corner
+-- (live 2026-10-31: 28 seeds against 46 cells all fired out of reach)
+check("one seed against two cells: the corner fires nothing",
+    seedRemote.invokeCalls == d0,
     (seedRemote.invokeCalls - d0) .. " call(s)")
-check("one seed: dry with one cell left", dry == true and left == 1,
+check("one seed against two cells: handed to the blocks, not dry",
+    done == true and left == 2 and dry ~= true,
     string.format("%s,%s", tostring(left), tostring(dry)))
+fieldState[field][642].Stage = "Plowed"
+fieldState[field][643].Stage = "Plowed"
+done, left, dry = spudFieldRemotePass(seedJob, field, tool)
+check("one seed against one cell: exactly one call",
+    seedRemote.invokeCalls - d0 == 1,
+    (seedRemote.invokeCalls - d0) .. " call(s)")
+fieldState[field][642].Stage = "Cultivated"
+fieldState[field][643].Stage = "Seeded"
 capVal.Value = 50
 resetCells()
 resetState()
