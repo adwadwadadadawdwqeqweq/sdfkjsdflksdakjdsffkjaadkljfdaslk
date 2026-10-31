@@ -266,6 +266,29 @@ check("sell: no pad and no marker -> no sale, no hop",
 check("sell: the log says the unload was skipped",
     loggedText():find("pad found") ~= nil and loggedText():find("skipped") ~= nil)
 
+-- 6d. Fulfillment tries the same in-place call first (owner 2026-10-31:
+--     "didnt you say we could just call the sell bro?") — no hop when the
+--     tank drops, and the park trip only when the call does nothing
+spudDropOff = "Fulfillment"
+function spudFulfillSpots()
+    return { { p = Vector3.new(-353, 140, -90), what = "DropOffs.Deposit_Warehouse",
+        store = "Fulfillment", part = "warehousePart" } }
+end
+tank, soldPad, remoteFired = 50, nil, 0
+hops, soldAt = {}, nil
+local okFul = sellHarvester(ride, nil, nil)
+check("fulfillment: the in-place call empties the tank with NO hop",
+    okFul == true and #hops == 0, #hops .. " hop(s)")
+check("fulfillment: the call fired at the warehouse pad",
+    remoteFired == 1 and soldPad == "warehousePart")
+
+function spudSellRemote(ride, pad) remoteFired += 1 return true end
+tank = 50
+hops, soldAt = {}, nil
+local okPark = sellHarvester(ride, nil, nil)
+check("fulfillment: a refused call still takes the park trip",
+    okPark == true and soldAt ~= nil and soldAt.autoPad == true)
+
 -- 7. every sell spot carries the part the sell call fires at
 local gvNode = folder("GameplayVisuals", GRID)
 local saNode = folder("SellArea", gvNode)

@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.86 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.87 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.86
+python tools/run_all.py        # 29/29 checks on v1.87
 ```
 
-Last full run (v1.86): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.87): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -473,6 +473,15 @@ values, and the full tank always ends in a real trip:
   and the plain `DropOff`s, aiming at the pad's **top surface**. The folder
   being unstreamed/empty is logged and returns no pad — never a guessed spot.
 - **Sell** → the old `findSellSpots()` crop sell-board scan, unchanged.
+- **The call goes first, for both picks** (v1.87, owner: *"didnt you say we
+  could just call the sell bro?"*). `EVTSellAtStore` checks no distance — a
+  live full tank dropped 50 → 0 and paid +150 coins from 46 studs off the
+  board — so `sellHarvester` fires it from where the harvester stands at the
+  chosen destination's own pad part (Fulfillment → `Deposit_Warehouse`, Sell →
+  the board) and watches the tank for 3.5 s. A tank that drops logs
+  `✅ sold in place — load N → M, coins … (no pad trip)` and the ride **never
+  moves**; only a call that leaves the tank alone falls through to the trip
+  below.
 - The trip itself is the existing arc hop (`hopTo`, `SELL_HOP_SPEED`) plus
   `trySellAt(ride, what, pad, autoPad)`, which differs by destination:
   - **Fulfillment** (`autoPad = true`) presses **nothing** — user: *"the
@@ -1433,7 +1442,19 @@ machine it belongs to (`remote harvest: the tank has N free slot(s) …` instead
 (49/50 against 46 sells, 49/50 against 1 keeps working, unreadable/zero capacity
 never sells, no standing cells is no excuse).
 
-**Where it stands:** `rebuild v1.86 · fluent gui`, whole suite green (29/29),
+**Call the sell, don't drive it (v1.87).** Owner: *"didnt you say we could just
+call the sell bro?"* — the capture had already proved `EVTSellAtStore` sells a
+full tank from 46 studs off the board, but only the **Sell** pick fired it in
+place; **Fulfillment** still arc-hopped to the pad first. Now both picks fire
+the captured call from where the harvester stands (at their own pad part) and
+watch the tank for 3.5 s: a drop logs `✅ sold in place … (no pad trip)` and the
+ride never moves. A call that leaves the tank alone still takes the destination's
+own trip (Fulfillment parks and lets the pad drain it, Sell falls back to Q/E).
+`dropoff_test.py` gained three checks: a Fulfillment pad emptied in place costs
+**0 hops**, the call carries the warehouse part, and a refused call still takes
+the park trip (`autoPad = true`).
+
+**Where it stands:** `rebuild v1.87 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

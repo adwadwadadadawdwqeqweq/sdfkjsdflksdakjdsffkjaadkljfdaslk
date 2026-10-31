@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.86 · fluent gui"
+local VERSION    = "rebuild v1.87 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5065,36 +5065,35 @@ local okBuild, errBuild = pcall(function()
         sellingNow = true
         -- ▸ THE SELL CALL DOES NOT CHECK DISTANCE (live test 2026-10-30: a full
         --   tank dropped 50 → 0 and paid +150 coins from 46 studs off the crop
-        --   board, with no pad visit). Fire it from where the harvester stands
-        --   first: a tank that drops there saves the whole approach. A refusal
-        --   falls through to the arc hop, exactly as before. Fulfillment is
-        --   left alone — that pad unloads by parking, not by this call.
-        if sellMode then
-            for _, s in ipairs(spots) do
-                if s.part then
-                    local l0 = harvesterLoad(ride)
-                    spudSellRemote(ride, s.part)
-                    log("sell: EVTSellAtStore fired from where the harvester stands — watching the tank")
-                    local deadline = os.clock() + 3.5
-                    while os.clock() < deadline do
-                        if stopping() then sellingNow = false return false end
-                        task.wait(0.25)
-                        local l1 = harvesterLoad(ride)
-                        if l0 and l1 and l1 < l0 then
-                            log(string.format("✅ sold in place — load %d → %d, coins %s (no pad trip)",
-                                l0, l1, tostring(coinBalance())))
-                            if movedForStore and field and field.Parent then
-                                log("arc back to " .. field.Name .. " to finish the harvest")
-                                hopTo(ride, back, SELL_HOP_SPEED)
-                            end
-                            sellingNow = false
-                            watchHit = false
-                            return true
+        --   board, with no pad visit), so it is fired from where the harvester
+        --   stands for BOTH destinations (owner 2026-10-31: "didnt you say we
+        --   could just call the sell bro?") — a tank that drops there never
+        --   moves. If the call leaves the tank alone, that destination's own
+        --   trip still runs unchanged (Fulfillment still unloads by parking).
+        for _, s in ipairs(spots) do
+            if s.part then
+                local l0 = harvesterLoad(ride)
+                spudSellRemote(ride, s.part)
+                log("sell: EVTSellAtStore fired from where the harvester stands — watching the tank")
+                local deadline = os.clock() + 3.5
+                while os.clock() < deadline do
+                    if stopping() then sellingNow = false return false end
+                    task.wait(0.25)
+                    local l1 = harvesterLoad(ride)
+                    if l0 and l1 and l1 < l0 then
+                        log(string.format("✅ sold in place — load %d → %d, coins %s (no pad trip)",
+                            l0, l1, tostring(coinBalance())))
+                        if movedForStore and field and field.Parent then
+                            log("arc back to " .. field.Name .. " to finish the harvest")
+                            hopTo(ride, back, SELL_HOP_SPEED)
                         end
+                        sellingNow = false
+                        watchHit = false
+                        return true
                     end
-                    log("sell: the in-place call didn't move the tank — taking the pad trip")
-                    break
                 end
+                log(dest .. ": the in-place call didn't move the tank — taking the pad trip")
+                break
             end
         end
         for i, s in ipairs(spots) do

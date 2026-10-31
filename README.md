@@ -146,7 +146,8 @@ Everything merged into one paste-and-run file:
   `FNCAttemptHitch(hitchable, socket)` / `FNCUnhitch(hitchable)` for tools,
   `FNCSpawnEquipment(model)` / `FNCStoreEquipment(model)` for storage,
   `EVTRequestToCarry(draggable)` / `EVTRequestToDrop()` for carried items,
-  `EVTSellAtStore(harvester, pad)` for a **Sell** drop-off and
+  `EVTSellAtStore(harvester, pad)` to unload the tank (fired in place, both
+  Drop-off picks) and
   `FNCRequestStorePurchase({crate})` for buying a seed crate. Each is used only
   where the game offers the action, and the effect has to prove it: the seat
   actually holding the character, the existing hitch/unhitch tug, the
@@ -154,14 +155,17 @@ Everything merged into one paste-and-run file:
   emptying, the tank dropping (sell) and the balance or crate count moving
   (buy). A call that does not land falls back to the old F/X/E/Q/UI path in the
   same step, and three misses switch that one call off for the session. The
-  **Fulfillment** pad needs no call and no key: it unloads a parked harvester by
-  itself, so the trip there only waits for the tank (its own order call was
-  never captured, and it is not needed).
+  **Fulfillment** pad needs no key: parked on it, the pad unloads the harvester
+  by itself, so that trip only waits for the tank (its own order call was never
+  captured, and it is not needed).
 - **Drop-off pick** — Farm tab → **Drop-off**: **Fulfillment** (default) or
-  **Sell**. When the harvester's tank fills, it stops the row, arc-hops to the
-  chosen pad, and unloads: Fulfillment is the warehouse pad
-  (`Stores.DropOffs.Deposit_Warehouse`) — parked there, pressing nothing, while
-  the pad drains it — and Sell is the old crop sell board (call, then Q/E). The
+  **Sell**. When the harvester's tank fills it first fires the captured
+  `EVTSellAtStore` **from where it stands** (the call checks no distance): a
+  tank that drops logs `✅ sold in place … (no pad trip)` and the harvester
+  never moves. Only when that call leaves the tank alone does it take the trip
+  — Fulfillment is the warehouse pad
+  (`Stores.DropOffs.Deposit_Warehouse`, parked, pressing nothing while the pad
+  drains it) and Sell is the old crop sell board (call, then Q/E). The
   tank dropping is the only proof a pad took the load — the console prints
   `fulfillment pad: Deposit_Warehouse at (…)`, `drop-off 1/1: …`, then
   `✅ sold at …` or an honest `still full — none of the pads took the load`,
@@ -172,14 +176,10 @@ Everything merged into one paste-and-run file:
   farm that finds **no pad at all** first hops the harvester to the store's own
   waypoint, waits for the pads to stream, and looks again (`no Sell pad is
   streamed from here — arc hop to the store, then looking again`); the trip
-  back still returns to the field. And the sell call itself does **not** check
-  distance — the live test sold a full tank from 46 studs off the board — so
-  **Sell** fires `EVTSellAtStore` from wherever the harvester stands first:
-  a tank that drops logs `✅ sold in place … (no pad trip)` and the harvest
-  carries on without moving; only a refusal takes the pad trip.
+  back still returns to the field.
   A tank with **less free space than there are cells still standing** counts
   as full (`spudHarvestFull`): 49/50 against 46 standing crops would otherwise
-  burn one call — and one refusal — per cell, so the sell trip runs first and
+  burn one call — and one refusal — per cell, so the unload runs first and
   the harvester comes back with a whole tank.
 - **Trees are left alone** — the harvester never drives a field whose type or
   model name says wood / tree / log / forest / timber / lumber / sawmill / stump,
