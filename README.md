@@ -30,7 +30,11 @@ Read the Stealth section below before farming in public servers.
 
 ### `SpudFarm_Full.lua` — THE MAIN SCRIPT (use this one)
 Everything merged into one paste-and-run file:
-- **Farm tab** — Farming auto-cycle (PLOW → CULTIVATE → PLANT → GROW → HARVEST → SELL),
+- **Farm tab** — Farming auto-cycle (PLOW → CULTIVATE → PLANT → GROW → HARVEST → SELL).
+  **Harvest outranks every other stage**: if even **one** cell is standing at the
+  fully-grown stage the run harvests first and keeps going until nothing is
+  standing — the old 4-round cap is gone. A run that cannot enter the harvester
+  stops there instead of plowing around the crop.
   **crop selector** (Wheat, Corn, Rice, Oat, Sugar Cane, Soybeans, Tomatoes, Cabbage,
   Carrots, Potatoes, Cocoa, **Grape**, Custom) with auto set grow-time from wiki data,
   a **live crop info line** (grow time · seed cost/box · avg $/hr · equipment
@@ -93,9 +97,10 @@ Everything merged into one paste-and-run file:
   the close fire then calls it again). A wide call the server refuses never
   blocks the close one — that is what made the plow leave a field of
   leftovers. Anything
-  still standing after the hop is **swept once in a serpentine tween** — the
-  last resort, only when the teleports took nothing — so the remotes can only
-  add speed, never skip work. The sweep logs
+  still standing after the hop is **retried**: grid → hop again, round after
+  round, until the field reports none of that stage left (Stop ends it), with a
+  serpentine tween as the last resort only when teleports take nothing. The
+  sweep logs
   `remote seed: swept 46 cell(s) in 6.1s at 45 studs/s, range 20 — 44 took, 2 left`.
 - **Tests tab** — experiments, off by default, none of them a dependency of a
   normal pass. **Batch field remote** tries the abuse the captured shape allows:

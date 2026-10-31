@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.82 · fluent gui"
+local VERSION    = "rebuild v1.83 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5718,7 +5718,6 @@ local okBuild, errBuild = pcall(function()
         local workTiles, widthHow, widthStuds = SpudFarm.workTiles(job, impl, stepDir)
         local st0 = countStages(field)
         local need0 = st0 and whichNeed(job, st0) or nil
-        local needStart = need0 -- how much work this field had on arrival
         -- ▸ REMOTES FIRST — the ride is at the field and the tool is hitched,
         --   which is exactly the state the game fires these calls from. One
         --   call per remaining cell id is verified by re-reading the stages;
@@ -5849,21 +5848,56 @@ local okBuild, errBuild = pcall(function()
                     end
                 end
             end
-            -- ▸ TELEPORTS UNTIL IT IS DONE: once the calls have taken anything
-            --   at all, the remainder is a reach/lag problem the grid and the
-            --   hop have both already answered — driving rows over it would
-            --   only add a visible lap for cells the server keeps refusing.
-            --   The rows stay only for a field where EVERY call was ignored,
-            --   because there the game's own drive-over is the last door.
-            if need0 and need0 > 0 and needStart and needStart > 0 and need0 < needStart then
-                log(string.format(
-                    "%s: %d cell(s) left after the teleport passes — leaving them, no rows driven",
-                    job.verb, need0))
-                if job.selfPropelled then
-                    harvestSellIfFull(tr, seat, field, "after the teleport passes")
+            -- ▸ KEEP RETRYING UNTIL THE STAGE IS GONE (owner 2026-10-31: "if it
+            --   misses some thing i want it to infinitly keep retrying untill
+            --   there is none of the last stage it was on"). Every round is
+            --   teleports only — a grid pass, then a hop onto each remaining
+            --   cell — with a beat between rounds so the pose can replicate.
+            --   It ends when the field reports the stage gone, the machine runs
+            --   dry (handled below) or the run is stopped.
+            local round = 0
+            while need0 and need0 > 0 do
+                if stopping() then return true end
+                round += 1
+                log(string.format("%s: %d cell(s) still need %s — teleport round %d",
+                    job.verb, need0, job.prog, round))
+                task.wait(1)
+                local _, gridDry = spudRadialFire(job, field, tr, impl,
+                    job.grown and grownStage or job.stage, baseCF, baseSize,
+                    spudToolAttachment(impl))
+                if stopping() then return true end
+                st0 = countStages(field) or st0
+                need0 = st0 and whichNeed(job, st0) or need0
+                if gridDry then
+                    if job.selfPropelled then
+                        harvestSellIfFull(tr, seat, field, "after the teleport rounds")
+                    else
+                        log(string.format("%s: seeder empty with %d cell(s) still to seed here — refilling",
+                            job.verb, need0 or 0))
+                    end
+                    return true
                 end
-                return true
+                if not need0 or need0 == 0 then break end
+                local _, hopDry = spudHopCells(job, field, tr, impl,
+                    job.grown and grownStage or job.stage, baseCF, baseSize,
+                    spudToolAttachment(impl))
+                if stopping() then return true end
+                st0 = countStages(field) or st0
+                need0 = st0 and whichNeed(job, st0) or need0
+                if hopDry then
+                    if job.selfPropelled then
+                        harvestSellIfFull(tr, seat, field, "after the teleport rounds")
+                    else
+                        log(string.format("%s: seeder empty with %d cell(s) still to seed here — refilling",
+                            job.verb, need0 or 0))
+                    end
+                    return true
+                end
             end
+            if job.selfPropelled then
+                harvestSellIfFull(tr, seat, field, "after the teleport rounds")
+            end
+            return true
         end
         -- ▸ NO ROWS, EVER (owner 2026-10-31: "it's still driving"). The ride
         --   got here by an arc hop and the remotes did the work; if every call
@@ -6377,33 +6411,39 @@ local okBuild, errBuild = pcall(function()
             end
             return cells, fields
         end
+        -- ▸ HARVEST OUTRANKS EVERYTHING (owner 2026-10-31: "if it detects even
+        --   1 tile … at the fully grown stage i want it to harvest before
+        --   going to the next stage") and it RETRIES UNTIL NONE IS LEFT ("if
+        --   it misses some thing i want it to infinitly keep retrying untill
+        --   there is none of the last stage it was on"). The old 4-round cap
+        --   and the "didn't change" break are gone: the loop ends only when the
+        --   fields report no standing crop, or the run is stopped.
         if needHarv and hv and hseat then
             local rounds = 0
             while true do
+                if stopping() then return end
                 rounds += 1
-                local before = grownLeft()
                 runPass(JOBS[4], hv, hseat)
                 if stopping() then return end
                 local after, afields = grownLeft()
                 if not after or after == 0 then
-                    log("✅ nothing is standing in the fields any more")
+                    log(string.format("✅ nothing is standing in the fields any more (%d harvest round(s))",
+                        rounds))
                     break
                 end
-                if rounds >= 4 then
-                    log(string.format("harvested %d time(s) and %d cell(s) across %d field(s) are still standing — stopping instead of looping",
-                        rounds, after, afields))
-                    break
-                end
-                if before and before > 0 and after >= before then
-                    log(string.format("the harvest pass didn't change the fields (%d cell(s) still standing) — stopping instead of looping",
-                        after))
-                    break
-                end
-                log(string.format("%d cell(s) across %d field(s) still standing — going back to harvest them",
-                    after, afields))
+                log(string.format("%d cell(s) across %d field(s) still standing — going back to harvest them (round %d)",
+                    after, afields, rounds))
+                task.wait(1)
             end
         elseif needHarv then
-            log("crops are standing but the harvester couldn't be entered — skipping the harvest pass")
+            -- ▸ HARVEST FIRST, ALWAYS (owner 2026-10-31: "if it detects even 1
+            --   tile … at the fully grown stage i want it to harvest before
+            --   going to the next stage"). A standing crop outranks a bare
+            --   tile, so a run that cannot harvest stops here instead of
+            --   plowing around the crop; the next loop tries the harvester
+            --   again.
+            log("crops are standing and the harvester couldn't be entered — stopping before the plow/cultivate/seed passes")
+            return
         end
         if stopping() then return end
 
@@ -6466,7 +6506,6 @@ local okBuild, errBuild = pcall(function()
                 if stopping() then return end
                 seedHitchStep(tr)
                 if stopping() then return end
-                local before = seedNeedLeft(tr:GetPivot().Position)
                 runPass(JOBS[3])
                 if stopping() then return end
                 local after, afields = seedNeedLeft(tr:GetPivot().Position)
@@ -6499,14 +6538,15 @@ local okBuild, errBuild = pcall(function()
                         break
                     end
                     log(string.format("seeder refilled to %d seed(s) — carrying on with the field", filled))
-                elseif rounds >= 6 then
-                    log(string.format("re-seeded %d times and %d cell(s) still need seed — stopping instead of looping", rounds, after))
-                    break
-                elseif before and after >= before then
-                    log(string.format("the seeding pass didn't change the fields (%d cell(s) still need it) — stopping instead of looping", after))
-                    break
                 else
-                    log(string.format("seeder still has %d seed(s) and %d cell(s) across %d field(s) still need seeding — going back to seed them", seeds, after, afields))
+                    -- ▸ RETRY UNTIL NONE IS LEFT (owner 2026-10-31: "infinitly
+                    --   keep retrying untill there is none of the last stage it
+                    --   was on"). The old 6-round cap and the "didn't change"
+                    --   break are gone: the loop ends on an empty seeder that
+                    --   cannot be refilled, or on Stop.
+                    log(string.format("seeder still has %d seed(s) and %d cell(s) across %d field(s) still need seeding — going back to seed them (round %d)",
+                        seeds, after, afields, rounds))
+                    task.wait(1)
                 end
             end
         end

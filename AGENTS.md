@@ -331,10 +331,11 @@ a route any more.
   of driving at it — that field cannot be swept by the remotes either.
 - **On the field** the work is the field remotes (§3.12), all teleports: the
   call pass, the stop-and-burst grid, the **per-cell hop** (a teleport per
-  cell), then **one more grid round** for leftovers and the tween sweep as the
-  last resort. **No row is ever driven** (v1.82) — a field that cannot be
-  finished says `<verb>: every call on <field> was refused — N cell(s) left,
-  no rows driven` and the pass moves on. The old row driver (`keyRow`,
+  cell), then **grid → hop again, round after round**, until the field reports
+  none of that stage left (v1.83 — Stop ends it, and the tween sweep is the
+  last resort only when the teleports take nothing). **No row is ever driven**
+  (v1.82) — a pass that refuses everything says
+  `<verb>: every call on <field> was refused — N cell(s) left, no rows driven`. The old row driver (`keyRow`,
   `alignDriveLeg`, `driveLegKeys`, `throttleRow`) is now unreferenced code;
   `spudRowSteer`/`spudRowEase` are still pinned by `row_steer_test.py`.
 - Deleting the planner also freed the 200-local budget: **headroom 2 → 10**
@@ -1363,7 +1364,26 @@ replicated yet) — it now settles 0.5 s and fires **that same stop once more**
 before believing a parked blade is refused, which is pinned by
 `field_remote_test.py` (`mode.seed = "retryOnce"`).
 
-**Where it stands:** `rebuild v1.82 · fluent gui`, whole suite green (29/29),
+**Harvest first, retry forever (v1.83).** Owner: *"it was detecting plowing
+when only one of the tiles needed plowing, i want that when the script starts
+it sees the field … if it detects even 1 tile … at the fully grown stage i want
+it to harvest before going to the next stage. also if it misses some thing i
+want it to infinitly keep retrying untill there is none of the last stage it
+was on"*. Three changes. (1) **Harvest outranks the other stages**: it was
+already checked first, but a run that could not enter the harvester used to
+log one line and carry on to the plow — it now **stops** there
+(`crops are standing and the harvester couldn't be entered — stopping before the
+plow/cultivate/seed passes`), because a single standing crop outranks a bare
+tile. (2) The harvest loop's **4-round cap and "didn't change" break are gone**:
+it re-reads after every pass and goes back until `grownLeft()` is 0 (Stop still
+ends it). (3) The field pass no longer says "leaving them, no rows driven": a
+leftover cell now loops **grid → hop** round after round, logging
+`<verb>: N cell(s) still need <prog> — teleport round N`, until the field
+reports none of that stage left; the seeder loop's 6-round cap went the same
+way (its 3-refill coin guard stays). All three loops watch `stopping()` and
+`task.wait(1)` between rounds.
+
+**Where it stands:** `rebuild v1.83 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
