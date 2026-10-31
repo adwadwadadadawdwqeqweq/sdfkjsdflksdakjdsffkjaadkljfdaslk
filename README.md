@@ -67,17 +67,19 @@ Everything merged into one paste-and-run file:
   fills (up to 3 refills) or the harvest loop sells and comes back. A refused
   tail gets one retry. Between the call pass and the sweep there is a
   **single-spot fire**: the game does not require the blade to be *over* the
-  cell (live: a take from **60 studs to the side** at +8, and another from
-  **+80 straight up**), so the ride is parked above the field's middle and
-  every remaining id is fired from there — one teleport instead of a
-  serpentine, and the stage re-read decides what it took
+  cell (live: a take from **20 studs to the side** at +8 — 30 was refused —
+  and another from **+80 straight up**), so the ride is parked above the
+  field's middle and every remaining id is fired from there — one teleport
+  instead of a serpentine, and it clears the block of cells around that spot.
+  The stage re-read decides what it took
   (`remote seed: fired 48 cell(s) from one spot above the field middle — 48
   took, 0 left`). Whatever it misses is swept next, so this can only add
   speed. After that the ride is **swept across the field in one serpentine tween**
-  (**45 studs/s**, rows 10 studs apart): a cell the blade is actually over is
-  fired **the moment it is under the blade**, and for plow/cultivate a burst
-  **every 0.5 s** also reaches **14 studs** around the blade — a whole field is
-  covered in about **5–7 s**, and a cell a burst skipped gets a **second lap**
+  (**45 studs/s**, rows **20** studs apart — the blade reaches two tiles, so a
+  pass covers three rows): a cell the blade is actually over is fired **the
+  moment it is under the blade**, and for plow/cultivate a burst **every 0.5 s**
+  also reaches **20 studs** around the blade — a whole field is covered in about
+  **3–5 s**, and a cell a burst skipped gets a **second lap**
   offset by half a row and driven slower. Seeding and harvesting fire
   close-only, so seeds and tank space are spent on cells the server takes. A
   wide call the server refuses never blocks the close one — that is what made
@@ -86,7 +88,7 @@ Everything merged into one paste-and-run file:
   tool's attachment lined up and that single id fired (`remote plow: hopped the
   ride over 46 cell(s) — 46 took`), and only then is the field driven — so the
   remotes can only add speed, never skip work. The sweep logs
-  `remote seed: swept 46 cell(s) in 6.1s at 45 studs/s, range 14 — 44 took, 2 left`.
+  `remote seed: swept 46 cell(s) in 6.1s at 45 studs/s, range 20 — 44 took, 2 left`.
 - **Tests tab** — experiments, off by default, none of them a dependency of a
   normal pass. **Batch field remote** tries the abuse the captured shape allows:
   that call already carries a *list* of ids (`{cellId}`), so with the toggle on

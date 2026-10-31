@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.71 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.72 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -72,7 +72,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 ### 1.4 Script limits (these have broken the build before)
 
 13. **Luau's 200-local limit is real and we are 2 away from the practical
-    ceiling.** Run `python tools/local_budget.py`. As of v1.71:
+    ceiling.** Run `python tools/local_budget.py`. As of v1.72:
     `4-space locals before milkCycle: 183 (practical ceiling 185)`,
     whole body `190 / 200`, **headroom 2**. Do **not** add a `local` inside the
     main build closure. Reuse an existing local, convert the feature to a
@@ -105,7 +105,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 
 ### 1.6 Working tree state (read before editing)
 
-`HEAD` is the latest committed build (v1.71, the field pass fires every id from one spot above the field middle),
+`HEAD` is the latest committed build (v1.72, the sweep runs a row every 20 studs and reaches 20),
 `main`
 tracks `origin/main`, and the tree is clean. Keep it that way: make the change,
 run the gates, and commit only the files the change touches. `git add -A` is
@@ -140,10 +140,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 30/30 checks on v1.71
+python tools/run_all.py        # 30/30 checks on v1.72
 ```
 
-Last full run (v1.71): **30/30 checks passed** (27 harnesses + 3 gates).
+Last full run (v1.72): **30/30 checks passed** (27 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -579,10 +579,10 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   remainder; none taken = the job is switched off **for the session** and the
   sweep drives (`remote seed: the game ignored 50 call(s) … — driving for this
   session`). A missing remote or attachment also disables that job once.
-- **One spot, every id** (v1.71) — the band the lift probe measured (60 studs
-  to the side at +8 taken, 80 refused; +80 straight up taken) means the server
-  checks *how close* the blade is, not that it is over the cell, so a parked
-  blade reaches a whole field. Between the call pass and the sweep,
+- **One spot, every id** (v1.71) — the band the lift probe measured (20 studs
+  to the side at +8 taken, 30 refused; +80 straight up taken) means the server
+  takes a cell whose ground is within ~2 tiles of the blade's, so a parked
+  blade clears the 5×5 block around it. Between the call pass and the sweep,
   `spudRadialFire(job, field, ride, impl, stage, baseCF, baseSize, att)` parks
   the blade **10 studs above the middle of the remaining cells** (one
   `PivotTo`, 0.5 s to replicate — a call fired before the teleport lands is
@@ -598,22 +598,27 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   every 500ms so it's super fast"*, answered with **sweep + fire every 500 ms**).
   Hopping cell→cell is a teleport per id, so after the call pass
   `spudSweepCells(job, field, ride, impl, stage, baseCF, baseSize, att)` builds a
-  serpentine over the remaining cells (rows 10 studs apart, starting at the
+  serpentine over the remaining cells (**rows 20 studs apart** since v1.72 —
+  the blade reaches ~2 tiles, so one pass covers three rows — starting at the
   nearest corner), tweens the ride along it at **45 studs/s** (the attachment
   lined up with the cell plane), and **every 0.5 s** — 22 studs at that speed —
   fires at the cells the blade passes. Two kinds of fire (v1.55, owner:
   *"it does not work so well with the plow"*): a **close fire every tick**
   (within **4 studs**, so a cell under the blade is called at once instead of
   waiting up to 22 studs for the next burst), and — for **plow/cultivate only**
-  — the **every-0.5 s burst within 14 studs** the owner asked for in v1.54.
+  — the **every-0.5 s burst within 20 studs** (v1.72; 14 before) the owner
+  asked for in v1.54.
   A wide fire never blocks the close fire (that was the plow bug: the refused
   burst call marked the cell done, so it was never called with the blade over
   it); seed/harvest are close-only so seeds and tank space are not spent on
   cells the server refuses. Re-reads the stages, then runs a **second lap
   offset by half a row at 70 % speed** for whatever is left; the budget caps
-  the calls (dry = hand the field back). The rest is `spudHopCells`' job, then
+  the calls (dry = hand the field back). **The path is laid on the field's
+  original box** (v1.72): re-reading the bounds from the leftover cells moved
+  the half-row offset with them, so a single leftover row never got its second
+  lap. The rest is `spudHopCells`' job, then
   the drive's, so the sweep can only add speed. Logs
-  `remote seed: swept 46 cell(s) in 6.1s at 45 studs/s, range 14 — 44 took, 2
+  `remote seed: swept 46 cell(s) in 6.1s at 45 studs/s, range 20 — 44 took, 2
   left`.
 - **It runs from the field, hitched and seated** — the same state the game fires
   the call from: the attempt sits at the top of `sweepField`, after the ride has
@@ -648,13 +653,14 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
     `UnreliableRemoteEvent` by path. The per-cell field calls are only the ones
     the game fired by hand; a bulk/field door that was never fired would show
     up here and nowhere else.
-  - **Lift test** (v1.71) — how much slack does the blade check allow?
-    **The band is measured: 60 studs to the side at +8 TAKEN (80 refused) and
-    +80 studs straight up TAKEN** (live 2026-10-31, cultivator, Plowed →
-    Cultivated), so the server checks *how close* the blade is, not that it is
-    over the cell — a parked blade reaches a whole field, which is what the
-    single-spot fire uses (§3.12). The plow's earlier `+40 took / +80 refused`
-    was the same band seen through the first-call artifact below. The v1.68
+  - **Lift test** (v1.72) — how much slack does the blade check allow?
+    **The band is measured: 20 studs to the side at +8 TAKEN, 30 REFUSED, and
+    +80 studs straight up TAKEN** (live 2026-10-31, planter on 50 Cultivated
+    cells, every reading retried). So the server takes a cell whose ground is
+    within ~2 tiles of the blade's, at any height up to ~80 — the blade never
+    has to be *over* the cell. The plow's earlier `+40 took / +80 refused` and
+    the cultivator's `60 to the side TAKEN` were the same band seen through the
+    first-call artifact below (neither build retried a reading). The v1.68
     run also proved a *cell the tool cannot advance answers nothing* (plow at a
     Plowed cell: `Plowed → Plowed — ignored` at +8), so the probe measures
     **only cells the hitched tool can stage**, in whichever of our fields holds
@@ -724,11 +730,11 @@ the server never reads the client's copy. A cell only holds `Alternate,
 GrowthMultiplier, IsWatered, PlantGrowth, Position, SeedType, Stage` (50 cells,
 `Stage=Plowed` on the live field). `spudSweepCells` therefore forces *position*,
 not state — and position has far more slack than assumed. Measured live
-(2026-10-31): a
-cell was TAKEN with the blade **60 studs to the side at +8** (80 refused) and
-with the blade **+80 studs straight above** it, so the check is on how close
-the blade is — not that it is over the cell — and a parked blade reaches a
-whole field (`spudRadialFire`, v1.71). The three untouched field calls are
+(2026-10-31, every reading retried): a cell was TAKEN with the blade **20
+studs to the side at +8** (30 refused) and with the blade **+80 studs straight
+above** it, so the check is the ground under the blade within ~2 tiles — not
+that it is over the cell — and a parked blade clears the block around it
+(`spudRadialFire`, v1.71). The three untouched field calls are
 readers/no-ops live (`FNCSprayFieldCell` changes nothing, `FNCEditField()`
 returns a table, `FNCConvertRundownField()` wants an instance) and the **tool
 identity is checked** (cultivate fired from a plow's own attachment at a
@@ -1272,7 +1278,20 @@ once. **→ v1.71** adds `spudRadialFire`: after the call pass, the blade parks
 there (one teleport instead of a serpentine), verified by the stage re-read
 and backed by the unchanged sweep/hop/drive.
 
-**Where it stands:** `rebuild v1.71 · fluent gui`, whole suite green (30/30),
+**The band, third run (v1.71, 2026-10-31).** A planter on a field with 50
+Cultivated cells, every reading retried: `80 → ignored`, `60 → ignored`,
+`45 → ignored`, `30 → ignored`, `20 → Plowed… Cultivated → Seeded — TAKEN`,
+then `+80 studs above → TAKEN` → `tallest take +80 studs, widest take 20
+studs to the side`. So the reach is **~2 tiles horizontally at any height** —
+the cultivator's `60 to the side` from the previous build was a late take
+credited to the wrong reading (that build had no retry). **→ v1.72** raises the
+sweep's burst from 14 to **20 studs** and its row spacing from 10 to **20** (a
+pass covers three rows; bursts 22 studs apart along the path leave every cell
+at most ~15 studs from one), and lays the lap path on the **field's own box** —
+re-reading the bounds from the leftover cells had moved lap 2's half-row offset
+off a single leftover row.
+
+**Where it stands:** `rebuild v1.72 · fluent gui`, whole suite green (30/30),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching `path: … theta* N pops / N ms, min clear N`, the
 new width line (`tool … — 3-wide …; rows every 30`), the Farm owner picker
@@ -1385,11 +1404,11 @@ for this session`), and the equipment lines (`✅ mounted … (FNCEnterEquipment
    input) and v1.59 (Tests → **Remote list**: paste it. A remote that looks
    like a field/bulk door names the next experiment. The wrong-tool question is
    answered — the tool identity IS checked, so each verb keeps its own
-   implement) and v1.71 (a field job must log
+   implement) and v1.72 (a field job must log
    `remote <verb>: fired N cell(s) from one spot above the field middle — M
-   took, K left` right after the call pass; M should be most of N on a normal
-   field. If M is 1–2, the live reach is smaller than the band suggests and
-   the sweep still carries the field — paste the line either way) and v1.70
+   took, K left` right after the call pass — M should be the cells within ~2
+   tiles of the field middle, and the sweep must log `range 20`; watch that a
+   field now finishes in one or two serpentine passes without leftovers) and v1.70
    (Tests → **Lift test**: paste the
    `lift: verdict — tallest take …, widest take … (N cell(s) spent)` line. Hitch
    a tool whose stage your fields hold SEVERAL cells of — Empty for a plow,

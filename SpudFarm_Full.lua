@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.71 · fluent gui"
+local VERSION    = "rebuild v1.72 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6721,18 +6721,40 @@ local okBuild, errBuild = pcall(function()
         end
         -- ▸ FAST + WIDE (owner, 2026-10-30: "that tween NEEDS to be faster,
         --   and have more range like before"): the old per-cell pass fired at
-        --   every remaining id whatever the distance, so the burst now reaches
-        --   14 studs instead of 6 and the ride runs at 45 studs/s. The server
-        --   decides what it takes; anything it refuses is still hopped/driven.
+        --   every remaining id whatever the distance, so the burst reaches
+        --   around the blade instead of 6 studs and the ride runs at 45
+        --   studs/s. The server decides what it takes; anything it refuses is
+        --   still hopped/driven.
+        -- ▸ HOW FAR THE SERVER REACHES (live 2026-10-31): a call with the
+        --   blade 20 studs to the side at +8 was TAKEN, 30 was refused, and
+        --   one from +80 straight above was taken — the check is the ground
+        --   under the blade within ~2 cells, at any height. So the burst
+        --   reaches 20 studs and the serpentine runs a row every 20: with
+        --   bursts 22 studs apart along the path, every cell is at most ~15
+        --   studs from a burst that can take it. The second lap still covers
+        --   whatever a refused call leaves behind.
         local spd = speed or 45          -- studs/s: 22 studs between bursts
         local fireEvery = 0.5            -- the owner's cadence
         local gap = spd * fireEvery
-        local radius = 14                -- catch range around the blade
+        local radius = 20                -- catch range around the blade
         local tick = 0.03
-        local rowGap = 10                -- the field's own grid
+        local rowGap = 20                -- 2 cells: the blade reaches that far
         local fired, took = 0, 0
         local t0 = os.clock()
         local left = nil
+        -- ▸ THE PATH IS BUILT ON THE FIELD'S OWN BOX, not on what is left:
+        --   lap 2 shifts half a row over, and a box re-read from the leftover
+        --   cells moved with them, so the shift landed off the rows it was
+        --   meant to cover (a single leftover row lost its second lap).
+        local minX, maxX, minZ, maxZ = pts[1].X, pts[1].X, pts[1].Z, pts[1].Z
+        local y0 = pts[1].Y
+        for _, c in ipairs(pts) do
+            if c.X < minX then minX = c.X end
+            if c.X > maxX then maxX = c.X end
+            if c.Z < minZ then minZ = c.Z end
+            if c.Z > maxZ then maxZ = c.Z end
+            if c.Y < y0 then y0 = c.Y end
+        end
         for lap = 1, 2 do
             local live = {}
             for _, c in ipairs(pts) do
@@ -6741,15 +6763,6 @@ local okBuild, errBuild = pcall(function()
             if #live == 0 then break end
             -- lap 2 runs between lap 1's rows: half a row over
             local shift = (lap - 1) * rowGap / 2
-            local minX, maxX, minZ, maxZ = live[1].X, live[1].X, live[1].Z, live[1].Z
-            local y0 = live[1].Y
-            for _, c in ipairs(live) do
-                if c.X < minX then minX = c.X end
-                if c.X > maxX then maxX = c.X end
-                if c.Z < minZ then minZ = c.Z end
-                if c.Z > maxZ then maxZ = c.Z end
-                if c.Y < y0 then y0 = c.Y end
-            end
             local alongX = (maxX - minX) >= (maxZ - minZ)
             local path = {}
             if alongX then
@@ -6775,6 +6788,7 @@ local okBuild, errBuild = pcall(function()
                     dir = -dir
                 end
             end
+            if #path < 2 then break end -- a strip too narrow for this lap's shift
             local cum = { 0 }
             for i = 2, #path do
                 local a, b = path[i - 1], path[i]
@@ -6868,13 +6882,14 @@ local okBuild, errBuild = pcall(function()
     end
 
     -- ▸ ONE SPOT, EVERY ID (live 2026-10-31 lift band: a cell was TAKEN with
-    --   the blade 60 studs to the side at +8, and another from 80 studs
-    --   straight above it — the server checks how close the blade is, not
-    --   that it is over the cell). So the leftovers are fired once more with
-    --   the ride parked above the MIDDLE of the field, where every cell is
-    --   within reach: one teleport instead of a serpentine. The stage re-read
-    --   decides what the server took; anything it misses is still swept,
-    --   hopped and driven, so this can only add speed. The seeder/tank budget
+    --   the blade 20 studs to the side at +8 — 30 was refused — and another
+    --   from 80 studs straight above it, so the server checks the ground
+    --   under the blade within ~2 cells, at any height). The leftovers are
+    --   fired once more with the ride parked above the MIDDLE of the field:
+    --   one teleport instead of a serpentine, and every cell within a couple
+    --   of tiles of that spot lands. The stage re-read decides what the
+    --   server took; anything it misses is still swept, hopped and driven,
+    --   so this can only add speed. The seeder/tank budget
     --   is the machine's own, exactly like the sweep.
     function spudRadialFire(job, field, ride, impl, stage, baseCF, baseSize, att)
         local pts = cellsAtStage(field, stage, baseCF, baseSize)

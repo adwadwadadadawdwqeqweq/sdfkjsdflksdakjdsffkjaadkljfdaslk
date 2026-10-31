@@ -569,7 +569,7 @@ check("sweep: the ride is tweened, not teleported", rides - r0 > 50,
     (rides - r0) .. " pivot(s)")
 check("sweep: the log says what the sweep did",
     loggedText():find("swept 15 cell") ~= nil
-        and loggedText():find("at 45 studs/s, range 14") ~= nil)
+        and loggedText():find("at 45 studs/s, range 20") ~= nil)
 
 -- a seeder can only fire as many calls as it holds seeds
 capVal.Value = 3
