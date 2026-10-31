@@ -114,23 +114,13 @@ Everything merged into one paste-and-run file:
   `FNCConvertRundownField()` with **no arguments** just to read the shape they
   demand (an error names it; nothing that could rebuild the field is handed to
   them).
-  **Tool apart** answers whether the tractor has to be there at all: it takes a
-  plow/cultivator/seeder (bringing a stored one out, storing it again after),
-  finds a cell of that tool's stage on **any** of your fields — it prints every
-  field's stage counts when a field is fully grown and has none — takes the
-  tool **off the tractor** first when one has it (a hitch drags it back, which
-  turns the call into a distance test), teleports **only the tool** onto that
-  cell, fires it with the tool's own attachment, and
-  lets the cell's own stage answer: `TAKEN` means the tool alone is enough (the
-  tractor never has to move), `IGNORED` means the server wants the implement on
-  a ride. The tool is put back exactly as it was found.
   Every line is logged as `test:` and **Copy report** puts place id, build, player
   and the whole run on the clipboard. Nothing touches animals or another
   player's plot, and the tests refuse to run while a farm pass is going.
   (The settled experiments — seat/stage/attachment checks, the burst, sell,
   carry, spawn, fill, the FieldHelper dump, force-a-tile, the field-packet
-  watch/forge, the wrong-tool probe and the lift test — were removed once they
-  had their answer; their results are in the console history. The lift band is
+  watch/forge, the wrong-tool probe, the lift test and **tool apart** — were
+  removed once they had their answer; their results are in the console history. The lift band is
   the one that matters to play: a field call was taken with the blade **20
   studs to the side at +8** (30 refused) and from **+80 straight up** on three
   separate runs, and that is what the sweep's 20-stud rows and the
@@ -139,7 +129,10 @@ Everything merged into one paste-and-run file:
   moved no cell. The wrong tool was answered live: cultivate fired from a
   plow's own attachment at a Plowed cell the blade was sitting over stayed
   Plowed, so the server checks *which implement* the attachment belongs to —
-  one sweep cannot run every stage.)
+  one sweep cannot run every stage. Tool apart closed the last one: a plow
+  taken **off** the tractor, its blade placed **0.0 studs** from an Empty cell,
+  was still `IGNORED`, so the implement has to be on a ride with the driver
+  seated — the tractor must be there, it just never has to *drive*.)
 - **Equipment on the game's own remotes** — the same capture pass recorded the
   equipment calls, so the script fires them instead of pressing keys or driving
   the Equipment Manager UI: `FNCEnterEquipment(vehicle, seat)` to mount,

@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.79 · fluent gui"
+local VERSION    = "rebuild v1.80 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6351,7 +6351,7 @@ local okBuild, errBuild = pcall(function()
     end
 
     function spudTestRunAll()
-        for _, k in ipairs({ "remotes", "fieldremotes", "toolapart" }) do
+        for _, k in ipairs({ "remotes", "fieldremotes" }) do
             spudTestRun(k)
             task.wait(0.3)
         end
@@ -6402,151 +6402,16 @@ local okBuild, errBuild = pcall(function()
         --   on (§3.12). Bring the probe back if a game update ever changes
         --   how a field call is accepted.
 
-        -- ▸ TOOL APART (owner 2026-10-31: "can we abuse the power that the
-        --   tools can like be seperated from the tractor to make it like so
-        --   that the tool gets used but the tractor does not move"). Every
-        --   field call so far was fired with the tool HITCHED and only the
-        --   blade's ground tested, so the open question is whether the server
-        --   cares that an implement is on a ride at all. This moves the
-        --   parked tool onto one of our own cells, fires that cell with the
-        --   tool's own attachment, and lets the cell's own stage answer:
-        --   TAKEN = the tractor never has to move again, IGNORED = the
-        --   server wants the implement on a vehicle. The tool goes back where
-        --   it was afterwards; nothing else is touched.
-        if kind == "toolapart" then
-            if not fields[1] then
-                spudTestSay("toolapart: no field of ours is streamed")
-                return
-            end
-            -- the first cell of a stage a TOWED tool can take, on ANY of our
-            -- fields, with every field's stages spelled out — the first run
-            -- was asked on a field that was fully grown, where no such cell
-            -- exists at all
-            local plan, cell, f, stagesSeen
-            local seen = {}
-            for _, m in ipairs(fields) do
-                local baseCF, baseSize = fieldFrame(m.d)
-                local st = countStages(m.d)
-                local parts = {}
-                for name, n in pairs(st or {}) do
-                    if name ~= "total" then parts[#parts + 1] = name .. "=" .. tostring(n) end
-                end
-                table.sort(parts)
-                seen[#seen + 1] = string.format("%s [%s]", m.d.Name,
-                    #parts > 0 and table.concat(parts, " ") or "no stages")
-                if baseCF then
-                    for _, j in ipairs(JOBS) do
-                        if not j.selfPropelled and not plan then
-                            local list = cellsAtStage(m.d, j.stage, baseCF, baseSize)
-                            if list and #list > 0 then
-                                plan, cell, f = j, list[1], m
-                            end
-                        end
-                    end
-                end
-            end
-            stagesSeen = table.concat(seen, " · ")
-            if not plan then
-                -- a grown field has nothing a towed tool can stage, so the
-                -- probe has to say WHICH stage it found and when to press it
-                spudTestSay("toolapart: no Empty, Plowed or Cultivated cell anywhere — "
-                    .. stagesSeen .. " — press it again right after a harvest or a plow pass")
-                return
-            end
-            -- the tools are normally put back in storage after a pass, so a
-            -- stored one is spawned for the test and stored again at the end
-            local impl = findImplement(plan.typeName, here, nil, true)
-            if not impl then
-                spudTestSay(string.format(
-                    "toolapart: no %s on this farm (working %s) — %s",
-                    plan.typeName, tostring(f.ownerName or "mine"), stagesSeen))
-                return
-            end
-            local spawned = false
-            if equipInStorage(impl) then
-                spudTestSay("toolapart: " .. impl.Name .. " is in storage — spawning it")
-                if not managerAction(impl.Name, "Spawn") then
-                    spudTestSay("toolapart: could not bring " .. impl.Name .. " out")
-                    return
-                end
-                task.wait(1)
-                local again = findImplement(plan.typeName, here)
-                if again then impl = again end
-                spawned = true
-            end
-            spudTestSay(string.format("toolapart: testing %s (%s) on %s, cell %d",
-                impl.Name, plan.verb, f.d.Name, cell.id))
-            local att = spudToolAttachment(impl)
-            if not (att and att.Parent) then
-                spudTestSay("toolapart: " .. impl.Name .. " has no attachment to fire")
-                if spawned then managerAction(impl.Name, "Store") end
-                return
-            end
-            -- ▸ IT WAS HITCHED on the first live run, and the hitch dragged the
-            --   tool back (81 → 43.7 studs off the cell) — so the call was
-            --   refused for DISTANCE, not for the hitch, and answered nothing.
-            --   Take the implement off the tractor first; the HUD saying no
-            --   secondary is the proof it came off.
-            local before = cellStage(f.d, cell.id)
-            local hitchedTo = hitchedImplementName()
-            local unhitched = false
-            if hitchedTo then
-                local tr = findTractor()
-                spudTestSay("toolapart: the " .. tostring(hitchedTo)
-                    .. " is on a tractor — unhitching it for the test")
-                if tr and spudUnhitchRemote(tr) then
-                    task.wait(0.7)
-                    unhitched = hitchedImplementName() == nil
-                end
-                if not unhitched then
-                    spudTestSay("toolapart: it is still hitched ("
-                        .. tostring(hitchedImplementName()) .. ") — press X next to it, then run again")
-                    if spawned then managerAction(impl.Name, "Store") end
-                    return
-                end
-            end
-            local old = impl:GetPivot()
-            local target = Vector3.new(cell.X, cell.Y + 10, cell.Z)
-            local d0 = (att.WorldPosition - target).Magnitude
-            local function place()
-                pcall(function()
-                    impl:PivotTo(impl:GetPivot() + (target - att.WorldPosition))
-                end)
-                task.wait(0.7)
-                return (att.WorldPosition - target).Magnitude
-            end
-            local d1 = place()
-            if d1 > 6 then d1 = place() end -- one retry: the pose may still be settling
-            spudTestSay(string.format(
-                "toolapart: %s (%s), %s — blade was %.0f studs off cell %d, now %.1f",
-                impl.Name, plan.verb,
-                unhitched and "taken off the tractor" or "free of a ride",
-                d0, cell.id, d1))
-            if d1 > 10 then
-                spudTestSay("toolapart: the blade never reached the cell ("
-                    .. string.format("%.0f", d1)
-                    .. " studs off) — firing now would test distance, not the hitch; nothing fired")
-            else
-                spudFieldRemoteCall(plan.verb, f.d, cell.id, att)
-                task.wait(1.2)
-                local after = cellStage(f.d, cell.id)
-                spudTestSay(string.format(
-                    "toolapart: call with the tool off the tractor — %s → %s — %s",
-                    tostring(before), tostring(after),
-                    (after and before and after ~= before)
-                        and "TAKEN: the tractor never has to move"
-                        or "IGNORED: the server wants the implement on a ride"))
-            end
-            if spawned then
-                managerAction(impl.Name, "Store")
-                spudTestSay("toolapart: the spawned tool is back in storage")
-            else
-                pcall(function() impl:PivotTo(old) end)
-                spudTestSay("toolapart: the tool is back where it was"
-                    .. (unhitched and ", still off the tractor (the pass hitches it when it needs it)" or ""))
-            end
-            return
-        end
+        -- ▸ TOOL APART — ANSWERED live 2026-10-31 and retired. With the S4204
+        --   plow taken OFF the tractor and its blade placed 0.0 studs from an
+        --   Empty cell, the same call came back `Empty → Empty — IGNORED`.
+        --   The run before it (plow still hitched) did plow one cell while the
+        --   tool was shoved across the field: that was the game's own
+        --   drive-over, so a tool only stages cells while it is ON a ride with
+        --   the driver seated. The tractor has to be there — the only way to
+        --   spare it is to never DRIVE it, which the arc hop and the
+        --   stop-and-burst grid already do. Bring the probe back if a build
+        --   ever accepts a call from a loose implement.
 
         -- ▸ FIELD REMOTES — the three field calls the probe never fired.
         --   FNCSprayFieldCell is tried with the same (field, {id}, {att}) shape
@@ -8483,9 +8348,6 @@ local okBuild, errBuild = pcall(function()
     end })
     Tabs.Tests:CreateButton({ Title = "Field remotes", Callback = function()
         task.spawn(function() spudTestRun("fieldremotes") end)
-    end })
-    Tabs.Tests:CreateButton({ Title = "Tool apart", Callback = function()
-        task.spawn(function() spudTestRun("toolapart") end)
     end })
     Tabs.Tests:CreateButton({ Title = "Run all", Callback = function()
         task.spawn(function() spudTestRunAll() end)
