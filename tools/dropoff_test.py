@@ -25,7 +25,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "SpudFarm_Full.lua"
-WANTED = ["spudSellNow", "spudFulfillSpots", "findSellSpots", "trySellAt", "sellHarvester"]
+WANTED = ["spudSellNow", "spudHarvestFull", "spudFulfillSpots", "findSellSpots", "trySellAt", "sellHarvester"]
 
 PRE = r"""
 local V = {}
@@ -97,6 +97,16 @@ spudDropOff = ""
 check("no destination: a full tank stays put", spudSellNow(50, 50) == false)
 spudDropOff = nil
 check("nil destination: a full tank stays put", spudSellNow(50, 50) == false)
+
+-- 1b. a tank that cannot cover the standing cells is full too (live 49/50
+--     against 46 cells fired one call a round for ever)
+check("space: a full tank needs no second opinion", spudHarvestFull(50, 50, 46) == true)
+check("space: one free slot against 46 cells unloads", spudHarvestFull(49, 50, 46) == true)
+check("space: one free slot against 1 cell keeps working", spudHarvestFull(49, 50, 1) == false)
+check("space: an empty tank never unloads", spudHarvestFull(0, 50, 46) == false)
+check("space: an unreadable load never unloads", spudHarvestFull(nil, nil, 46) == false)
+check("space: a zero capacity never unloads", spudHarvestFull(0, 0, 46) == false)
+check("space: no standing cells means no excuse", spudHarvestFull(25, 50, 0) == false)
 
 -- 2. the Fulfillment pad is named from the world
 local stores = folder("Stores", workspace)

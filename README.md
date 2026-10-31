@@ -120,7 +120,9 @@ Everything merged into one paste-and-run file:
   them).
   Every line is logged as `test:` and **Copy report** puts place id, build, player,
   the whole test run **and the last 60 farm-log lines** on the clipboard — so one
-  press answers a farm question too. Nothing touches animals or another
+  press answers a farm question too. **Copy console** is the same clipboard
+  without the test run: the last 150 farm-log lines, for a run that is stalling
+  and needs no experiment. Nothing touches animals or another
   player's plot, and the tests refuse to run while a farm pass is going.
   (The settled experiments — seat/stage/attachment checks, the burst, sell,
   carry, spawn, fill, the FieldHelper dump, force-a-tile, the field-packet
@@ -175,6 +177,10 @@ Everything merged into one paste-and-run file:
   **Sell** fires `EVTSellAtStore` from wherever the harvester stands first:
   a tank that drops logs `✅ sold in place … (no pad trip)` and the harvest
   carries on without moving; only a refusal takes the pad trip.
+  A tank with **less free space than there are cells still standing** counts
+  as full (`spudHarvestFull`): 49/50 against 46 standing crops would otherwise
+  burn one call — and one refusal — per cell, so the sell trip runs first and
+  the harvester comes back with a whole tank.
 - **Trees are left alone** — the harvester never drives a field whose type or
   model name says wood / tree / log / forest / timber / lumber / sawmill / stump,
   so standing trees are not cut. A field whose cell read succeeds but returns
@@ -185,11 +191,14 @@ Everything merged into one paste-and-run file:
   only thing left that needed a route was the fallback for a field with no
   readable frame, and that field cannot be swept by the remotes either. Trips
   between fields are **arc hops**, and a field is finished by **teleports** —
-  the call pass, the stop-and-burst grid, one more grid for leftovers, then a
-  teleport onto each remaining cell. Rows are driven only if **every** field
-  call was refused; otherwise the pass says
-  `<verb>: N cell(s) left after the teleport passes — leaving them, no rows
-  driven`.
+  the call pass, the stop-and-burst grid, a teleport onto each remaining cell,
+  then **grid → hop again, round after round**, until the field reports none of
+  that stage left (Stop ends it). The serpentine tween is the last resort, only
+  when the teleports take nothing. **No row is ever driven**: a pass whose every
+  call was refused says
+  `<verb>: every call on <field> was refused — N cell(s) left, no rows driven`.
+  Harvesting outranks the other stages: one standing crop sends the harvester
+  first, and the harvest loop retries until nothing is standing.
 - **Working width** — the sweep measures the tool's ground width across the
   row axis (every BasePart's oriented box, unioned) and plans rows at
   `width / 10` **tiles** instead of the old fixed one tile, so a **3-wide**

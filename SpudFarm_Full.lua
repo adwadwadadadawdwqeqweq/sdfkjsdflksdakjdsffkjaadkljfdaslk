@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.85 · fluent gui"
+local VERSION    = "rebuild v1.86 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -2857,8 +2857,13 @@ local okBuild, errBuild = pcall(function()
             end
         end
         if dry then
-            log(string.format("remote %s: the seeder holds %d seed(s) — %d call(s) sent, %d cell(s) still need it; the planting stage refills and comes back",
-                job.verb, budget or 0, sent + threw, left))
+            if job.verb == "harvest" then
+                log(string.format("remote harvest: the tank has %d free slot(s) — %d call(s) sent, %d cell(s) still standing; the sell trip comes first",
+                    budget or 0, sent + threw, left))
+            else
+                log(string.format("remote %s: the seeder holds %d seed(s) — %d call(s) sent, %d cell(s) still need it; the planting stage refills and comes back",
+                    job.verb, budget or 0, sent + threw, left))
+            end
             return true, left, true
         end
         if left < before then
@@ -4950,6 +4955,18 @@ local okBuild, errBuild = pcall(function()
             and max > 0 and cur >= max
     end
 
+    -- ▸ A TANK WITH ONE FREE SLOT IS FULL IN EVERY WAY THAT MATTERS (live
+    --   2026-10-31: 49/50 against 46 standing cells fired ONE call per round
+    --   for ever — the budget allowed exactly one, the server refused it, and
+    --   the sell gate demanded cur >= max, so nothing ever unloaded). The trip
+    --   is worth taking when the room left cannot cover the cells still
+    --   standing, because otherwise it is one call and one refusal per cell.
+    function spudHarvestFull(cur, max, need)
+        if type(cur) ~= "number" or type(max) ~= "number" or max <= 0 then return false end
+        if cur >= max then return true end
+        return type(need) == "number" and need > 0 and (max - cur) < need
+    end
+
     -- the Fulfillment pad, read from the world — never a guessed position.
     -- Deposit_Warehouse is the drop pad; Withdraw_Warehouse is the opposite
     -- action, so it only wins when it is the only pad there. Aim at the TOP
@@ -5109,12 +5126,12 @@ local okBuild, errBuild = pcall(function()
     --   during the last leg or in the touch-up stayed full until the next
     --   run — which is exactly "it doesn't go and sell".
     --   Returns tried (it WAS full, so the caller counts an attempt) and sold.
-    local function harvestSellIfFull(ride, seat, field, note)
+    local function harvestSellIfFull(ride, seat, field, note, need)
         if os.clock() < sellCooldownUntil then return false, false end
         local cur, max = harvesterLoad(ride)
         if not (cur and max and max > 0) then return false, false end
-        if cur < max then return false, false end
-        if not spudSellNow(cur, max) then
+        if not spudHarvestFull(cur, max, need) then return false, false end
+        if spudDropOff ~= "Fulfillment" and spudDropOff ~= "Sell" then
             log(string.format(
                 "harvester is FULL (%d/%d%s) — stopping the run: pick a Drop-off in the Farm tab",
                 cur, max, note and (", " .. note) or ""))
@@ -5175,6 +5192,34 @@ local okBuild, errBuild = pcall(function()
             spudTestShow(table.concat(spudTestLog, "\n") .. "\n"
                 .. (ok and "(copied to the clipboard)" or "(clipboard refused — the Console tab has it)"))
         end
+    end
+
+    -- ▸ ONE BUTTON FOR THE CONSOLE (user: "you should add a copy consol line
+    --   bro"). A stalled run explains itself in the farm log, which lives in
+    --   the executor's console — so this puts the last 150 lines on the
+    --   clipboard with the usual header and shows the tail in this panel.
+    function spudTestCopyConsole()
+        local trace = _G.SPUD_TRACE
+        local lines = {}
+        if type(trace) == "table" then
+            for i = math.max(1, #trace - 149), #trace do
+                lines[#lines + 1] = trace[i]
+            end
+        end
+        if #lines == 0 then
+            spudTestSay("console: nothing has been logged yet")
+            return
+        end
+        local text = string.format(
+            "══════ SPUD CONSOLE ══════\nplace %s · player %s · %s\n\n%s\n══════ END ══════",
+            tostring(game.PlaceId), tostring(LocalPlayer.Name), tostring(VERSION),
+            table.concat(lines, "\n"))
+        local ok = pcall(function() setclipboard(text) end)
+        local status = ok
+            and string.format("console: the last %d line(s) are on the clipboard — paste them in chat", #lines)
+            or string.format("console: setclipboard refused — the last %d line(s) are below", #lines)
+        spudTestSay(status)
+        if spudTestShow then spudTestShow(table.concat(lines, "\n") .. "\n" .. status) end
     end
 
     function spudTestRun(kind)
@@ -5870,7 +5915,7 @@ local okBuild, errBuild = pcall(function()
             need0 = st0 and whichNeed(job, st0) or need0
             if done and left == 0 then
                 if job.selfPropelled then
-                    harvestSellIfFull(tr, seat, field, "after the remote pass")
+                    harvestSellIfFull(tr, seat, field, "after the remote pass", need0)
                 end
                 return true
             end
@@ -5883,7 +5928,7 @@ local okBuild, errBuild = pcall(function()
                 if job.selfPropelled then
                     log(string.format("%s: tank full with %d cell(s) still standing here — selling, then coming back",
                         job.verb, need0 or 0))
-                    harvestSellIfFull(tr, seat, field, "after the remote pass")
+                    harvestSellIfFull(tr, seat, field, "after the remote pass", need0)
                 else
                     log(string.format("%s: seeder empty with %d cell(s) still to seed here — refilling before driving",
                         job.verb, need0 or 0))
@@ -5903,14 +5948,14 @@ local okBuild, errBuild = pcall(function()
                     need0 = st0 and whichNeed(job, st0) or need0
                     if need0 == 0 then
                         if job.selfPropelled then
-                            harvestSellIfFull(tr, seat, field, "after the single-spot fire")
+                            harvestSellIfFull(tr, seat, field, "after the single-spot fire", need0)
                         end
                         return true
                     end
                 end
                 if radialDry then
                     if job.selfPropelled then
-                        harvestSellIfFull(tr, seat, field, "after the single-spot fire")
+                        harvestSellIfFull(tr, seat, field, "after the single-spot fire", need0)
                     else
                         log(string.format("%s: seeder empty with %d cell(s) still to seed here — refilling before driving",
                             job.verb, need0 or 0))
@@ -5931,14 +5976,14 @@ local okBuild, errBuild = pcall(function()
                     need0 = st0 and whichNeed(job, st0) or need0
                     if need0 == 0 then
                         if job.selfPropelled then
-                            harvestSellIfFull(tr, seat, field, "after the hop pass")
+                            harvestSellIfFull(tr, seat, field, "after the hop pass", need0)
                         end
                         return true
                     end
                 end
                 if hopDry then
                     if job.selfPropelled then
-                        harvestSellIfFull(tr, seat, field, "after the hop pass")
+                        harvestSellIfFull(tr, seat, field, "after the hop pass", need0)
                     end
                     return true
                 end
@@ -5955,14 +6000,14 @@ local okBuild, errBuild = pcall(function()
                     need0 = st0 and whichNeed(job, st0) or need0
                     if need0 == 0 then
                         if job.selfPropelled then
-                            harvestSellIfFull(tr, seat, field, "after the sweep")
+                            harvestSellIfFull(tr, seat, field, "after the sweep", need0)
                         end
                         return true
                     end
                 end
                 if sweepDry then
                     if job.selfPropelled then
-                        harvestSellIfFull(tr, seat, field, "after the sweep")
+                        harvestSellIfFull(tr, seat, field, "after the sweep", need0)
                     else
                         log(string.format("%s: seeder empty with %d cell(s) still to seed here — refilling before driving",
                             job.verb, need0 or 0))
@@ -5983,7 +6028,7 @@ local okBuild, errBuild = pcall(function()
                     need0 = st0 and whichNeed(job, st0) or need0
                     if need0 == 0 then
                         if job.selfPropelled then
-                            harvestSellIfFull(tr, seat, field, "after the second grid")
+                            harvestSellIfFull(tr, seat, field, "after the second grid", need0)
                         end
                         return true
                     end
@@ -6011,7 +6056,7 @@ local okBuild, errBuild = pcall(function()
                 need0 = st0 and whichNeed(job, st0) or need0
                 if gridDry then
                     if job.selfPropelled then
-                        harvestSellIfFull(tr, seat, field, "after the teleport rounds")
+                        harvestSellIfFull(tr, seat, field, "after the teleport rounds", need0)
                     else
                         log(string.format("%s: seeder empty with %d cell(s) still to seed here — refilling",
                             job.verb, need0 or 0))
@@ -6027,7 +6072,7 @@ local okBuild, errBuild = pcall(function()
                 need0 = st0 and whichNeed(job, st0) or need0
                 if hopDry then
                     if job.selfPropelled then
-                        harvestSellIfFull(tr, seat, field, "after the teleport rounds")
+                        harvestSellIfFull(tr, seat, field, "after the teleport rounds", need0)
                     else
                         log(string.format("%s: seeder empty with %d cell(s) still to seed here — refilling",
                             job.verb, need0 or 0))
@@ -6036,7 +6081,7 @@ local okBuild, errBuild = pcall(function()
                 end
             end
             if job.selfPropelled then
-                harvestSellIfFull(tr, seat, field, "after the teleport rounds")
+                harvestSellIfFull(tr, seat, field, "after the teleport rounds", need0)
             end
             return true
         end
@@ -6055,7 +6100,7 @@ local okBuild, errBuild = pcall(function()
                 job.verb, field.Name, need0))
         end
         if job.selfPropelled then
-            harvestSellIfFull(tr, seat, field, "after the refused calls")
+            harvestSellIfFull(tr, seat, field, "after the refused calls", need0)
         end
         return true
     end
@@ -7043,6 +7088,9 @@ local okBuild, errBuild = pcall(function()
     end })
     Tabs.Tests:CreateButton({ Title = "Copy report", Callback = function()
         spudTestCopy()
+    end })
+    Tabs.Tests:CreateButton({ Title = "Copy console", Callback = function()
+        spudTestCopyConsole()
     end })
 
     -- ▸🩺 DOCTOR REPORT (read-only). After a run of patches where each fix

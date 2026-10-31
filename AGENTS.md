@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.80 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.86 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.81
+python tools/run_all.py        # 29/29 checks on v1.86
 ```
 
-Last full run (v1.81): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.86): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -459,6 +459,15 @@ values, and the full tank always ends in a real trip:
   `spudSavedDropOff`); `spudSellNow(cur, max)` is true only for a readable
   `cur >= max` **and** one of the two known destinations — an unknown or nil
   pick still stops the run rather than driving nowhere.
+- **A tank that cannot cover the standing cells is full** (`spudHarvestFull(cur,
+  max, need)`, v1.86). Live: `49/50` against 46 standing crops gave a budget of
+  **1**, fired one call, the server refused it, and the sell gate demanded
+  `cur >= max` — so the harvest loop ran round after round for ever and nothing
+  unloaded. The rule is `cur >= max` **or** `max − cur < need` (a readable pair,
+  `max > 0`, `need > 0`); `harvestSellIfFull` takes the standing count at every
+  call site and checks the destination pick itself. Its budget line now says
+  `remote harvest: the tank has N free slot(s) …` instead of reusing the
+  seeder's wording.
 - **Fulfillment** → `spudFulfillSpots()` reads `Stores.DropOffs` and prefers
   `Deposit_Warehouse` (the probed pad at -353,138,-90) over `Withdraw_Warehouse`
   and the plain `DropOff`s, aiming at the pad's **top surface**. The folder
@@ -643,7 +652,10 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   **Copy report** (`spudTestCopy`) now also appends the last **60 farm-log
   lines** from `_G.SPUD_TRACE` (v1.85) — a Tests-only copy cannot answer "why is
   harvesting silent", and the console is the place the owner does not want to
-  dig in.
+  dig in. **Copy console** (`spudTestCopyConsole`, v1.86) is the same clipboard
+  without the test run — the last **150** farm-log lines — for a run that is
+  stalling and needs no experiment (owner: *"you should add a copy consol line
+  bro"*).
   **Run all** runs the two remaining probes (remote list, field remotes); both
   refuse while `loopThread` is live and touch no animals or other plots.
   There is **no harness** for them — the live read is the only verdict.
@@ -762,11 +774,11 @@ UI/key fallbacks and the three-miss switch-off.
 | Whose machine | global `equipOwnerRank(m)` (farm being worked → mine → no readable owner → never another account), used by `findTractor` / `findImplement`; owner tag read by `milkStoreOwnerOf` |
 | Tree soil | global `spudTreeField(typeName, modelName)` (wood/tree/log/forest/timber/lumber/sawmill/stump → no crop harvest) and `spudNoCells(st)` (successful 0-cell read is empty, `nil` read is unknown); used in `probeWork`, `runPass`, `needLeft`, `grownLeft`, growth wait |
 | Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (stop-and-burst grid: the blade parks on each stop, every in-reach id fired), `spudSweepCells` (serpentine tween, a burst every 0.5 s), `spudHopCells` (one cell at a time), `spudFillSeederRemote`; state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, default false); wired at the top of `sweepField` and in `buySeedAndFill` |
-| Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Run all**, **Copy report** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
+| Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`, test run + last 60 farm lines), `spudTestCopyConsole` (`setclipboard`, last 150 farm lines only), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Run all**, **Copy report**, **Copy console** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
 | Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job** and the A* planner was deleted in v1.81, so rows run only when every field call was refused |
 | Dirt line | global `milkDirtLine = 24`; `milkDirtHigh(spot)` (the single "is this dirty?" answer) |
-| Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)`, `spudFulfillSpots()` (Deposit_Warehouse top), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
+| Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** room less than the cells still standing), `spudFulfillSpots()` (Deposit_Warehouse top), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
 | Clean pass | pre-pass offer watch (0.96 s) → clean watch (2.2 s); per-cow clean `≤2.25 s` |
 | Herd | `milkHerdBatch(stalls, cows)`, `milkHerdTargets`, `milkHerdSend`, ordering nearest-barn-first, `milkHerdArm` |
 | Farm choice | `milkFarmReadyCount(who)`, `milkFarmSwitch(want, owner, readyHere, parkedHere)` |
@@ -1404,7 +1416,24 @@ Capacity` was `0` when both values were unreadable, and the pass bailed as
 `MaxCapacity > 0` now, in both `spudFieldRemotePass` and `spudRadialFire`, so an
 unreadable pair means "unknown, no cap", never "full".
 
-**Where it stands:** `rebuild v1.85 · fluent gui`, whole suite green (29/29),
+**A console copy, and a tank that never emptied (v1.86).** Owner: *"you should
+add a copy consol line bro"*, sent with a screenshot of a run stuck in harvest
+rounds 19–21 at `49/50`. Two things. (1) **Copy console** — a Tests-tab button
+(`spudTestCopyConsole`) that puts the last **150** `_G.SPUD_TRACE` lines on the
+clipboard with the place/build/player header and shows the tail in the Tests
+panel, so a stalling run answers itself without running an experiment first.
+(2) **The stall was the sell gate**: a `49/50` tank against 46 standing crops
+gave a budget of **1**, fired one call, the server refused it, `dry` handed the
+field back, and `harvestSellIfFull` declined because `cur < max` — every round
+repeated that, for ever. The new `spudHarvestFull(cur, max, need)` treats a tank
+whose free space cannot cover the cells still standing as full, `harvestSellIfFull`
+takes the standing count at all eleven call sites, and the dry line now names the
+machine it belongs to (`remote harvest: the tank has N free slot(s) …` instead of
+"the seeder holds N seed(s)"). `dropoff_test.py` pins the rule with seven checks
+(49/50 against 46 sells, 49/50 against 1 keeps working, unreadable/zero capacity
+never sells, no standing cells is no excuse).
+
+**Where it stands:** `rebuild v1.86 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
