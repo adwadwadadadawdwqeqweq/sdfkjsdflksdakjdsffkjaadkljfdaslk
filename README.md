@@ -56,8 +56,10 @@ Everything merged into one paste-and-run file:
   (`FireServer(field, {cellId}, {raycastAttachment})`) and
   `FNCSeedFieldCell` / `FNCHarvestFieldCell` (`InvokeServer`, same arguments).
   The ids are the `FieldHelper.GetCells` keys the script already reads, and the
-  attachment is the hitched tool's own RaycastPart. The stage re-read is the
-  proof: a full batch logs
+  attachment is the tool's own — the `RaycastPart` when it has one, otherwise
+  any attachment on the machine (the harvester's head is not named that way),
+  and the pick is logged once (`attachment: <tool> → <part>.<attachment>`). The
+  stage re-read is the proof: a full batch logs
   `✅ remote seed: 50 cell(s) in 2.4s — the field is done without driving`, a
   partial batch drives the rest, and a batch the server ignores logs it and
   puts that job back on driving for the session. The seeder fill uses the

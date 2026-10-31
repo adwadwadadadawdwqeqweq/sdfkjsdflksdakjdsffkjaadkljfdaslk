@@ -1383,7 +1383,24 @@ reports none of that stage left; the seeder loop's 6-round cap went the same
 way (its 3-refill coin guard stays). All three loops watch `stopping()` and
 `task.wait(1)` between rounds.
 
-**Where it stands:** `rebuild v1.83 · fluent gui`, whole suite green (29/29),
+**Harvesting fired nothing (v1.84).** Owner: *"harvesting does not work? it is
+not harvesting anything"*. Two ways the harvest pass could go silent on a live
+build, both closed. (1) **The attachment picker was too picky**: the captured
+call's third argument was only ever taken from a part named `Raycast*` or
+`Seed`/`Detect`, and the harvester's head may be named anything — with no match
+`spudFieldRemotePass` switched the whole job off for the session
+(`no raycast attachment … — driving instead`) and, since rows are gone, nothing
+harvested at all. It now falls back to **any attachment on the machine**
+(`harvester` head included) and logs the pick once:
+`attachment: <tool> → <part>.<attachment>`; a tool with **no** attachment
+anywhere logs its first part names instead, so the next report names the real
+part. (2) **A 0/0 tank read posed as a full tank**: `budget = MaxCapacity −
+Capacity` was `0` when both values were unreadable, and the pass bailed as
+`the tank is full` before firing a call. The budget is only used when
+`MaxCapacity > 0` now, in both `spudFieldRemotePass` and `spudRadialFire`, so an
+unreadable pair means "unknown, no cap", never "full".
+
+**Where it stands:** `rebuild v1.84 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

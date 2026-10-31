@@ -277,7 +277,11 @@ fieldHelper.GetCells = realGet
 
 -- 2. the attachment the game sends is the tool's raycast one
 check("the RaycastPart attachment is chosen", spudToolAttachment(tool) == att)
-check("a tool with no raycast/seed attachment returns nil",
+-- ▸ THE HARVESTER HAS NO RAYCAST PART: any attachment on the machine is used
+--   rather than switching the whole remote pass off (which harvested nothing)
+check("a tool with only a plain attachment still gives one (the harvester)",
+    spudToolAttachment(decoyTool) ~= nil)
+check("a tool with no attachment at all returns nil",
     spudToolAttachment(noAttTool) == nil)
 check("nil tool -> nil", spudToolAttachment(nil) == nil)
 

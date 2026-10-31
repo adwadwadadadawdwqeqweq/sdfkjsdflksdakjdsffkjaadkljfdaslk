@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.83 · fluent gui"
+local VERSION    = "rebuild v1.84 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -2606,23 +2606,59 @@ local okBuild, errBuild = pcall(function()
     -- it Seed/Detect, so that is the fallback; none = drive instead.
     function spudToolAttachment(impl)
         if not impl then return nil end
-        local ok, found = pcall(function()
-            local loose
+        local state = spudFieldRemoteState
+        state.attLogged = state.attLogged or {}
+        local ok, found, how = pcall(function()
+            local loose, any, anyHow
             for _, d in ipairs(impl:GetDescendants()) do
                 if d:IsA("Attachment") then
                     local p = d.Parent
                     local pn = p and tostring(p.Name):lower() or ""
-                    if pn:find("raycast", 1, true) then return d end
+                    if pn:find("raycast", 1, true) then
+                        return d, tostring(p.Name) .. "." .. tostring(d.Name)
+                    end
                     if not loose and (pn:find("seed", 1, true)
                         or pn:find("detect", 1, true)) then
                         loose = d
+                        how = tostring(p.Name) .. "." .. tostring(d.Name)
+                    end
+                    -- ▸ THE HARVESTER HAS NO RAYCAST PART: a SEEDER-style
+                    --   "Seed/Detect" name is the documented fallback, but the
+                    --   harvester's head may be named anything (harvest, head,
+                    --   cutter, blade, gather …). Without a third fallback the
+                    --   whole harvest remote pass switched itself off and the
+                    --   machine harvested nothing. Any attachment on the tool
+                    --   is better than none: the server only needs a point on
+                    --   the machine, and the blade reach is ~2 tiles.
+                    if not any then
+                        any = d
+                        anyHow = tostring(p and p.Name or "?") .. "." .. tostring(d.Name)
                     end
                 end
             end
-            return loose
+            if loose then return loose, how end
+            return any, anyHow
         end)
-        if ok then return found end
-        return nil
+        if not ok or not found then
+            if not state.attLogged[impl] then
+                state.attLogged[impl] = true
+                local names = {}
+                for i, d in ipairs(impl:GetDescendants()) do
+                    if d:IsA("BasePart") then
+                        names[#names + 1] = tostring(d.Name)
+                        if #names >= 10 then break end
+                    end
+                end
+                log(string.format("attachment: %s has NO Attachment at all (parts: %s) — its field calls cannot fire",
+                    tostring(impl.Name), table.concat(names, ", ")))
+            end
+            return nil
+        end
+        if not state.attLogged[impl] then
+            state.attLogged[impl] = true
+            log(string.format("attachment: %s → %s", tostring(impl.Name), tostring(how or "?")))
+        end
+        return found
     end
 
     function spudFieldRemoteCall(key, field, id, att)
@@ -2672,7 +2708,7 @@ local okBuild, errBuild = pcall(function()
         local att = spudToolAttachment(impl)
         if not att then
             state.off[job.verb] = true
-            log(string.format("remote %s: no raycast attachment on %s — driving instead",
+            log(string.format("remote %s: %s has no attachment to fire — no field call can land for it",
                 job.verb, tostring(impl and impl.Name or "?")))
             return false, nil
         end
@@ -2696,8 +2732,12 @@ local okBuild, errBuild = pcall(function()
                 local conf = impl and impl:FindFirstChild("Configurations")
                 local c = conf and conf:FindFirstChild("Capacity")
                 local m = conf and conf:FindFirstChild("MaxCapacity")
-                if c and c:IsA("IntValue") and m and m:IsA("IntValue") then
-                    budget = math.max(0, m.Value - c.Value)
+                -- a MaxCapacity of 0 is a MISSING read, not a full tank: an
+                -- unreadable pair used to make every harvest pass bail as
+                -- "the tank is full" and never fire a single call
+                if c and c:IsA("IntValue") and m and m:IsA("IntValue")
+                    and tonumber(m.Value) and m.Value > 0 then
+                    budget = math.max(0, tonumber(m.Value) - tonumber(c.Value or 0))
                 end
             end)
         end
@@ -5334,7 +5374,7 @@ local okBuild, errBuild = pcall(function()
                 local cur = c and c:IsA("IntValue") and tonumber(c.Value) or nil
                 if job.verb == "seed" then
                     budget = cur
-                elseif cur and m and m:IsA("IntValue") then
+                elseif cur and m and m:IsA("IntValue") and m.Value > 0 then
                     budget = math.max(0, m.Value - cur)
                 end
             end)
