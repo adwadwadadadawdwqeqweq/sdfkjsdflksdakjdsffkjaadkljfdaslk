@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.87 · fluent gui"
+local VERSION    = "rebuild v1.88 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -2542,11 +2542,14 @@ local okBuild, errBuild = pcall(function()
     --   ignores. The drive-over pass is always the fallback.
     spudFieldRemoteState = { kit = nil, off = {} }
     -- ▸ TESTS · the captured shape is a LIST of one id ({1=129}), so the server
-    --   may loop the list. With this on (Tests tab), a field job first fires
-    --   ONE call carrying every remaining id; the stage re-read is the only
-    --   proof, and anything it did not take still goes one call per cell.
-    --   Off by default: it is an experiment, never a dependency.
-    spudBatchRemotes = false
+    --   may loop the list. With this on, a field job first fires ONE call
+    --   carrying every remaining id; the stage re-read is the only proof, and
+    --   anything it did not take still goes one call per cell.
+    --   ON by default (owner 2026-10-31: "can you turn batch remotes on by
+    --   default"). The live server takes one id per call, so this costs one
+    --   ignored call and its 1.2 s read per field — it can never switch a job
+    --   off, and the per-cell pass still finishes the field.
+    spudBatchRemotes = true
 
     function spudFieldRemoteKit()
         local state = spudFieldRemoteState
@@ -2720,7 +2723,7 @@ local okBuild, errBuild = pcall(function()
         --   has room for. Both are capped by the machine's own Capacity pair,
         --   so an empty seeder / full tank costs no calls at all and the pass
         --   hands the field back for a refill or a sell.
-        local budget, dry = nil, false
+        local budget, dry, tankCur, tankMax = nil, false, nil, nil
         if job.verb == "seed" then
             pcall(function()
                 local conf = impl and impl:FindFirstChild("Configurations")
@@ -2737,11 +2740,23 @@ local okBuild, errBuild = pcall(function()
                 -- "the tank is full" and never fire a single call
                 if c and c:IsA("IntValue") and m and m:IsA("IntValue")
                     and tonumber(m.Value) and m.Value > 0 then
-                    budget = math.max(0, tonumber(m.Value) - tonumber(c.Value or 0))
+                    tankCur, tankMax = tonumber(c.Value or 0), tonumber(m.Value)
+                    budget = math.max(0, tankMax - tankCur)
                 end
             end)
         end
         local before = #ids
+        -- ▸ SELL FIRST WHEN THE TANK CANNOT COVER THE FIELD (live 2026-10-31:
+        --   49/50 against 46 standing cells fired ONE call at the field corner
+        --   each round — out of reach, refused — then sold, for ever). A tank
+        --   whose room cannot take what is standing is full; the sell runs and
+        --   the harvester comes back with the whole 50.
+        if job.verb == "harvest" and budget and budget > 0
+            and spudHarvestFull(tankCur, tankMax, before) then
+            log(string.format("remote harvest: %d free slot(s) cannot cover %d standing cell(s) — selling first, then coming back",
+                budget, before))
+            return true, before, true
+        end
         if budget == 0 then
             if job.verb == "harvest" then
                 log(string.format("remote harvest: the tank is full — %d cell(s) still standing; the sell trip runs before the rest",
@@ -4897,6 +4912,14 @@ local okBuild, errBuild = pcall(function()
     --   teleport, still smooth — keeping the heading it had, and it lands on
     --   the pad's own height instead of the field's.
     local SELL_HOP_SPEED = 140 -- studs/s (the arc makes it read as a jump, not a blur)
+    -- ▸ HOW CLOSE THE SELL CALL HAS TO BE (live 2026-10-30 and 2026-10-31):
+    --   fired 46 studs off the crop board it dropped a full tank 50 → 0; fired
+    --   from the FIELD 1254 studs away it did nothing, and the same call at the
+    --   pad then sold it. So the server does check proximity — "sell from
+    --   anywhere" was one lucky reading. Only try the call when the pad is
+    --   this close; otherwise take the trip and fire it there. Global so it can
+    --   be retuned without touching the trip.
+    spudSellCallRange = 60
     -- ▸ THE ARC HOP (user: "make the harvester use arch tween thing to go to and
     --   back from the sell"). A flat slide reads as a teleport glued to the
     --   ground; this lifts the ride on a sine arc — highest in the middle —
@@ -5063,15 +5086,22 @@ local okBuild, errBuild = pcall(function()
         -- the 1-second watch is muted for the whole trip: the tank is STILL
         -- full while driving to the pad, and it must not abort that drive
         sellingNow = true
-        -- ▸ THE SELL CALL DOES NOT CHECK DISTANCE (live test 2026-10-30: a full
-        --   tank dropped 50 → 0 and paid +150 coins from 46 studs off the crop
-        --   board, with no pad visit), so it is fired from where the harvester
-        --   stands for BOTH destinations (owner 2026-10-31: "didnt you say we
-        --   could just call the sell bro?") — a tank that drops there never
-        --   moves. If the call leaves the tank alone, that destination's own
-        --   trip still runs unchanged (Fulfillment still unloads by parking).
+        -- ▸ THE SELL CALL IS PROXIMITY-CHECKED (live 2026-10-31: fired from the
+        --   field 1254 studs out it did nothing, and the same call sold the
+        --   tank once the harvester reached the board). Try it from where the
+        --   harvester stands only when the pad is within SELL_CALL_RANGE — a
+        --   tank that drops there never moves. A call that leaves the tank
+        --   alone falls through to that destination's own trip unchanged
+        --   (Fulfillment still unloads by parking).
+        local here = ride:GetPivot().Position
         for _, s in ipairs(spots) do
             if s.part then
+                local away = s.p and (s.p - here).Magnitude or math.huge
+                if away > (spudSellCallRange or 60) then
+                    log(string.format("%s: the pad is %.0f studs away — the sell call needs it close, taking the trip",
+                        dest, away))
+                    break
+                end
                 local l0 = harvesterLoad(ride)
                 spudSellRemote(ride, s.part)
                 log("sell: EVTSellAtStore fired from where the harvester stands — watching the tank")
@@ -7053,10 +7083,11 @@ local okBuild, errBuild = pcall(function()
     --   stage re-read is the proof: a server that loops the list finishes the
     --   field in one call, a server that validates one id per call ignores the
     --   extras and the normal one-call-per-cell pass runs on what is left.
-    --   Off by default, session-only, and it can never switch a job off.
+    --   ON by default since v1.88 (owner's call); session-only, and it can
+    --   never switch a job off.
     Tabs.Tests:CreateToggle("batchFieldRemote", {
         Title = "Batch field remote",
-        Default = false,
+        Default = true,
         Callback = function(v)
             spudBatchRemotes = v and true or false
             log("tests: batch field remote " .. (spudBatchRemotes and "ON" or "OFF"))

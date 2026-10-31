@@ -42,6 +42,7 @@ WANTED = [
     "spudFieldRemoteCallMany",
     "spudFieldRemotePass",
     "spudFillSeederRemote",
+    "spudHarvestFull",
 ]
 
 PRE = r"""
@@ -451,16 +452,30 @@ check("full tank: no harvest call is fired", harvestRemote.invokeCalls == hv0,
 check("full tank: the pass hands the field back (dry)",
     done == true and left == 2 and dry == true,
     string.format("%s,%s,%s", tostring(done), tostring(left), tostring(dry)))
-capVal.Value = 49 -- room for exactly one
+capVal.Value = 49 -- room for one, two cells standing: the sell runs first
 resetCells()
 fieldState[field][700] = { Stage = "Grown" }
 fieldState[field][701] = { Stage = "Grown" }
 resetState()
 hv0 = harvestRemote.invokeCalls
 done, left, dry = spudFieldRemotePass(harvestJob, field, tool)
-check("one slot: exactly one harvest call", harvestRemote.invokeCalls - hv0 == 1,
+check("one slot against two cells: no call is fired",
+    harvestRemote.invokeCalls == hv0,
     (harvestRemote.invokeCalls - hv0) .. " call(s)")
-check("one slot: dry with one cell standing", dry == true and left == 1,
+check("one slot against two cells: dry with both standing",
+    done == true and left == 2 and dry == true,
+    string.format("%s,%s,%s", tostring(done), tostring(left), tostring(dry)))
+capVal.Value = 49 -- one slot against one cell: the slot is used
+resetCells()
+fieldState[field][700] = { Stage = "Grown" }
+resetState()
+hv0 = harvestRemote.invokeCalls
+done, left, dry = spudFieldRemotePass(harvestJob, field, tool)
+check("one slot against one cell: exactly one harvest call",
+    harvestRemote.invokeCalls - hv0 == 1,
+    (harvestRemote.invokeCalls - hv0) .. " call(s)")
+check("one slot against one cell: the field is finished",
+    done == true and left == 0 and dry ~= true,
     string.format("%s,%s", tostring(left), tostring(dry)))
 
 -- 8c. a refused tail is retried once, and a full seeder still needs no rows

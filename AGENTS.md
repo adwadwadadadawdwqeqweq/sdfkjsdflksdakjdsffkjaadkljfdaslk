@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.87 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.88 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.87
+python tools/run_all.py        # 29/29 checks on v1.88
 ```
 
-Last full run (v1.87): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.88): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -474,14 +474,21 @@ values, and the full tank always ends in a real trip:
   being unstreamed/empty is logged and returns no pad — never a guessed spot.
 - **Sell** → the old `findSellSpots()` crop sell-board scan, unchanged.
 - **The call goes first, for both picks** (v1.87, owner: *"didnt you say we
-  could just call the sell bro?"*). `EVTSellAtStore` checks no distance — a
-  live full tank dropped 50 → 0 and paid +150 coins from 46 studs off the
-  board — so `sellHarvester` fires it from where the harvester stands at the
-  chosen destination's own pad part (Fulfillment → `Deposit_Warehouse`, Sell →
-  the board) and watches the tank for 3.5 s. A tank that drops logs
+  could just call the sell bro?"*). `sellHarvester` fires `EVTSellAtStore` from
+  where the harvester stands at the chosen destination's own pad part
+  (Fulfillment → `Deposit_Warehouse`, Sell → the board) and watches the tank
+  for 3.5 s. A tank that drops logs
   `✅ sold in place — load N → M, coins … (no pad trip)` and the ride **never
   moves**; only a call that leaves the tank alone falls through to the trip
   below.
+- **The call IS proximity-checked** (v1.88, live 2026-10-31: the console run).
+  The v1.87 note that "it checks no distance" was one lucky reading: a full
+  tank sold 50 → 0 from **46 studs** off the board, but the same call fired
+  from the **field 1254 studs away** did nothing — and the same call sold the
+  tank once the harvester reached the pad. So `sellHarvester` only tries the
+  in-place call when the pad is within global `spudSellCallRange` (60), logs
+  `<dest>: the pad is N studs away — the sell call needs it close, taking the
+  trip` otherwise, and the trip's own call at the pad remains the proof.
 - The trip itself is the existing arc hop (`hopTo`, `SELL_HOP_SPEED`) plus
   `trySellAt(ride, what, pad, autoPad)`, which differs by destination:
   - **Fulfillment** (`autoPad = true`) presses **nothing** — user: *"the
@@ -631,7 +638,8 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   re-reads the stages: all gone = `✅ batch test: N cell(s) in ONE call` and the
   sweep is skipped; some taken = the rest go one call per cell; none taken =
   `batch test: the server ignored the id list … — one call per cell` and the
-  normal per-cell pass runs. It is **off by default**, session-only, and an
+  normal per-cell pass runs. It is **on by default** since v1.88 (owner: *"can
+  you turn batch remotes on by default"*), session-only, and an
   ignored list never switches a job off. The batch's own takes are counted into
   the final `✅ remote …` line.
 - **Tests tab · live probes** (trimmed in v1.60 and again in v1.74, user:
@@ -782,12 +790,12 @@ UI/key fallbacks and the three-miss switch-off.
 | Go to the farm | global `spudFarmHop(here, plotPos)` (nil+reason, or centre +5 Y and distance), `milkStorePlotOf(who)`, `milkStandUp(who)` (default `"milk"`); wired at the top of `runFarmingBody` |
 | Whose machine | global `equipOwnerRank(m)` (farm being worked → mine → no readable owner → never another account), used by `findTractor` / `findImplement`; owner tag read by `milkStoreOwnerOf` |
 | Tree soil | global `spudTreeField(typeName, modelName)` (wood/tree/log/forest/timber/lumber/sawmill/stump → no crop harvest) and `spudNoCells(st)` (successful 0-cell read is empty, `nil` read is unknown); used in `probeWork`, `runPass`, `needLeft`, `grownLeft`, growth wait |
-| Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (stop-and-burst grid: the blade parks on each stop, every in-reach id fired), `spudSweepCells` (serpentine tween, a burst every 0.5 s), `spudHopCells` (one cell at a time), `spudFillSeederRemote`; state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, default false); wired at the top of `sweepField` and in `buySeedAndFill` |
+| Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (stop-and-burst grid: the blade parks on each stop, every in-reach id fired), `spudSweepCells` (serpentine tween, a burst every 0.5 s), `spudHopCells` (one cell at a time), `spudFillSeederRemote`; state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, **default true** since v1.88); wired at the top of `sweepField` and in `buySeedAndFill` |
 | Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`, test run + last 60 farm lines), `spudTestCopyConsole` (`setclipboard`, last 150 farm lines only), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Run all**, **Copy report**, **Copy console** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
-| Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job** and the A* planner was deleted in v1.81, so rows run only when every field call was refused |
+| Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job**; the A* planner was deleted in v1.81 and the row driver in v1.82, so a field pass never touches a movement key |
 | Dirt line | global `milkDirtLine = 24`; `milkDirtHigh(spot)` (the single "is this dirty?" answer) |
-| Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** room less than the cells still standing), `spudFulfillSpots()` (Deposit_Warehouse top), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
+| Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** room less than the cells still standing), `spudSellCallRange = 60` (how close the pad must be for the in-place call), `spudFulfillSpots()` (Deposit_Warehouse top), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
 | Clean pass | pre-pass offer watch (0.96 s) → clean watch (2.2 s); per-cow clean `≤2.25 s` |
 | Herd | `milkHerdBatch(stalls, cows)`, `milkHerdTargets`, `milkHerdSend`, ordering nearest-barn-first, `milkHerdArm` |
 | Farm choice | `milkFarmReadyCount(who)`, `milkFarmSwitch(want, owner, readyHere, parkedHere)` |
@@ -1454,7 +1462,29 @@ own trip (Fulfillment parks and lets the pad drain it, Sell falls back to Q/E).
 **0 hops**, the call carries the warehouse part, and a refused call still takes
 the park trip (`autoPad = true`).
 
-**Where it stands:** `rebuild v1.87 · fluent gui`, whole suite green (29/29),
+**Batch on by default, and the sell call is proximity-checked (v1.88).** The
+owner pasted the whole console of a v1.86 run: the harvest loop sat at
+`49/50` with 46 crops standing, fired **one** call at the field corner every
+round (out of reach — refused), sold, came back, and did it again; and the
+in-place sell call fired from the field did nothing, while the same call at the
+board then sold `49 → 0`. Three fixes. (1) **`spudBatchRemotes` is ON by
+default** (owner: *"can you turn batch remotes on by default"*) — one id list
+per field pass, proven ignored by the live server, so it costs one call and its
+1.2 s read and can never switch a job off. (2) **The sell call is
+proximity-checked**: `spudSellCallRange = 60`, so `sellHarvester` only fires it
+in place when the pad is that close and otherwise logs
+`<dest>: the pad is N studs away — the sell call needs it close, taking the
+trip` and hops straight away (no 3.5 s wait for a call that cannot land). The
+v1.87 claim "it checks no distance" was wrong — 46 studs was one lucky
+reading. (3) **A tank that cannot cover the field sells first and fires
+nothing**: `spudFieldRemotePass` returns dry on `spudHarvestFull(cur, max,
+#ids)` with `remote harvest: N free slot(s) cannot cover M standing cell(s) —
+selling first, then coming back`, instead of spending the single slot on a
+refused call at the corner. `field_remote_test.py` and `dropoff_test.py` pin
+all three (one free slot against two cells fires **no** call; a far pad is not
+called; a close pad is).
+
+**Where it stands:** `rebuild v1.88 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

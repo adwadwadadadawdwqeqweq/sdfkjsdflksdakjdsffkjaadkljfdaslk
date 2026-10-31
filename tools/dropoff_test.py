@@ -215,7 +215,7 @@ function spudSellRemote(ride, pad)
     return true
 end
 local ride = { GetPivot = function() return { Position = Vector3.new(10, 170, 10) } end }
-local scanPad = { what = "SellArea.Pad", part = "padpart", p = Vector3.new(-300, 140, -90) }
+local scanPad = { what = "SellArea.Pad", part = "padpart", p = Vector3.new(40, 170, 20) }
 local scanState = "pad"
 function findSellSpots()
     if scanState == "pad" then return { scanPad } end
@@ -271,7 +271,7 @@ check("sell: the log says the unload was skipped",
 --     tank drops, and the park trip only when the call does nothing
 spudDropOff = "Fulfillment"
 function spudFulfillSpots()
-    return { { p = Vector3.new(-353, 140, -90), what = "DropOffs.Deposit_Warehouse",
+    return { { p = Vector3.new(40, 170, 20), what = "DropOffs.Deposit_Warehouse",
         store = "Fulfillment", part = "warehousePart" } }
 end
 tank, soldPad, remoteFired = 50, nil, 0
@@ -288,6 +288,22 @@ hops, soldAt = {}, nil
 local okPark = sellHarvester(ride, nil, nil)
 check("fulfillment: a refused call still takes the park trip",
     okPark == true and soldAt ~= nil and soldAt.autoPad == true)
+
+-- 6f. a pad out of range: no wasted wait — straight to the trip
+function spudSellRemote(ride, pad) remoteFired += 1 tank = 0 return true end
+function spudFulfillSpots()
+    return { { p = Vector3.new(-353, 140, -90), what = "DropOffs.Deposit_Warehouse",
+        store = "Fulfillment", part = "warehousePart" } }
+end
+tank, remoteFired = 50, 0
+hops, soldAt = {}, nil
+local okFar = sellHarvester(ride, nil, nil)
+check("fulfillment: a far pad is not called from the field",
+    remoteFired == 0, remoteFired .. " call(s)")
+check("fulfillment: a far pad still takes the trip",
+    okFar == true and soldAt ~= nil and #hops >= 1)
+check("fulfillment: the log says the call needs the pad close",
+    loggedText():find("needs it close") ~= nil)
 
 -- 7. every sell spot carries the part the sell call fires at
 local gvNode = folder("GameplayVisuals", GRID)

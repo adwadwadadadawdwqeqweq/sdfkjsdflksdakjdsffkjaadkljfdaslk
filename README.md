@@ -104,12 +104,14 @@ Everything merged into one paste-and-run file:
   serpentine tween as the last resort only when teleports take nothing. The
   sweep logs
   `remote seed: swept 46 cell(s) in 6.1s at 45 studs/s, range 20 — 44 took, 2 left`.
-- **Tests tab** — experiments, off by default, none of them a dependency of a
+- **Tests tab** — experiments, none of them a dependency of a
   normal pass. **Batch field remote** tries the abuse the captured shape allows:
   that call already carries a *list* of ids (`{cellId}`), so with the toggle on
   a field job fires **one call with every remaining id** — the live answer is
   that the server takes only the ids under the blade (`batch test: N of M
   cell(s) took the id list`), so the normal one-call-per-cell pass finishes it.
+  **On by default** (since v1.88): it costs one ignored call and its 1.2 s
+  stage read per field, and it can never switch a job off.
   **Remote list** prints every `RemoteEvent`/`RemoteFunction` the client can
   see — a bulk field door we never fired would only show up there.
   **Field remotes** fires
@@ -160,10 +162,13 @@ Everything merged into one paste-and-run file:
   captured, and it is not needed).
 - **Drop-off pick** — Farm tab → **Drop-off**: **Fulfillment** (default) or
   **Sell**. When the harvester's tank fills it first fires the captured
-  `EVTSellAtStore` **from where it stands** (the call checks no distance): a
+  `EVTSellAtStore` **from where it stands** when the pad is close (within
+  `spudSellCallRange`, 60 studs — the call is proximity-checked: 46 studs
+  dropped a full tank, 1254 studs did nothing): a
   tank that drops logs `✅ sold in place … (no pad trip)` and the harvester
-  never moves. Only when that call leaves the tank alone does it take the trip
-  — Fulfillment is the warehouse pad
+  never moves. From out in the field the trip is one arc hop, and the call is
+  fired again at the pad (or Fulfillment parks and lets the pad drain it):
+  Fulfillment is the warehouse pad
   (`Stores.DropOffs.Deposit_Warehouse`, parked, pressing nothing while the pad
   drains it) and Sell is the old crop sell board (call, then Q/E). The
   tank dropping is the only proof a pad took the load — the console prints
@@ -178,9 +183,12 @@ Everything merged into one paste-and-run file:
   streamed from here — arc hop to the store, then looking again`); the trip
   back still returns to the field.
   A tank with **less free space than there are cells still standing** counts
-  as full (`spudHarvestFull`): 49/50 against 46 standing crops would otherwise
-  burn one call — and one refusal — per cell, so the unload runs first and
-  the harvester comes back with a whole tank.
+  as full (`spudHarvestFull`): 49/50 against 46 standing crops used to fire the
+  one slot's call — refused, because the field corner is out of reach — and
+  sell anyway, round after round. The pass now fires **no** call in that case
+  and unloads first, so the harvester comes back with a whole tank
+  (`remote harvest: 1 free slot(s) cannot cover 46 standing cell(s) — selling
+  first, then coming back`).
 - **Trees are left alone** — the harvester never drives a field whose type or
   model name says wood / tree / log / forest / timber / lumber / sawmill / stump,
   so standing trees are not cut. A field whose cell read succeeds but returns
