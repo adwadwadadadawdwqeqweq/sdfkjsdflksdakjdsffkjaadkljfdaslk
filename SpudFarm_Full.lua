@@ -2743,16 +2743,16 @@ local okBuild, errBuild = pcall(function()
 
     -- fire the game's own call for every cell still needing `job`, then
     -- re-read the field. Returns done, left:
-    --   true, 0  = every cell took the call (the sweep is not driven)
-    --   true, n  = n cells took it, the rest still need driving
-    --   false, n = the server ignored the batch (drive instead)
+    --   true, 0  = every cell took the call (no block or hop needed)
+    --   true, n  = n cells took it, the rest are the blocks' and the hop's
+    --   false, n = the server ignored the batch (the grid and hop take over)
     function spudFieldRemotePass(job, field, impl)
         local state = spudFieldRemoteState
         if state.off[job.verb] then return false, nil end
         local kit = spudFieldRemoteKit()
         if not (kit and kit[job.verb]) then
             state.off[job.verb] = true
-            log(string.format("remote %s: %s isn't in Modules.Larry here — driving instead",
+            log(string.format("remote %s: %s isn't in Modules.Larry here — no field call can be fired for it",
                 job.verb, tostring(job.remote)))
             return false, nil
         end
@@ -2940,12 +2940,12 @@ local okBuild, errBuild = pcall(function()
             return true, left, true
         end
         if left < before then
-            log(string.format("remote %s: %d of %d cell(s) took the call in %.1fs — driving the last %d",
+            log(string.format("remote %s: %d of %d cell(s) took the call in %.1fs — the blocks take the last %d",
                 job.verb, before - left, before, timer, left))
             return true, left
         end
         state.off[job.verb] = true
-        log(string.format("remote %s: the game ignored %d call(s) in %.1fs (%d cell(s) still need it) — driving for this session",
+        log(string.format("remote %s: the game ignored %d call(s) in %.1fs (%d cell(s) still need it) — the per-cell pass is off for this session, the blocks take it",
             job.verb, sent, timer, left))
         return false, left
     end
