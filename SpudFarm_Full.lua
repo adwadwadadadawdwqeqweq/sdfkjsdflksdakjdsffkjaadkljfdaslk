@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.68 · fluent gui"
+local VERSION    = "rebuild v1.69 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6351,7 +6351,7 @@ local okBuild, errBuild = pcall(function()
     end
 
     function spudTestRunAll()
-        for _, k in ipairs({ "remotes", "lift", "wrongtool", "fieldremotes" }) do
+        for _, k in ipairs({ "remotes", "lift", "fieldremotes" }) do
             spudTestRun(k)
             task.wait(0.3)
         end
@@ -6394,16 +6394,16 @@ local okBuild, errBuild = pcall(function()
 
 
         -- ▸ LIFT / REACH — how much slack does the blade check allow?
-        --   First live measurement: a cell was TAKEN from 8 studs ABOVE it
-        --   (and the flat call under the blade was ignored), so the height is
-        --   not the gate a flyover would have to clear. Measure the band on
-        --   ONE CELL PER MEASUREMENT so a slow earlier take can never be
-        --   credited to the next reading: straight up 8/20/40/80 (0 last as
-        --   the control), then sideways at +8 (4/8/14/20/30). Tallest and
-        --   widest take = how far a flyover can be from a cell.
+        --   A cell this tool cannot advance answers nothing (live 2026-10-31:
+        --   a plow at a Plowed cell was ignored at any height), so the band is
+        --   measured on cells THIS TOOL can stage, in the field that has the
+        --   most of them. An ignored call leaves its cell untouched, so ONE
+        --   cell serves a whole ladder and only a TAKEN reading spends it;
+        --   each ladder walks FAR → NEAR and stops at the first take, so the
+        --   answer is the widest distance that still works: straight up
+        --   80/40/20/8/0 (0 is the control — if even that is ignored the
+        --   setup is refused, not the height), then sideways 60…4 at +8.
         if kind == "lift" then
-            local f = fields[1]
-            if not f then spudTestSay("lift: no field of ours is streamed") return end
             local hname = hitchedImplementName()
             local impl
             for _, d in ipairs(equipList()) do
@@ -6425,36 +6425,20 @@ local okBuild, errBuild = pcall(function()
                 or (ttype == "Planter" and "seed")
                 or (impl.Name == "KADL" and "seed")
                 or (impl.Name == "KQF3000" and "cultivate") or "plow"
-            local baseCF, baseSize = fieldFrame(f.d)
-            if not baseCF then spudTestSay("lift: " .. f.d.Name .. " has no bounds") return end
-            local function cellsFor(v)
-                local j = jobFor(v)
-                local pts2 = cellsAtStage(f.d, j.stage, baseCF, baseSize)
-                if pts2 and #pts2 > 0 then return j, pts2 end
+            local job = jobFor(verb)
+            local f, pts
+            for _, f2 in ipairs(fields) do
+                local bcf, bsz = fieldFrame(f2.d)
+                local p = bcf and cellsAtStage(f2.d, job.stage, bcf, bsz)
+                if p and #p > 0 and (not pts or #p > #pts) then f, pts = f2, p end
             end
-            local job, pts = cellsFor(verb)
-            if not job then
-                -- the field has nothing at this tool's stage: use any stage that
-                -- has a cell (that call doubles as the wrong-tool experiment)
-                for _, v2 in ipairs({ "cultivate", "seed", "plow" }) do
-                    if v2 ~= verb then
-                        job, pts = cellsFor(v2)
-                        if job then
-                            spudTestSay("lift: no cell needs " .. verb
-                                .. " — using a " .. v2 .. "-stage cell (this reading is also a wrong-tool answer)")
-                            break
-                        end
-                    end
-                end
-            end
-            if not job then
-                spudTestSay("lift: no cell of ours needs any stage right now")
+            if not f then
+                spudTestSay("lift: no field of ours has a " .. job.stage .. " cell to "
+                    .. verb .. " — hitch the tool for a stage your fields still have")
                 return
             end
-            -- nearest cells first; one per measurement
-            local order = {}
-            for i, c in ipairs(pts) do order[i] = c end
-            table.sort(order, function(a, b)
+            -- nearest cells first: a reading teleports the ride onto it
+            table.sort(pts, function(a, b)
                 local ad = (Vector3.new(a.X, here.Y, a.Z) - here).Magnitude
                 local bd = (Vector3.new(b.X, here.Y, b.Z) - here).Magnitude
                 return ad < bd
@@ -6462,11 +6446,11 @@ local okBuild, errBuild = pcall(function()
             local cf = tr:GetPivot()
             local off = att.Parent.Position - cf.Position
             local rot = cf - cf.Position
-            local used = 0
-            local function measure(dx, h)
-                local c = order[used + 1]
+            local spent, cur = 0, 1
+            local function measure(dx, h, label)
+                while cur <= #pts and pts[cur].spent do cur += 1 end
+                local c = pts[cur]
                 if not c then return nil end
-                used += 1
                 local target = Vector3.new(c.X + dx, c.Y + h, c.Z) - off
                 pcall(function() tr:PivotTo(CFrame.new(target) * rot) end)
                 task.wait(0.3)
@@ -6477,33 +6461,37 @@ local okBuild, errBuild = pcall(function()
                     task.wait(0.1)
                     to = cellStage(f.d, c.id)
                 end
-                return to ~= before, c.id, before, to
+                local ok2 = to ~= before
+                spudTestSay(string.format("lift: %s on cell %d — %s → %s — %s",
+                    label, c.id, tostring(before), tostring(to),
+                    ok2 and "TAKEN" or "ignored"))
+                if ok2 then c.spent = true; spent += 1 end
+                return ok2
             end
             spudTestSay(string.format(
-                "lift: %s (%s) firing %s — measuring how far from a cell it still takes",
-                impl.Name, ttype, verb))
-            local tall = 0
-            for _, h in ipairs({ 8, 20, 40, 80, 0 }) do
-                local ok2, id2, b2, a2 = measure(0, h)
+                "lift: %s (%s) firing %s on %s — %d %s cell(s) to measure",
+                impl.Name, ttype, verb, f.d.Name, #pts, job.stage))
+            local tall, wide = 0, 0
+            for _, h in ipairs({ 80, 40, 20, 8, 0 }) do
+                local ok2 = measure(0, h, "+" .. h .. " studs above")
                 if ok2 == nil then break end
-                spudTestSay(string.format("lift: +%d studs above cell %d — %s → %s — %s",
-                    h, id2, tostring(b2), tostring(a2), ok2 and "TAKEN" or "ignored"))
-                if ok2 then tall = math.max(tall, h) end
+                if ok2 then tall = h break end
             end
-            local wide = 0
-            for _, dx in ipairs({ 4, 8, 14, 20, 30 }) do
-                local ok2, id2, b2, a2 = measure(dx, 8)
-                if ok2 == nil then break end
-                spudTestSay(string.format(
-                    "lift: %d studs to the side at +8 on cell %d — %s → %s — %s",
-                    dx, id2, tostring(b2), tostring(a2), ok2 and "TAKEN" or "ignored"))
-                if ok2 then wide = math.max(wide, dx) end
+            if spent == 0 then
+                spudTestSay("lift: nothing took even flat on the cell — this tool and a "
+                    .. job.stage .. " cell are refused here, so there is no band to measure")
+            else
+                for _, dx in ipairs({ 60, 45, 30, 20, 14, 8, 4 }) do
+                    local ok2 = measure(dx, 8, dx .. " studs to the side at +8")
+                    if ok2 == nil then break end
+                    if ok2 then wide = dx break end
+                end
             end
             pcall(function() tr:PivotTo(cf) end)
             spudTestSay(string.format(
-                "lift: verdict — tallest take %s, widest take %s (%d cell(s) used)",
+                "lift: verdict — tallest take %s, widest take %s (%d cell(s) spent)",
                 tall > 0 and ("+" .. tall .. " studs") or "none",
-                wide > 0 and (wide .. " studs to the side") or "none", used))
+                wide > 0 and (wide .. " studs to the side") or "none", spent))
             return
         end
 
@@ -6609,82 +6597,11 @@ local okBuild, errBuild = pcall(function()
             return
         end
 
-        -- ▸ WRONG TOOL — the one check left to isolate: does the server care
-        --   WHICH tool the attachment belongs to, or only WHERE the blade is?
-        --   It fires a different verb on the cell the hitched blade is over: a
-        --   take means one tool could plow, cultivate and seed in one sweep.
-        if kind == "wrongtool" then
-            local f = fields[1]
-            if not f then spudTestSay("wrongtool: no field of ours is streamed") return end
-            local hname = hitchedImplementName()
-            local impl
-            for _, d in ipairs(equipList()) do
-                if d:IsA("Model") and hname and d.Name == hname then impl = d break end
-            end
-            if not impl then
-                spudTestSay("wrongtool: nothing is hitched — mount the tractor with a tool first")
-                return
-            end
-            local att = spudToolAttachment(impl)
-            if not (att and att.Parent and att.Parent.Position) then
-                spudTestSay("wrongtool: " .. impl.Name .. " has no blade attachment to send")
-                return
-            end
-            local blade = att.Parent.Position
-            local ttype = tostring(equipTypeOf(impl) or "?")
-            local own = (ttype == "Cultivator" and "cultivate")
-                or (ttype == "Planter" and "seed")
-                or (ttype == "Plow" and "plow")
-                or (impl.Name == "KADL" and "seed")
-                or (impl.Name == "KQF3000" and "cultivate") or "plow"
-            local baseCF, baseSize = fieldFrame(f.d)
-            if not baseCF then spudTestSay("wrongtool: " .. f.d.Name .. " has no bounds") return end
-            local best, bd
-            for _, verb in ipairs({ "cultivate", "plow", "seed" }) do
-                if verb ~= own then
-                    local j = jobFor(verb)
-                    local pts = cellsAtStage(f.d, j.stage, baseCF, baseSize) or {}
-                    for _, c in ipairs(pts) do
-                        local dx, dz = c.X - blade.X, c.Z - blade.Z
-                        local dd = math.sqrt(dx * dx + dz * dz)
-                        if not bd or dd < bd then best, bd = { c = c, job = j }, dd end
-                    end
-                end
-            end
-            if not best then
-                spudTestSay("wrongtool: no cell of ours is waiting for a verb other than "
-                    .. own .. " — nothing to test with this tool hitched")
-                return
-            end
-            -- ▸ the blade must be over the cell for any of these calls, so hop
-            --   the ride onto it first — the test no longer needs you to stand
-            --   on the field (live: 43 studs away refused to guess).
-            local tr = findTractor()
-            if not tr then spudTestSay("wrongtool: no tractor to move onto the cell") return end
-            local cf = tr:GetPivot()
-            local off = blade - cf.Position
-            local rot = cf - cf.Position
-            local target = Vector3.new(best.c.X, best.c.Y, best.c.Z) - off
-            pcall(function() tr:PivotTo(CFrame.new(target) * rot) end)
-            task.wait(0.3)
-            local before = cellStage(f.d, best.c.id)
-            spudTestSay(string.format(
-                "wrongtool: %s (%s) firing %s on cell %d — really %s, hopped %.0f studs onto it",
-                impl.Name, ttype, best.job.verb, best.c.id, tostring(before), bd))
-            spudFieldRemoteCall(best.job.verb, f.d, best.c.id, att)
-            local deadline, to = os.clock() + 2.5, cellStage(f.d, best.c.id)
-            while os.clock() < deadline and to == before do
-                task.wait(0.1)
-                to = cellStage(f.d, best.c.id)
-            end
-            local took = to ~= before
-            spudTestSay(string.format("wrongtool: %s → %s — %s", tostring(before), tostring(to),
-                took and ("TAKEN: the server accepted " .. best.job.verb .. " from a " .. ttype
-                    .. " — the tool type is NOT checked")
-                    or "IGNORED: the server wants the right implement for that verb"))
-            pcall(function() tr:PivotTo(cf) end)
-            return
-        end
+        -- ▸ WRONG TOOL — ANSWERED live 2026-10-31 and retired: a plow's own
+        --   attachment firing cultivate on a Plowed cell the blade was hopped
+        --   onto was IGNORED (Plowed → Plowed), so the server checks WHICH
+        --   implement the attachment belongs to, not just where the blade is.
+        --   One sweep cannot run every stage; each verb keeps its own tool.
 
     end
 
@@ -8349,9 +8266,6 @@ local okBuild, errBuild = pcall(function()
     end
     Tabs.Tests:CreateButton({ Title = "Remote list", Callback = function()
         task.spawn(function() spudTestRun("remotes") end)
-    end })
-    Tabs.Tests:CreateButton({ Title = "Wrong tool", Callback = function()
-        task.spawn(function() spudTestRun("wrongtool") end)
     end })
     Tabs.Tests:CreateButton({ Title = "Lift test", Callback = function()
         task.spawn(function() spudTestRun("lift") end)

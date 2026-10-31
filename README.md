@@ -87,18 +87,20 @@ Everything merged into one paste-and-run file:
   that the server takes only the ids under the blade (`batch test: N of M
   cell(s) took the id list`), so the normal one-call-per-cell pass finishes it.
   **Remote list** prints every `RemoteEvent`/`RemoteFunction` the client can
-  see — a bulk field door we never fired would only show up there. **Wrong
-  tool** fires a different job's call at the cell the hitched blade is over: if
-  it takes, the server checks the blade's position, not which implement it
-  belongs to, and one tool could plow, cultivate and seed in one sweep — it
-  hops onto the cell itself, so you only need a tool hitched.
-  **Lift test** measures how much slack the blade check allows, on one cell
-  per reading so a slow earlier take can't be credited to the next one: it
-  fires from 8/20/40/80 studs above a cell (0 last as the control) and then
-  from 4/8/14/20/30 studs to the side at +8, and ends with a verdict line.
-  The first live run already took a cell from **8 studs above** it while the
-  flat call under the blade was ignored — the height is not the gate a flyover
-  would have to clear. **Field remotes** fires
+  see — a bulk field door we never fired would only show up there.
+  **Lift test** measures how much slack the blade check allows. It fires only
+  at cells the hitched tool can actually advance (Empty for a plow, Plowed for
+  a cultivator, Cultivated for a planter), in whichever of your fields holds
+  the most of them — a cell of another stage answers nothing, whatever the
+  distance. An ignored call leaves its cell untouched, so one cell serves a
+  whole ladder and only a take spends it; each ladder walks far → near and
+  stops at the first take: 80/40/20/8/0 studs straight up (0 is the control —
+  if even that is ignored the setup is refused, not the height), then
+  60/45/30/20/14/8/4 studs to the side at +8. It ends with
+  `lift: verdict — tallest take …, widest take … (N cell(s) spent)`, and the
+  ride is put back where it started. The first live reading already took a cell
+  from **8 studs above** it while the flat call under the blade was ignored —
+  the height is not a flat gate a flyover would have to clear. **Field remotes** fires
   `FNCSprayFieldCell(field, {id}, {att})` and reports `IsWatered` /
   `PlantGrowth` / `Stage`, then invokes `FNCEditField()` and
   `FNCConvertRundownField()` with **no arguments** just to read the shape they
@@ -107,10 +109,14 @@ Everything merged into one paste-and-run file:
   and the whole run on the clipboard. Nothing touches animals or another
   player's plot, and the tests refuse to run while a farm pass is going.
   (The settled experiments — seat/stage/attachment checks, the burst, sell,
-  carry, spawn, fill, the FieldHelper dump, force-a-tile and the field-packet
-  watch/forge — were removed once they had their answer; their results are in
-  the console history. The packet is server→client only: patching a real
-  packet's stage byte sent nothing back and moved no cell.)
+  carry, spawn, fill, the FieldHelper dump, force-a-tile, the field-packet
+  watch/forge and the wrong-tool probe — were removed once they had their
+  answer; their results are in the console history. The packet is
+  server→client only: patching a real packet's stage byte sent nothing back and
+  moved no cell. The wrong tool was answered live: cultivate fired from a
+  plow's own attachment at a Plowed cell the blade was sitting over stayed
+  Plowed, so the server checks *which implement* the attachment belongs to —
+  one sweep cannot run every stage.)
 - **Equipment on the game's own remotes** — the same capture pass recorded the
   equipment calls, so the script fires them instead of pressing keys or driving
   the Equipment Manager UI: `FNCEnterEquipment(vehicle, seat)` to mount,
