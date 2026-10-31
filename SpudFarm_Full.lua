@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.72 · fluent gui"
+local VERSION    = "rebuild v1.73 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6925,23 +6925,31 @@ local okBuild, errBuild = pcall(function()
                 end
             end)
         end
+        -- only the cells this spot can actually take: the server reaches ~2
+        -- tiles (20 taken, 30 refused live), so a cell past that is a call
+        -- that was never going to land — it stays for the sweep
+        local reach = 24
         local fired = 0
         for _, c in ipairs(pts) do
             if stopping() then break end
-            if budget and fired >= budget then
-                dry = true
-                break
+            local dx, dz = c.X - sx, c.Z - sz
+            if dx * dx + dz * dz <= reach * reach then -- out of reach stays for the sweep
+                if budget and fired >= budget then
+                    dry = true
+                    break
+                end
+                spudFieldRemoteCall(job.verb, field, c.id, att)
+                fired += 1
+                task.wait(0.04)
             end
-            spudFieldRemoteCall(job.verb, field, c.id, att)
-            fired += 1
-            task.wait(0.04)
         end
         local after = cellsAtStage(field, stage, baseCF, baseSize)
         local left = after and #after or nil
         local took = left and (before - left) or 0
         log(string.format(
-            "remote %s: fired %d cell(s) from one spot above the field middle — %d took, %s left",
-            job.verb, fired, took, left and tostring(left) or "unreadable"))
+            "remote %s: fired %d of %d cell(s) from one spot above the field middle (reach %d) — %d took, %s left",
+            job.verb, fired, before, reach, took,
+            left and tostring(left) or "unreadable"))
         return took, dry
     end
 

@@ -71,10 +71,11 @@ Everything merged into one paste-and-run file:
   and another from **+80 straight up**), so the ride is parked above the
   field's middle and every remaining id is fired from there — one teleport
   instead of a serpentine, and it clears the block of cells around that spot.
-  The stage re-read decides what it took
-  (`remote seed: fired 48 cell(s) from one spot above the field middle — 48
-  took, 0 left`). Whatever it misses is swept next, so this can only add
-  speed. After that the ride is **swept across the field in one serpentine tween**
+  Only cells within **24 studs** of it are called — past that the server
+  refuses anyway — and the stage re-read decides what it took
+  (`remote seed: fired 15 of 48 cell(s) from one spot above the field middle
+  (reach 24) — 15 took, 33 left`). Whatever it misses is swept next, so this
+  can only add speed. After that the ride is **swept across the field in one serpentine tween**
   (**45 studs/s**, rows **20** studs apart — the blade reaches two tiles, so a
   pass covers three rows): a cell the blade is actually over is fired **the
   moment it is under the blade**, and for plow/cultivate a burst **every 0.5 s**

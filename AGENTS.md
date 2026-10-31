@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.72 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.73 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -72,7 +72,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 ### 1.4 Script limits (these have broken the build before)
 
 13. **Luau's 200-local limit is real and we are 2 away from the practical
-    ceiling.** Run `python tools/local_budget.py`. As of v1.72:
+    ceiling.** Run `python tools/local_budget.py`. As of v1.73:
     `4-space locals before milkCycle: 183 (practical ceiling 185)`,
     whole body `190 / 200`, **headroom 2**. Do **not** add a `local` inside the
     main build closure. Reuse an existing local, convert the feature to a
@@ -140,10 +140,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 30/30 checks on v1.72
+python tools/run_all.py        # 30/30 checks on v1.73
 ```
 
-Last full run (v1.72): **30/30 checks passed** (27 harnesses + 3 gates).
+Last full run (v1.73): **30/30 checks passed** (27 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -587,13 +587,16 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   the blade **10 studs above the middle of the remaining cells** (one
   `PivotTo`, 0.5 s to replicate — a call fired before the teleport lands is
   refused, the artifact every lift run hit) and fires every remaining id
-  40 ms apart, capped by the seeder/tank budget. The stage re-read is the
-  proof: `remote seed: fired 48 cell(s) from one spot above the field middle —
-  48 took, 0 left`; anything it misses is still swept, hopped and driven, so
-  it can only add speed. Pinned by 11 `field_remote_test.py` checks (a
-  60-stud reach takes all 15 cells in one teleport and 15 calls, a 4-seed
-  seeder fires 4 and hands back dry, a 5-stud reach takes nothing and leaves
-  every cell standing).
+  40 ms apart, **only for cells within 24 studs of it** (the measured reach
+  is 20-30, so a farther call was never going to land), capped by the
+  seeder/tank budget. The stage re-read is the proof:
+  `remote seed: fired 15 of 48 cell(s) from one spot above the field middle
+  (reach 24) — 15 took, 33 left`; anything it misses is still swept, hopped
+  and driven, so it can only add speed. Pinned by 14 `field_remote_test.py`
+  checks (a 60-stud reach takes all 15 cells in one teleport and 15 calls, a
+  4-seed seeder fires 4 and hands back dry, a 5-stud reach takes nothing and
+  leaves every cell standing, and a 9×3 field fires only the 15 cells inside
+  the reach).
 - **Sweep + fire** (v1.53, user: *"why dont we just make it tween and do that
   every 500ms so it's super fast"*, answered with **sweep + fire every 500 ms**).
   Hopping cell→cell is a teleport per id, so after the call pass
@@ -1291,7 +1294,14 @@ at most ~15 studs from one), and lays the lap path on the **field's own box** �
 re-reading the bounds from the leftover cells had moved lap 2's half-row offset
 off a single leftover row.
 
-**Where it stands:** `rebuild v1.72 · fluent gui`, whole suite green (30/30),
+**The band confirmed (v1.72 run, 2026-10-31).** The same probe on the next
+build returned the identical verdict — `30 → ignored`, `20 → TAKEN`, `+80
+up → TAKEN` — so the two-tile reach is stable, not one lucky reading. **→
+v1.73** stops the single-spot fire at **24 studs**: a cell past the reach can
+never take that call, so firing it only spent 40 ms. The pass now logs
+`fired N of M … (reach 24)` and leaves the rest to the sweep.
+
+**Where it stands:** `rebuild v1.73 · fluent gui`, whole suite green (30/30),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching `path: … theta* N pops / N ms, min clear N`, the
 new width line (`tool … — 3-wide …; rows every 30`), the Farm owner picker
@@ -1404,11 +1414,12 @@ for this session`), and the equipment lines (`✅ mounted … (FNCEnterEquipment
    input) and v1.59 (Tests → **Remote list**: paste it. A remote that looks
    like a field/bulk door names the next experiment. The wrong-tool question is
    answered — the tool identity IS checked, so each verb keeps its own
-   implement) and v1.72 (a field job must log
-   `remote <verb>: fired N cell(s) from one spot above the field middle — M
-   took, K left` right after the call pass — M should be the cells within ~2
-   tiles of the field middle, and the sweep must log `range 20`; watch that a
-   field now finishes in one or two serpentine passes without leftovers) and v1.70
+   implement) and v1.73 (a field job must log `remote <verb>: fired N of M
+   cell(s) from one spot above the field middle (reach 24) — K took, L left`
+   right after the call pass — N is the cells within ~2 tiles of the field
+   middle and K should equal N on a healthy field — and the sweep must log
+   `range 20`; watch that a field finishes in one or two serpentine passes
+   without leftovers) and v1.70
    (Tests → **Lift test**: paste the
    `lift: verdict — tallest take …, widest take … (N cell(s) spent)` line. Hitch
    a tool whose stage your fields hold SEVERAL cells of — Empty for a plow,

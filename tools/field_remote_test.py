@@ -678,6 +678,29 @@ check("radial: every cell is still standing",
     #spudFieldCellIds(field, "Cultivated") == 15)
 check("radial: an ignored single-spot fire is not dry", dryRI == false, tostring(dryRI))
 
+-- a cell past the measured reach is never called: on a 9x3 field only the
+-- 5x3 middle block (within 24 studs of the middle) is fired, the 12 outer
+-- cells stay for the sweep
+acceptR = 200
+capVal.Value = 50
+fieldState[field] = {}
+for x = 1, 9 do
+    for y = 1, 3 do
+        fieldState[field][x * 128 + y] = { Stage = "Cultivated" }
+    end
+end
+resetState()
+cj0 = seedRemote.invokeCalls
+local tookRF, dryRF = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+check("radial: only the cells within reach are fired",
+    seedRemote.invokeCalls - cj0 == 15 and tookRF == 15,
+    (seedRemote.invokeCalls - cj0) .. " call(s), took " .. tostring(tookRF))
+check("radial: the log says how many of how many", 
+    loggedText():find("fired 15 of 27 cell") ~= nil)
+check("radial: the far cells are left standing",
+    #spudFieldCellIds(field, "Cultivated") == 12)
+
 resetCells()
 mode.atCell = false
 acceptR = 2
