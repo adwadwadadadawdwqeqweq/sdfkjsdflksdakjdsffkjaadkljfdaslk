@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.81 · fluent gui"
+local VERSION    = "rebuild v1.82 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5641,7 +5641,31 @@ local okBuild, errBuild = pcall(function()
         local cf = ride:GetPivot()
         local off = att.Parent.Position - cf.Position
         local rot = cf - cf.Position
-        local fired, done = 0, {}
+        local fired, done, charged = 0, {}, {}
+        -- ▸ THE BURST AT ONE STOP. `done` is "already called at this stop" and
+        --   is cleared for the one retry below; `charged` is "already paid for
+        --   by the seeder/tank", so a retried cell is never counted twice.
+        local function burst(stop)
+            for n, c in ipairs(pts) do
+                local key = c.id or ("i" .. n)
+                if not done[key] then
+                    local dx, dz = c.X - stop.x, c.Z - stop.z
+                    if dx * dx + dz * dz <= reach * reach then -- out of reach: a later stop
+                        if budget and not charged[key] and fired >= budget then
+                            dry = true
+                            return
+                        end
+                        done[key] = true
+                        if not charged[key] then
+                            charged[key] = true
+                            fired += 1
+                        end
+                        spudFieldRemoteCall(job.verb, field, c.id, att)
+                        task.wait(0.04)
+                    end
+                end
+            end
+        end
         for i, stop in ipairs(stops) do
             if stopping() then break end
             local moved = pcall(function()
@@ -5649,28 +5673,25 @@ local okBuild, errBuild = pcall(function()
             end)
             if not moved then break end
             -- the first stop follows a long ride, the rest are short hops
-            task.wait(i == 1 and 0.5 or 0.4)
-            for n, c in ipairs(pts) do
-                local key = c.id or ("i" .. n)
-                if not done[key] then
-                    local dx, dz = c.X - stop.x, c.Z - stop.z
-                    if dx * dx + dz * dz <= reach * reach then -- out of reach: a later stop
-                        if budget and fired >= budget then
-                            dry = true
-                            break
-                        end
-                        done[key] = true
-                        spudFieldRemoteCall(job.verb, field, c.id, att)
-                        fired += 1
-                        task.wait(0.04)
-                    end
-                end
-            end
+            task.wait(i == 1 and 0.6 or 0.4)
+            burst(stop)
             if i == 1 then
-                -- one stop decides whether this server takes a parked blade at
-                -- all; if it does not, the sweep below is the honest path
+                -- ▸ THE FIRST CALL AFTER A LONG RIDE IS ROUTINELY REFUSED while
+                --   the server still holds the old pose (the artifact every
+                --   lift run hit). Asking once and giving the field away used
+                --   to hand a healthy field to the tween — which is what
+                --   "it's still driving" was. Settle and fire the same stop
+                --   once more before believing a parked blade is refused.
                 local chk = cellsAtStage(field, stage, baseCF, baseSize)
-                if not chk or #chk >= before then break end
+                if not chk or #chk >= before then
+                    if chk and not stopping() then
+                        done = {}
+                        task.wait(0.5)
+                        burst(stop)
+                        chk = cellsAtStage(field, stage, baseCF, baseSize)
+                    end
+                    if not chk or #chk >= before then break end
+                end
             end
             if dry then break end
         end
@@ -5687,53 +5708,14 @@ local okBuild, errBuild = pcall(function()
     local function sweepField(tr, field, seat, job, impl)
         local baseCF, baseSize = fieldFrame(field)
         if not baseCF then return false, "no bounds" end
-        local c = baseCF.Position
         local rx = Vector3.new(baseCF.RightVector.X, 0, baseCF.RightVector.Z).Unit
         local rz = Vector3.new(baseCF.LookVector.X, 0, baseCF.LookVector.Z).Unit
         local alongX = baseSize.X >= baseSize.Z
-        -- passes run along the LONG axis (user: fewer turns = more stable)
-        local driveDir = alongX and rx or rz   -- unit world dir of the pass axis
-        local stepDir  = alongX and rz or rx   -- unit world dir of the step
-        -- +12 run-out past the field ends (user: turn too tight → doubled
-        -- the old +6): the turns happen off the field in open grass, and
-        -- the trailing plow still covers the edge cells
-        -- ▸ the HARVESTER gets NO run-out: it turns in place between rows, and
-        --   driving 12 studs past the plot is exactly the user's "it goes past
-        --   the specified field" — straight through the fence. It now keeps
-        --   rolling through the corners (user: "keep going on the angle"), so
-        --   the rows end 4 studs INSIDE the plot: that is the room the swing
-        --   needs, and the end cells are still entered by the blade.
-        local runOut = job.selfPropelled and -4 or 12
-        local driveHalf = (alongX and baseSize.X or baseSize.Z) / 2 + runOut
-        local rowSpan   = (alongX and baseSize.Z or baseSize.X)
-        -- ▸ HEADLAND + SKIP-ROW (research, not guesswork). A combine cannot
-        --   turn inside a 10-stud row gap — its turning circle is two to three
-        --   passes wide — so the old "concentric laps 10 studs apart" was a
-        --   geometrically IMPOSSIBLE path, and every row end jammed because of
-        --   it. Real fields are cut the other way round (Biosystems
-        --   Engineering 2023: cut the periphery first, it is the headland the
-        --   turns need; ICARA 2022: SKIP-ROW the interior when the working
-        --   width is narrower than the turning circle): one lap around the
-        --   edge, then rows 1,3,5 … and 2,4,6 … so each turn is a wide Ω
-        --   across a skipped row instead of a 180 in a 10-stud gap. Rows stay
-        --   dead straight; only the turns use the headland band.
-        -- ▸ SMALL FIELDS. The old constants could put the turn lane OUTSIDE the
-        --   fence when driveHalf < 14, and build two identical rows when the
-        --   field was too narrow to hold a headland band (inner = 0). Both are
-        --   clamped to the field now.
+        local stepDir = alongX and rz or rx -- unit world dir of the step axis
         -- ▸ HOW WIDE IS THIS TOOL? The field grid is 10-stud tiles, so the
         --   implement's ground union across the step axis is the working
-        --   width. Rows are spaced by that width instead of the old fixed 10
-        --   studs; a 3-wide tool used to overlap three times.
+        --   width — logged per pass, because it is what a 3-wide tool reports.
         local workTiles, widthHow, widthStuds = SpudFarm.workTiles(job, impl, stepDir)
-        local plan = SpudFarm.rowPlan(rowSpan, workTiles)
-        local rowHalf = plan.rowHalf -- step half-extent of the headland lap
-        local axRow = math.min(math.max(driveHalf - 12, 8), math.max(driveHalf - 6, 4))
-        local lane = math.min(math.max(driveHalf - 4, 10), math.max(driveHalf - 2, 3))
-        local lines = plan.lines
-        local function pt(along, step) -- field-local (along, step) → world
-            return c + driveDir * along + stepDir * step
-        end
         local st0 = countStages(field)
         local need0 = st0 and whichNeed(job, st0) or nil
         local needStart = need0 -- how much work this field had on arrival
@@ -5796,10 +5778,34 @@ local okBuild, errBuild = pcall(function()
                     return true
                 end
             end
-            -- ▸ one call per cell only lands where the blade is (live: 6 of 46),
-            --   so sweep the field in one tween, firing at the cells the blade
-            --   passes; then hop onto whatever is still standing before
-            --   giving up and driving. The stage re-read decides.
+            -- ▸ TELEPORTS BEFORE THE TWEEN (owner 2026-10-31: "it's still
+            --   driving"). Hopping onto each remaining cell is a teleport per
+            --   cell, so it goes first; the smooth sweep is only for cells a
+            --   per-cell call still refuses, and it is the last thing that
+            --   moves the ride along the ground.
+            if need0 and need0 > 0 then
+                local hopped, hopDry = spudHopCells(job, field, tr, impl,
+                    job.grown and grownStage or job.stage, baseCF, baseSize, spudToolAttachment(impl))
+                if hopped and hopped > 0 then
+                    st0 = countStages(field) or st0
+                    need0 = st0 and whichNeed(job, st0) or need0
+                    if need0 == 0 then
+                        if job.selfPropelled then
+                            harvestSellIfFull(tr, seat, field, "after the hop pass")
+                        end
+                        return true
+                    end
+                end
+                if hopDry then
+                    if job.selfPropelled then
+                        harvestSellIfFull(tr, seat, field, "after the hop pass")
+                    end
+                    return true
+                end
+            end
+            -- ▸ THE TWEEN LAST: one serpentine at 45 studs/s, firing at the
+            --   cells the blade passes. Same calls, same proof — only the
+            --   movement is continuous instead of a jump.
             if need0 and need0 > 0 then
                 local swept, sweepDry = spudSweepCells(job, field, tr, impl,
                     job.grown and grownStage or job.stage, baseCF, baseSize,
@@ -5820,26 +5826,6 @@ local okBuild, errBuild = pcall(function()
                     else
                         log(string.format("%s: seeder empty with %d cell(s) still to seed here — refilling before driving",
                             job.verb, need0 or 0))
-                    end
-                    return true
-                end
-            end
-            if need0 and need0 > 0 then
-                local hopped, hopDry = spudHopCells(job, field, tr, impl,
-                    job.grown and grownStage or job.stage, baseCF, baseSize, spudToolAttachment(impl))
-                if hopped and hopped > 0 then
-                    st0 = countStages(field) or st0
-                    need0 = st0 and whichNeed(job, st0) or need0
-                    if need0 == 0 then
-                        if job.selfPropelled then
-                            harvestSellIfFull(tr, seat, field, "after the hop pass")
-                        end
-                        return true
-                    end
-                end
-                if hopDry then
-                    if job.selfPropelled then
-                        harvestSellIfFull(tr, seat, field, "after the hop pass")
                     end
                     return true
                 end
@@ -5879,320 +5865,22 @@ local okBuild, errBuild = pcall(function()
                 return true
             end
         end
-        log(string.format("%s: 1 headland lap + %d skip-row pass(es)  (%s)", job.verb, #lines,
-            st0 and string.format("%d/%d cells still need %s", need0, st0.total, job.prog)
-                or "cell read unavailable"))
-        log(string.format("%s: tool %s — %d-wide (%s, %.0f studs); rows every %.0f, headland band %.0f",
-            job.verb, impl and impl.Name or "?", workTiles, widthHow, widthStuds,
-            plan.rowStep, plan.headBand))
-        local realDrive -- nil = not probed yet; true = seat driving; false = glide
-        -- ▸ THE TANK, BEFORE AND AFTER THIS FIELD (diagnostic): "the harvester is
-        --   still not harvesting" needs ONE fact — does the game count the
-        --   movement we produce? If the tank is identical after a whole field,
-        --   the row drive is what has to change, not the sell trip.
-        local tank0 = job.selfPropelled and harvesterLoad(tr) or nil
-        if job.selfPropelled then
-            log(string.format("harvest: driving %s (EquipmentType=%s) — tank %s",
-                tr.Name, tostring(tr:GetAttribute("EquipmentType")), tostring(tank0)))
-            if tank0 == nil then
-                log("⚠ harvest: the tank isn't readable on " .. tr.Name
-                    .. " (no Configurations.Capacity) — the fill and the sell both depend on it")
-            end
-        end
-        local sellTries = 0
-        -- rows start on REAL W (the game auto-steers on the field); the align
-        -- mover is the fallback if the keys can't finish a leg, then WASD/glide
-        local useAlign = true
-        local lineStats = { worst = 0, flips = 0 }
-        local function doLeg(from, goal, tol)
-            if stopping() then return nil end
-            -- ▸ a harvest leg is DRIVEN on real W (the game only credits a
-            --   harvest while its own controller drives — see keyRow). If W
-            --   doesn't move it, the seat throttle is tried, and that still
-            --   falls back to the plain tween.
-            if job.selfPropelled then
-                local okT = keyRow(tr, seat, from, goal)
-                if okT == nil then return nil end
-                if okT == "full" then
-                    -- the tank filled mid-leg; the sweep sells and resumes.
-                    -- Never treat this as "the keys don't work".
-                    return "full"
-                end
-                if okT == false then
-                    log("harvester: holding W moved nothing — trying the seat throttle for this row")
-                    okT = throttleRow(tr, seat, from, goal)
-                    if okT == nil then return nil end
-                elseif okT == "jammed" then
-                    okT = tweenDriveLeg(tr, from, goal, HARVEST_TWEEN_SPEED)
-                    if okT == nil then return nil end
-                end
-                return okT
-            end
-            -- ▸ LET THE GAME DRIVE THE ROW (user: "when it's on the field just
-            --   let the game's thing that focuses is on the field do its
-            --   thing"): the game's own controller auto-steers a tractor on its
-            --   field, so the row is driven on real W exactly like the
-            --   harvester's rows. keyRow snaps the leg onto the row ONCE and
-            --   then holds W only (user: "force the alignement then jus tgo
-            --   straight") — no A/D nudge loop, which is what made it swing
-            --   side to side. The align mover stays as the fallback for a leg
-            --   the keys cannot finish.
-            if realDrive ~= false then
-                local keyed = keyRow(tr, seat, from, goal, "tractor")
-                if keyed == nil then return nil end
-                if keyed == true then
-                    if realDrive == nil then
-                        realDrive = true
-                        log("real W row driving ON (the game steers on the field)")
-                    end
-                    task.wait(0.05)
-                    return true
-                end
-                -- W was pressed from a standstill and moved nothing: don't pay
-                -- the 3 s probe on every row — the mover takes this sweep.
-                if keyed == false and realDrive == nil then
-                    realDrive = false
-                    log("tractor: W didn't move it — the align mover takes the rows this sweep")
-                elseif keyed ~= false then
-                    log("tractor: the W row drive handed back — align mover takes this leg")
-                end
-            end
-            -- never accept more than half a leg early (the short step onto
-            -- the next ring would get cut otherwise)
-            tol = math.min(tol or 7, (goal - from).Magnitude * 0.5)
-            if useAlign then
-                -- fallback rows run swath + 8 (=18), still slower than travel
-                local res = alignDriveLeg(tr, from, goal, tol, lineStats,
-                    math.min(HARVEST_TWEEN_SPEED + 8, ALIGN_MAXVEL))
-                if res == nil then return nil end
-                if res then
-                    task.wait(0.05)
-                    return true
-                end
-                useAlign = false
-                log("align mover couldn't finish a field leg — keys take over for this sweep")
-            end
-            if realDrive ~= false then
-                local res = driveLegKeys(tr, seat, from, goal, tol)
-                if res == nil then return nil end
-                -- a leg stopped by the harvest watch says nothing about
-                -- whether the keys work — never flip the driver on that
-                if realDrive == nil and not watchHit then
-                    realDrive = res == true
-                    if realDrive then
-                        log("real driving ON (held WASD — true physics)")
-                    else
-                        log("keys didn't drive the tractor — falling back to glide")
-                    end
-                end
-            end
-            if realDrive == false then glideTractor(tr, goal) end
-            task.wait(0.1)
-            return true
-        end
-        -- precompute the whole spiral ONCE, then just FOLLOW the list
-        local at = tr:GetPivot().Position
-        watchHit = false -- a fresh sweep starts with a clear 1-second watch
-        -- ▸ the tank can already be full on arrival (it filled on the way in)
-        if job.selfPropelled and sellTries < 6 then
-            local tried, sold = harvestSellIfFull(tr, seat, field, "on arrival")
-            if tried then sellTries += 1 end
-            if sold then at = tr:GetPivot().Position end
-        end
-        local rel0 = at - c -- sides picked along the PLATE's axes, not world
-        local E = rel0:Dot(driveDir) >= 0 and 1 or -1 -- which end I arrived at
-        local S = rel0:Dot(stepDir) >= 0 and 1 or -1  -- which step side
-        -- each leg entry = { target, tolerance, label }
-        local map = {}
-        -- 1) THE HEADLAND: one closed lap around the field edge. This is the
-        --    band the Ω turns later use, so it is cut first and never again.
-        map[#map + 1] = { pt( E * driveHalf,  S * rowHalf), 10, "headland" }
-        map[#map + 1] = { pt(-E * driveHalf,  S * rowHalf), 10, "headland" }
-        map[#map + 1] = { pt(-E * driveHalf, -S * rowHalf), 10, "headland" }
-        map[#map + 1] = { pt( E * driveHalf, -S * rowHalf), 10, "headland" }
-        map[#map + 1] = { pt( E * driveHalf,  S * rowHalf), 10, "headland" }
-        -- 2) THE INTERIOR, SKIP-ROW: odd lines first, then even, serpentine.
-        --    Consecutive rows are then two passes apart, and the turn between
-        --    them is a Ω through the headland lane instead of an impossible
-        --    180° inside a 10-stud gap.
-        local order = {}
-        for i = 1, #lines, 2 do order[#order + 1] = i end
-        for i = 2, #lines, 2 do order[#order + 1] = i end
-        local rdir = E
-        for n, idx in ipairs(order) do
-            local s = lines[idx]
-            -- tol 10 = the end counts as reached 10 studs early, so the turn
-            -- starts sooner and the swing stays inside the field
-            map[#map + 1] = { pt(-rdir * axRow, s), 10, "row " .. n }
-            map[#map + 1] = { pt( rdir * axRow, s), 10, "row " .. n }
-            local nxt = order[n + 1]
-            if nxt then
-                -- Ω: run out into the headland lane, cross to the next row's
-                -- line, then the next row pulls back in (its first point).
-                map[#map + 1] = { pt(rdir * lane, s), 8, "turn" }
-                map[#map + 1] = { pt(rdir * lane, lines[nxt]), 8, "turn" }
-            end
-            rdir = -rdir
-        end
-        dbgShow(tr, map, at) -- glowing bars on the field; bright = active leg
-        for i, leg in ipairs(map) do
-            dbgLeg(i)
-            -- full harvester: sell and come back (the user's loop). The spiral
-            -- is already computed, so after the trip the sweep just resumes at
-            -- THIS leg — from where the vehicle actually is now.
-            if job.selfPropelled and sellTries < 6 then
-                local tried, sold = harvestSellIfFull(tr, seat, field, "before leg " .. i)
-                if tried then sellTries += 1 end
-                if sold then at = tr:GetPivot().Position end
-            end
-            local okLeg = doLeg(at, leg[1], leg[2])
-            if job.selfPropelled and watchHit then
-                -- ▸ the tank filled DURING this leg (the 1-second watch
-                --   stopped it where it was): sell now, then carry on with
-                --   the spiral from the vehicle's real position. The cell
-                --   strip this leg didn't finish is the touch-up's job.
-                watchHit = false
-                sellTries += 1
-                harvestSellIfFull(tr, seat, field, "mid leg " .. i)
-                at = tr:GetPivot().Position
-            elseif not okLeg then
-                dbgClear() return nil
-            else
-                -- ▸ MEASURE THE NEXT LEG FROM WHERE THE VEHICLE ACTUALLY IS.
-                --   This used to be `at = leg[1]`, the point the leg was aiming
-                --   at — but a leg can end early (tank full, brake-zone stop,
-                --   tween assist), and every following leg then inherited the
-                --   error: directions, lengths, turn lane, all shifted. Reading
-                --   the pivot makes each leg honest, whatever ended the last.
-                at = tr:GetPivot().Position
-                if leg[3] == "headland" and okLeg == true then
-                    log("headland lap done — interior rows next (skip-row)")
-                end
-            end
-        end
-        dbgClear()
-        if stopping() then return nil end
-        -- ▸ TOUCH-UP (user: "if it missed anything during the plow/
-        --   cultivating make it go to that cube and then stop so nothing is
-        --   missed"): every cube still at the job's stage gets a visit,
-        --   nearest first — TRANSIT to one side, then THROUGH the cube on
-        --   the plate's own axis so the trailing tool sweeps its full
-        --   width (a diagonal crossing can miss the corners of a 10×10
-        --   cell). Then stop and recount — verdict below stays honest.
-        local missed = whichCells(job, field, baseCF, baseSize)
-        if missed == nil then
-            log("touch-up: cell read unavailable — can't locate missed cubes")
-        elseif #missed > 0 then
-            -- ▸ A WIDE TOOL COVERS SEVERAL MISSED CUBES IN ONE PASS: group the
-            --   missed cells by row so a 3-wide tool is not driven to every
-            --   cube it already covers.
-            if workTiles > 1 then
-                local seen, keep = {}, {}
-                for _, cube in ipairs(missed) do
-                    local rel = Vector3.new(cube.X - c.X, 0, cube.Z - c.Z)
-                    local band = math.floor(rel:Dot(stepDir) / plan.rowStep + 0.5)
-                    if not seen[band] then
-                        seen[band] = true
-                        keep[#keep + 1] = cube
-                    end
-                end
-                if #keep < #missed then
-                    log(string.format("touch-up: %d cube(s) grouped into %d row(s) for the %d-wide tool",
-                        #missed, #keep, workTiles))
-                    missed = keep
-                end
-            end
-            log(string.format("touch-up: %d cube(s) missed by the spiral — going to each", #missed))
-            local function flat(p) return Vector3.new(p.X, 0, p.Z) end
-            local route, pool, cur = {}, table.clone(missed), at
-            while #pool > 0 do
-                local bi, bd
-                for i, p in ipairs(pool) do
-                    local d = (flat(p) - flat(cur)).Magnitude
-                    if not bd or d < bd then bi, bd = i, d end
-                end
-                local cube = table.remove(pool, bi)
-                local c = Vector3.new(cube.X, cube.Y, cube.Z)
-                -- enter from the side I'm on, exit out the far side (±15)
-                local s = (flat(cur) - flat(c)):Dot(driveDir) >= 0 and 15 or -15
-                route[#route + 1] = { goal = c + driveDir * s,     cx = cube.X, cz = cube.Z, kind = "transit" }
-                route[#route + 1] = { goal = c + driveDir * (-s),  cx = cube.X, cz = cube.Z, kind = "through" }
-                cur = c + driveDir * (-s)
-            end
-            local barMap = {}
-            for i, r in ipairs(route) do barMap[i] = { r.goal, 6, nil } end
-            dbgShow(tr, barMap, at)
-            -- the touch-up drives the whole field again, so it can fill the
-            -- tank just as easily as the spiral did
-            if job.selfPropelled and sellTries < 6 then
-                local tried, sold = harvestSellIfFull(tr, seat, field, "before the touch-up")
-                if tried then sellTries += 1 end
-                if sold then at = tr:GetPivot().Position end
-            end
-            local through = 0
-            for i, r in ipairs(route) do
-                dbgLeg(i)
-                local okLeg = doLeg(at, r.goal, 6)
-                if job.selfPropelled and watchHit then
-                    watchHit = false
-                    sellTries += 1
-                    harvestSellIfFull(tr, seat, field, "mid touch-up")
-                    at = tr:GetPivot().Position
-                elseif not okLeg then
-                    dbgClear() return nil
-                else
-                    at = r.goal
-                end
-                if r.kind == "through" then
-                    through += 1
-                    log(string.format("touch-up %d/%d: drove through cube (%.0f, %.0f)",
-                        through, #missed, r.cx, r.cz))
-                end
-                task.wait(0.15)
-            end
-            dbgClear()
-            task.wait(1) -- let the server register the drive-overs before recounting
-            if stopping() then return nil end
-        end
-        if lineStats.flips > 0 or lineStats.worst > 0 then
-            log(string.format("field line: %d crossings, worst %.1f studs off%s",
-                lineStats.flips, lineStats.worst, useAlign and "" or " (keys after the fallback)"))
-        end
-        -- ▸ END OF THE SWEEP: an empty tank is the honest end state — a full
-        --   one just carries the load into the next run.
-        if job.selfPropelled and sellTries < 6 then
-            harvestSellIfFull(tr, seat, field, "end of the sweep")
-        end
-        local st1 = countStages(field)
-        local fieldCfg = field:FindFirstChild("Configurations")
-        local fieldOwner = fieldCfg and fieldCfg:FindFirstChild("Owner")
-        local fieldOwnerName = fieldOwner and fieldOwner.Value and fieldOwner.Value.Name or nil
-        if st1 then
-            local need1 = whichNeed(job, st1) or 0
-            log(string.format("sweep done: %d/%d cells still need %s", need1, st1.total, job.prog))
-            if st1.total > 0 and need1 == 0 then
-                log("✅ the whole field is " .. job.past)
-            elseif need0 and need1 >= need0 then
-                log(string.format("cell count did NOT change — drive-over isn't %s (dump: %s would be next)",
-                    job.prog, job.remote))
-                if fieldOwnerName and fieldOwnerName ~= LocalPlayer.Name then
-                    log("⚠ this field belongs to " .. fieldOwnerName
-                        .. " — the game did not apply " .. job.verb
-                        .. " (check worker permissions)")
-                end
-            else
-                log(string.format("some cells left — run the loop again (%d-wide tool; touch-up may need a second pass)",
-                    workTiles))
-            end
+        -- ▸ NO ROWS, EVER (owner 2026-10-31: "it's still driving"). The ride
+        --   got here by an arc hop and the remotes did the work; if every call
+        --   was refused, a row lap would only be a visible DRIVE for cells the
+        --   server keeps refusing. Name it and move on — this function no
+        --   longer touches a movement key at all.
+        log(string.format("%s: tool %s — %d-wide (%s, %.0f studs)",
+            job.verb, impl and impl.Name or "?", workTiles, widthHow, widthStuds))
+        if need0 == nil then
+            log(job.verb .. ": the cell read failed on " .. field.Name
+                .. " — nothing to fire, no rows driven")
         else
-            log("sweep done — cell read unavailable, check the field visually")
+            log(string.format("%s: every call on %s was refused — %d cell(s) left, no rows driven",
+                job.verb, field.Name, need0))
         end
-        if tank0 ~= nil then
-            local tank1 = harvesterLoad(tr)
-            log(string.format("harvest: tank %s → %s after this field", tostring(tank0), tostring(tank1)))
-            if tank1 == tank0 then
-                log("⚠ the tank did NOT move while driving the rows — the game isn't counting this movement as harvesting")
-            end
+        if job.selfPropelled then
+            harvestSellIfFull(tr, seat, field, "after the refused calls")
         end
         return true
     end

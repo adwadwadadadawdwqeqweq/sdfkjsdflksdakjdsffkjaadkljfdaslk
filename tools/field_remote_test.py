@@ -723,13 +723,41 @@ local tookRG, dryRG = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated"
     baseCF, baseSize, hopAtt)
 check("radial: an ignored grid stops after one stop", rides - rf0 == 1,
     (rides - rf0) .. " pivot(s)")
-check("radial: an ignored grid fires only that stop's cells",
-    seedRemote.invokeCalls - cj0 <= 15,
+check("radial: an ignored grid retries that stop exactly once",
+    seedRemote.invokeCalls - cj0 == 24,
     (seedRemote.invokeCalls - cj0) .. " call(s)")
 check("radial: an ignored grid leaves every cell standing",
     tookRG == 0 and #spudFieldCellIds(field, "Cultivated") == 27,
     tostring(tookRG))
 check("radial: an ignored grid is not dry", dryRG == false, tostring(dryRG))
+
+-- ▸ THE FIRST-CALL ARTIFACT: the server still holds the old pose after the
+--   long ride and refuses the first burst at every cell. The grid must settle
+--   and fire that same stop once more instead of handing a healthy field to
+--   the tween (that is what "it's still driving" was).
+mode.seed = "retryOnce"
+acceptR = 200
+capVal.Value = 50
+fieldState[field] = {}
+for x = 1, 3 do
+    fieldState[field][x * 128 + 1] = { Stage = "Cultivated" }
+end
+resetState()
+tries = {}
+rf0 = rides
+cj0 = seedRemote.invokeCalls
+local tookRY, dryRY = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+check("radial: a first burst the server refuses is retried at the same stop",
+    tookRY == 3 and rides - rf0 == 1,
+    string.format("%d took, %d pivot(s)", tookRY, rides - rf0))
+check("radial: the retry costs one more call per cell, never a third",
+    seedRemote.invokeCalls - cj0 == 6,
+    (seedRemote.invokeCalls - cj0) .. " call(s)")
+check("radial: the field is empty after the retry",
+    #spudFieldCellIds(field, "Cultivated") == 0)
+check("radial: the retry is not dry", dryRY == false, tostring(dryRY))
+mode.seed = "all"
 
 resetCells()
 mode.atCell = false

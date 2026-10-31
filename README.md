@@ -37,19 +37,15 @@ Everything merged into one paste-and-run file:
   requirements · price-rotation tip), auto seed-loading during PLANT, Auto-Sell,
   Grow time slider, Skip Stage / Reset buttons, live status line,
   **live sell-price readout** (reads the in-game SellValueBoards every 3s)
-- **Field driving** — rows are driven on real **W**, so the game's own
-  auto-steer holds the tractor on course. The script only steps in for a big
-  error: a row is **snapped once** onto its line when the heading is off by
-  more than **15°** or the ride sits more than **6 studs** beside it, then it
-  just goes straight — no A/D nudging, so nothing fights the game's steering.
-  Steering itself has hysteresis (engage past 15°, release inside 7.5°), so the
-  boundary can't flip A/D back and forth. If the steering still swings, the row
-  **slows itself down**: three direction changes take a step off the throttle
-  (never below 30 %), and every steady 3 s gives a step back — so a wobbling row
-  settles into a slow straight pass. If W can't finish a leg, the align mover
-  takes over. **Travel between fields is an arc hop, not a drive** — every
-  job, not just the harvester — so a tour is teleports, arcs and bursts, and
-  there is no pathfinder any more.
+- **No driving, and no pathfinding** — a field pass is arc hops and
+  teleports: the ride arcs to the field corner, the calls fire from a grid of
+  parked blades, then a teleport onto each remaining cell. Nothing touches a
+  movement key: the old row driver is unreferenced and no row is ever driven,
+  so a pass that cannot finish says
+  `<verb>: every call on <field> was refused — N cell(s) left, no rows driven`
+  instead of driving a lap. The arc lands on the field's own corner and the
+  pathfinder is gone, so the only ground movement left is the last-resort
+  tween sweep, used only when teleports take nothing at all.
 - **Field work on the game's own remotes** — before a pass drives a single row
   it fires the call the game itself fires on drive-over, once per cell still at
   the job's stage: `EVTPlowFieldCell` / `EVTCultivateFieldCell`
@@ -78,10 +74,12 @@ Everything merged into one paste-and-run file:
   are spaced 1.35 reaches apart, so every cell sits within ~19 studs of one:
   a 50×100 field takes **8 teleports** and about **3 s** of waiting instead of
   a 7 s serpentine. The stage re-read after the **first** stop decides — if the
-  server takes nothing from a parked blade the grid ends there and the sweep
-  drives (`remote seed: fired 46 of 46 cell(s) from 8 stop(s) across the field
-  (reach 20) — 46 took, 0 left`). Whatever it misses is swept next, so this
-  can only add speed. After that the ride is **swept across the field in one serpentine tween**
+  server takes nothing from a parked blade the grid fires **that same stop
+  once more** — the first call after a long ride is routinely refused while the
+  server still holds the old pose — and only then ends
+  (`remote seed: fired 46 of 46 cell(s) from 8 stop(s) across the field
+  (reach 20) — 46 took, 0 left`). Whatever it misses is then **hopped**: one
+  teleport per remaining cell with the blade on it. The **serpentine tween**
   (**45 studs/s**, rows **20** studs apart — the blade reaches two tiles, so a
   pass covers three rows): a cell the blade is actually over is fired **the
   moment it is under the blade**, and for plow/cultivate a burst **every 0.5 s**
@@ -95,10 +93,9 @@ Everything merged into one paste-and-run file:
   the close fire then calls it again). A wide call the server refuses never
   blocks the close one — that is what made the plow leave a field of
   leftovers. Anything
-  still standing after the sweep is **hopped** onto cell by cell with the
-  tool's attachment lined up and that single id fired (`remote plow: hopped the
-  ride over 46 cell(s) — 46 took`), and only then is the field driven — so the
-  remotes can only add speed, never skip work. The sweep logs
+  still standing after the hop is **swept once in a serpentine tween** — the
+  last resort, only when the teleports took nothing — so the remotes can only
+  add speed, never skip work. The sweep logs
   `remote seed: swept 46 cell(s) in 6.1s at 45 studs/s, range 20 — 44 took, 2 left`.
 - **Tests tab** — experiments, off by default, none of them a dependency of a
   normal pass. **Batch field remote** tries the abuse the captured shape allows:

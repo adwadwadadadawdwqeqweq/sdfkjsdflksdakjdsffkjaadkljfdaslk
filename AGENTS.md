@@ -329,13 +329,14 @@ a route any more.
 - A field with **no readable frame** (`fieldFrame` → nil) is named
   (`SKIP <field> — no readable field frame`) and the pass stops there instead
   of driving at it — that field cannot be swept by the remotes either.
-- **On the field** the work is the field remotes (§3.12): the call pass, the
-  stop-and-burst grid, **one more grid round** for leftover cells, then the
-  per-cell hop (a teleport per cell). Rows are driven **only** when every call
-  on the field was refused (`need0` never fell) — the game's own drive-over is
-  the last door. Otherwise the pass logs
-  `<verb>: N cell(s) left after the teleport passes — leaving them, no rows
-  driven`.
+- **On the field** the work is the field remotes (§3.12), all teleports: the
+  call pass, the stop-and-burst grid, the **per-cell hop** (a teleport per
+  cell), then **one more grid round** for leftovers and the tween sweep as the
+  last resort. **No row is ever driven** (v1.82) — a field that cannot be
+  finished says `<verb>: every call on <field> was refused — N cell(s) left,
+  no rows driven` and the pass moves on. The old row driver (`keyRow`,
+  `alignDriveLeg`, `driveLegKeys`, `throttleRow`) is now unreferenced code;
+  `spudRowSteer`/`spudRowEase` are still pinned by `row_steer_test.py`.
 - Deleting the planner also freed the 200-local budget: **headroom 2 → 10**
   (175 before `milkCycle`, 182 whole body).
 
@@ -1347,15 +1348,31 @@ single call was refused (`<verb>: N cell(s) left after the teleport passes —
 leaving them, no rows driven` otherwise). The 200-local budget went from
 headroom **2 to 10**.
 
-**Where it stands:** `rebuild v1.81 · fluent gui`, whole suite green (29/29),
+**Rows are gone too (v1.82).** Owner: *"it's still driving"*, one line after
+the A* came out. Two things were left that moved the ride along the ground:
+the **row driver** behind a failed field pass, and the **tween sweep** before
+the hop. Both are answered now. (1) The row block (~316 lines: headland lap,
+skip-row passes, Ω turns, the tank diagnostics) is deleted outright — a field
+pass no longer touches a movement key, and a field whose calls all fail logs
+`<verb>: every call on <field> was refused — N cell(s) left, no rows driven`.
+(2) The **hop runs before the tween**, so the leftover cells are teleported
+onto and the smooth serpentine is the last resort. The real reason the sweep
+kept running was the **first-call artifact**: the grid gave the whole field
+away after one stop when the server refused the first burst (the pose had not
+replicated yet) — it now settles 0.5 s and fires **that same stop once more**
+before believing a parked blade is refused, which is pinned by
+`field_remote_test.py` (`mode.seed = "retryOnce"`).
+
+**Where it stands:** `rebuild v1.82 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
-new width line (`tool … — 3-wide …; rows every 30`), the Farm owner picker
+tool-width line (`tool KADL — 3-wide (…, 40 studs)`), the Farm owner picker
 showing ONLY that owner's fields (`Field · Miou2251`), the equipment owner
 column (`· ZM80 = Tractor [spawned] · oksimba_1`), a
-`SKIP … — <type> soil, trees are left alone` line on the wood field, the rows
-being driven on W with the tractor re-centering after a drift, the
+`SKIP … — <type> soil, trees are left alone` line on the wood field, the
+`remote <verb>: fired N of M cell(s) from K stop(s)` line with **no** row lap
+after it, the
 `farm owner: teleporting to …'s plot` hop followed by
 `farm: using <tool> (<owner>)`, a full harvester taking the Drop-off trip
 (`fulfillment pad: Deposit_Warehouse at (…` → `fulfillment pad … parked —
