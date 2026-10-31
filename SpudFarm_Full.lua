@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.93 · fluent gui"
+local VERSION    = "rebuild v1.94 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6142,10 +6142,11 @@ local okBuild, errBuild = pcall(function()
             --   cell — with a beat between rounds so the pose can replicate.
             --   It ends when the field reports the stage gone, the machine runs
             --   dry (handled below) or the run is stopped.
-            local round = 0
+            local round, stuck = 0, 0
             while need0 and need0 > 0 do
                 if stopping() then return true end
                 round += 1
+                local was = need0
                 log(string.format("%s: %d cell(s) still need %s — teleport round %d",
                     job.verb, need0, job.prog, round))
                 task.wait(1)
@@ -6179,6 +6180,21 @@ local okBuild, errBuild = pcall(function()
                             job.verb, need0 or 0))
                     end
                     return true
+                end
+                -- ▸ A ROUND THAT TAKES NOTHING ENDS THE FIELD (live 2026-10-31:
+                --   the cultivator sat in teleport rounds 1–10 on 2 cells that
+                --   never took a call even with the blade on them — a run that
+                --   looks alive and repeats for ever). Two no-progress rounds,
+                --   then the cells are left for the next pass.
+                if need0 and was and need0 >= was then
+                    stuck += 1
+                    if stuck >= 2 then
+                        log(string.format("%s: %d cell(s) never took a call even with the blade on them — leaving them for the next pass",
+                            job.verb, need0))
+                        break
+                    end
+                else
+                    stuck = 0
                 end
             end
             if job.selfPropelled then
@@ -6706,7 +6722,7 @@ local okBuild, errBuild = pcall(function()
         --   and the "didn't change" break are gone: the loop ends only when the
         --   fields report no standing crop, or the run is stopped.
         if needHarv and hv and hseat then
-            local rounds = 0
+            local rounds, lastLeft, stuck = 0, nil, 0
             while true do
                 if stopping() then return end
                 rounds += 1
@@ -6718,6 +6734,21 @@ local okBuild, errBuild = pcall(function()
                         rounds))
                     break
                 end
+                -- ▸ RETRY UNTIL IT MOVES (owner 2026-10-31). A round that
+                --   leaves the SAME count as the round before took nothing:
+                --   two of those and the crops are left for the next cycle
+                --   instead of a loop that looks alive and repeats for ever.
+                if lastLeft and after >= lastLeft then
+                    stuck += 1
+                    if stuck >= 2 then
+                        log(string.format("%d cell(s) never took a harvest call even with the blade on them — leaving them for the next cycle",
+                            after))
+                        break
+                    end
+                else
+                    stuck = 0
+                end
+                lastLeft = after
                 log(string.format("%d cell(s) across %d field(s) still standing — going back to harvest them (round %d)",
                     after, afields, rounds))
                 task.wait(1)

@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.93 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.94 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.93
+python tools/run_all.py        # 29/29 checks on v1.94
 ```
 
-Last full run (v1.93): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.94): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1574,7 +1574,18 @@ before taking the trip. `dropoff_test.py` pins it (a pad 300+ studs away is
 still called once; a call that moves nothing takes the trip; the log carries
 the distance).
 
-**Where it stands:** `rebuild v1.93 · fluent gui`, whole suite green (29/29),
+**A retry loop that never moved (v1.94).** The live run showed the 3×3 blocks
+working (`remote harvest: fired 43 of 43 cell(s) from 7 stop(s), 9 per stop` and
+`48 of 48 from 8 stop(s)`), but the **cultivator** then sat in `teleport round
+1..10` on **2 cells** that never took a call even with the blade on them — the
+owner's *"it wont do the 3x3 tp bro"* was that hang, not the grid. A round that
+leaves the same count twice now ends the pass with `N cell(s) never took a call
+even with the blade on them — leaving them for the next pass`, and the harvest
+loop got the same rule (`… leaving them for the next cycle`), so neither can
+spin for ever with the toggle on. The earlier "retry until none is left" rule
+still holds while a round makes progress.
+
+**Where it stands:** `rebuild v1.94 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
