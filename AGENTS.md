@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.98 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.99 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.98
+python tools/run_all.py        # 29/29 checks on v1.99
 ```
 
-Last full run (v1.98): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.99): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -783,10 +783,13 @@ EVTRequestToCarry(draggable) / EVTRequestToDrop()
   menus (`GuiViews.Menus` plus any `*Menu` layer beside it, by
   `LayerCollector.Enabled`), clicks that menu's own close control **inside** it
   (text/name close/exit/back/cancel/dismiss, or an `X`), re-reads `Enabled`, and
-  only presses F if it is still up. Every run logs
+  only presses F if it is still up. It only closes what the trip **raised**: the Enabled layer set is
+  recorded just before F, so the always-enabled layers (`SettingsMenu`,
+  `BuildMode`, `FarmerPass`, `PalletStorage`…) are never touched (v1.99 — the
+  first cut tried to close those and only logged warnings). Every run logs
   `seed shop: <Menu> closed (handler)` or the honest
   `<Menu> is still open after F — close it by hand once`; a run with nothing
-  open says `seed shop: no shop menu is open — nothing to close`.
+  new open says `seed shop: no shop menu is open — nothing to close`.
 - **The old path always remains**: F for a mount, X for hitch/unhitch, E for a
   crate, the Equipment Manager UI for spawn/store. `spudEquipRemoteMiss` counts
   ignored calls; three switch that one action back to keys/UI for the session.
@@ -1595,6 +1598,13 @@ hop, round after round** and nothing else; a cell both refuse is named
 (`N cell(s) never took a call even with the blade on them — leaving them for
 the next pass`) instead of being tweened over.
 
+**Only the shop the trip opened (v1.99).** The first live run of the close step
+turned up five layers that are `Enabled` but not on screen — `CompanyDashboard`,
+`SettingsMenu`, `FarmerPass`, `PalletStorage`, `BuildMode` — and it dutifully
+reported each as "still open". The set of enabled layers is now recorded just
+before F, and only a layer that the trip switched on is closed afterwards, so
+the always-enabled screens are left alone.
+
 **The shop stays shut (v1.96).** Owner: *"after it buys a seed can you make it
 close the ui"*. The close step that ran after a purchase looked for a "close"
 button anywhere in `GuiViews` and then pressed F whenever any GuiButton was on
@@ -1624,7 +1634,7 @@ settle alone lifted the cultivate grid from **17/50 to 29/41** and the hop from
 so both passes now also take a short beat (**0.25 s** after a stop lands,
 **0.2 s** after a cell) before firing — v1.98.
 
-**Where it stands:** `rebuild v1.98 · fluent gui`, whole suite green (29/29),
+**Where it stands:** `rebuild v1.99 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.98 · fluent gui"
+local VERSION    = "rebuild v1.99 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -3640,6 +3640,25 @@ local okBuild, errBuild = pcall(function()
         else
             log("seed shop: the FarmCo Owner NPC isn't in the workspace yet — pressing F anyway")
         end
+        -- ▸ WHAT IS OPEN BEFORE THE SHOP (read just before F): several menu
+        --   layers sit Enabled even when nothing is on screen (SettingsMenu,
+        --   BuildMode, FarmerPass, PalletStorage…), so "Enabled now" alone
+        --   would have the close step clicking screens the player never opened.
+        --   Only the menu this trip RAISES is closed afterwards.
+        local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        local views = pg and pg:FindFirstChild("GuiViews")
+        if not views then log("seed shop: PlayerGui.GuiViews missing") return false end
+        local menusBefore = {}
+        local function eachLayer(fn, o, depth)
+            if depth > 3 then return end
+            for _, c in ipairs(o:GetChildren()) do
+                if c:IsA("LayerCollector") then fn(c) end
+                eachLayer(fn, c, depth + 1)
+            end
+        end
+        eachLayer(function(m)
+            if m.Enabled then menusBefore[m] = true end
+        end, views, 1)
         -- open the owner's menu
         local before = coinBalance()
         setStage("shop trip: talking to the FarmCo Owner (F)")
@@ -3648,9 +3667,6 @@ local okBuild, errBuild = pcall(function()
         pressKey(Enum.KeyCode.F)
         task.wait(1.2)
         if stopping() then return false end
-        local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-        local views = pg and pg:FindFirstChild("GuiViews")
-        if not views then log("seed shop: PlayerGui.GuiViews missing") return false end
         local function isShown(o) -- Visible all the way up to GuiViews
             local p = o
             while p and p ~= views do
@@ -3917,19 +3933,12 @@ local okBuild, errBuild = pcall(function()
         end
         local function openMenus()
             local out, seen = {}, {}
-            local function add(m)
-                if m and not seen[m] and m:IsA("LayerCollector") and m.Enabled then
+            eachLayer(function(m)
+                if m.Enabled and not menusBefore[m] and not seen[m] then
                     seen[m] = true
                     out[#out + 1] = m
                 end
-            end
-            local menus = views:FindFirstChild("Menus")
-            if menus then
-                for _, m in ipairs(menus:GetChildren()) do add(m) end
-            end
-            for _, m in ipairs(views:GetChildren()) do
-                if m.Name:lower():find("menu", 1, true) then add(m) end
-            end
+            end, views, 1)
             return out
         end
         local function closeItself(m)
@@ -3949,10 +3958,10 @@ local okBuild, errBuild = pcall(function()
         for _, m in ipairs(left) do
             local how = closeItself(m)
             task.wait(0.5)
-            if m.Enabled then
+            if m.Enabled and not how then
                 pressKey(Enum.KeyCode.F) -- the NPC menu's own toggle
                 task.wait(0.6)
-                how = how and (how .. " then F") or "F"
+                how = "F"
             end
             if m.Enabled then
                 log(string.format("seed shop: ⚠ %s is still open after %s — close it by hand once",
