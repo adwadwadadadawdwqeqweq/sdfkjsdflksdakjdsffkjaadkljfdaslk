@@ -166,12 +166,12 @@ Everything merged into one paste-and-run file:
   captured, and it is not needed).
 - **Drop-off pick** — Farm tab → **Drop-off**: **Fulfillment** (default) or
   **Sell**. When the harvester's tank fills it first fires the captured
-  `EVTSellAtStore` **from where it stands** when the pad is close (within
-  `spudSellCallRange`, 60 studs — the call is proximity-checked: 46 studs
-  dropped a full tank, 1254 studs did nothing): a
-  tank that drops logs `✅ sold in place … (no pad trip)` and the harvester
-  never moves. From out in the field the trip is one arc hop, and the call is
-  fired again at the pad (or Fulfillment parks and lets the pad drain it):
+  `EVTSellAtStore` **from wherever it stands**, at any distance, and watches
+  the tank for 1.5 s: a tank that drops logs
+  `✅ sold in place at N studs … (no pad trip)` and the harvester never moves;
+  a call that moves nothing logs the distance and takes one arc hop, where the
+  call is fired again at the pad (or Fulfillment parks and lets the pad drain
+  it):
   Fulfillment is the warehouse pad
   (`Stores.DropOffs.Deposit_Warehouse`, parked, pressing nothing while the pad
   drains it) and Sell is the old crop sell board (call, then Q/E). The

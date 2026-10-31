@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.92 · fluent gui"
+local VERSION    = "rebuild v1.93 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -4970,14 +4970,6 @@ local okBuild, errBuild = pcall(function()
     --   teleport, still smooth — keeping the heading it had, and it lands on
     --   the pad's own height instead of the field's.
     local SELL_HOP_SPEED = 140 -- studs/s (the arc makes it read as a jump, not a blur)
-    -- ▸ HOW CLOSE THE SELL CALL HAS TO BE (live 2026-10-30 and 2026-10-31):
-    --   fired 46 studs off the crop board it dropped a full tank 50 → 0; fired
-    --   from the FIELD 1254 studs away it did nothing, and the same call at the
-    --   pad then sold it. So the server does check proximity — "sell from
-    --   anywhere" was one lucky reading. Only try the call when the pad is
-    --   this close; otherwise take the trip and fire it there. Global so it can
-    --   be retuned without touching the trip.
-    spudSellCallRange = 60
     -- ▸ THE ARC HOP (user: "make the harvester use arch tween thing to go to and
     --   back from the sell"). A flat slide reads as a teleport glued to the
     --   ground; this lifts the ride on a sine arc — highest in the middle —
@@ -5144,33 +5136,29 @@ local okBuild, errBuild = pcall(function()
         -- the 1-second watch is muted for the whole trip: the tank is STILL
         -- full while driving to the pad, and it must not abort that drive
         sellingNow = true
-        -- ▸ THE SELL CALL IS PROXIMITY-CHECKED (live 2026-10-31: fired from the
-        --   field 1254 studs out it did nothing, and the same call sold the
-        --   tank once the harvester reached the board). Try it from where the
-        --   harvester stands only when the pad is within SELL_CALL_RANGE — a
-        --   tank that drops there never moves. A call that leaves the tank
-        --   alone falls through to that destination's own trip unchanged
-        --   (Fulfillment still unloads by parking).
+        -- ▸ THE CALL GOES FIRST, AT ANY DISTANCE (owner 2026-10-31: "why isnt
+        --   it calling the sell function from anywhere? it was there before").
+        --   The call is fired from wherever the harvester stands — the proven
+        --   in-place sale (a full tank, 46 studs off the board, no pad visit)
+        --   is exactly this, with no gate. The tank is watched for 1.5 s: long
+        --   enough for a take, short enough that a no-op costs little before
+        --   the trip. The distance is logged with the verdict, so the real band
+        --   is learned from runs instead of guessed.
         local here = ride:GetPivot().Position
         for _, s in ipairs(spots) do
             if s.part then
-                local away = s.p and (s.p - here).Magnitude or math.huge
-                if away > (spudSellCallRange or 60) then
-                    log(string.format("%s: the pad is %.0f studs away — the sell call needs it close, taking the trip",
-                        dest, away))
-                    break
-                end
+                local away = s.p and (s.p - here).Magnitude or 0
                 local l0 = harvesterLoad(ride)
                 spudSellRemote(ride, s.part)
-                log("sell: EVTSellAtStore fired from where the harvester stands — watching the tank")
-                local deadline = os.clock() + 3.5
+                log(string.format("sell: EVTSellAtStore fired at %.0f studs from the harvester — watching the tank", away))
+                local deadline = os.clock() + 1.5
                 while os.clock() < deadline do
                     if stopping() then sellingNow = false return false end
                     task.wait(0.25)
                     local l1 = harvesterLoad(ride)
                     if l0 and l1 and l1 < l0 then
-                        log(string.format("✅ sold in place — load %d → %d, coins %s (no pad trip)",
-                            l0, l1, tostring(coinBalance())))
+                        log(string.format("✅ sold in place at %.0f studs — load %d → %d, coins %s (no pad trip)",
+                            away, l0, l1, tostring(coinBalance())))
                         if movedForStore and field and field.Parent then
                             log("arc back to " .. field.Name .. " to finish the harvest")
                             hopTo(ride, back, SELL_HOP_SPEED)
@@ -5180,7 +5168,7 @@ local okBuild, errBuild = pcall(function()
                         return true
                     end
                 end
-                log(dest .. ": the in-place call didn't move the tank — taking the pad trip")
+                log(string.format("%s: the in-place call didn't move the tank at %.0f studs — taking the pad trip", dest, away))
                 break
             end
         end

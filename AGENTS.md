@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.92 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.93 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.92
+python tools/run_all.py        # 29/29 checks on v1.93
 ```
 
-Last full run (v1.92): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.93): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -498,14 +498,15 @@ values, and the full tank always ends in a real trip:
   `✅ sold in place — load N → M, coins … (no pad trip)` and the ride **never
   moves**; only a call that leaves the tank alone falls through to the trip
   below.
-- **The call IS proximity-checked** (v1.88, live 2026-10-31: the console run).
-  The v1.87 note that "it checks no distance" was one lucky reading: a full
-  tank sold 50 → 0 from **46 studs** off the board, but the same call fired
-  from the **field 1254 studs away** did nothing — and the same call sold the
-  tank once the harvester reached the pad. So `sellHarvester` only tries the
-  in-place call when the pad is within global `spudSellCallRange` (60), logs
-  `<dest>: the pad is N studs away — the sell call needs it close, taking the
-  trip` otherwise, and the trip's own call at the pad remains the proof.
+- **The call is fired at ANY distance, then the trip** (v1.93, owner: *"why
+  isnt it calling the sell function from anywhere? it was there before"*). The
+  v1.88 range gate is gone: `sellHarvester` fires `EVTSellAtStore` from wherever
+  the harvester stands, logs the distance it fired from, and watches the tank
+  for **1.5 s** — a take logs `✅ sold in place at N studs … (no pad trip)` and
+  the ride never moves; a no-op logs `<dest>: the in-place call didn't move the
+  tank at N studs — taking the pad trip`. The take is real (a full tank sold
+  in place 46 studs off the board); the distance in that line is what teaches
+  the real band from runs instead of a guessed constant.
 - The trip itself is the existing arc hop (`hopTo`, `SELL_HOP_SPEED`) plus
   `trySellAt(ride, what, pad, autoPad)`, which differs by destination:
   - **Fulfillment** (`autoPad = true`) presses **nothing** — user: *"the
@@ -814,7 +815,7 @@ UI/key fallbacks and the three-miss switch-off.
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
 | Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job**; the A* planner was deleted in v1.81 and the row driver in v1.82, so a field pass never touches a movement key |
 | Dirt line | global `milkDirtLine = 24`; `milkDirtHigh(spot)` (the single "is this dirty?" answer) |
-| Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** room less than the cells still standing), `spudSellCallRange = 60` (how close the pad must be for the in-place call), `spudFulfillSpots()` (Deposit_Warehouse top), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
+| Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** room less than the cells still standing), `spudFulfillSpots()` (Deposit_Warehouse top), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
 | Clean pass | pre-pass offer watch (0.96 s) → clean watch (2.2 s); per-cow clean `≤2.25 s` |
 | Herd | `milkHerdBatch(stalls, cows)`, `milkHerdTargets`, `milkHerdSend`, ordering nearest-barn-first, `milkHerdArm` |
 | Farm choice | `milkFarmReadyCount(who)`, `milkFarmSwitch(want, owner, readyHere, parkedHere)` |
@@ -1564,7 +1565,16 @@ one call). The reload button also fetches the **newest commit sha** now
 build from the client's HTTP cache even with a query buster, and an immutable
 SHA path cannot be stale.
 
-**Where it stands:** `rebuild v1.92 · fluent gui`, whole suite green (29/29),
+**The sell call has no gate (v1.93).** Owner: *"why isnt it calling the sell
+function from anywhere? it was there before ive seen it with my eyes"*. v1.88 had
+put a 60-stud gate in front of the in-place call after one far attempt did
+nothing; that gate is removed. Every unload now fires `EVTSellAtStore` from
+where the harvester stands, names the distance, and watches the tank for 1.5 s
+before taking the trip. `dropoff_test.py` pins it (a pad 300+ studs away is
+still called once; a call that moves nothing takes the trip; the log carries
+the distance).
+
+**Where it stands:** `rebuild v1.93 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

@@ -289,8 +289,10 @@ local okPark = sellHarvester(ride, nil, nil)
 check("fulfillment: a refused call still takes the park trip",
     okPark == true and soldAt ~= nil and soldAt.autoPad == true)
 
--- 6f. a pad out of range: no wasted wait — straight to the trip
-function spudSellRemote(ride, pad) remoteFired += 1 tank = 0 return true end
+-- 6f. the call is fired at ANY distance (owner 2026-10-31: "why isnt it
+--     calling the sell function from anywhere") — the tank not moving in
+--     1.5 s is what starts the trip
+function spudSellRemote(ride, pad) remoteFired += 1 return true end
 function spudFulfillSpots()
     return { { p = Vector3.new(-353, 140, -90), what = "DropOffs.Deposit_Warehouse",
         store = "Fulfillment", part = "warehousePart" } }
@@ -298,12 +300,12 @@ end
 tank, remoteFired = 50, 0
 hops, soldAt = {}, nil
 local okFar = sellHarvester(ride, nil, nil)
-check("fulfillment: a far pad is not called from the field",
-    remoteFired == 0, remoteFired .. " call(s)")
+check("fulfillment: a far pad is still called first",
+    remoteFired == 1, remoteFired .. " call(s)")
 check("fulfillment: a far pad still takes the trip",
     okFar == true and soldAt ~= nil and #hops >= 1)
-check("fulfillment: the log says the call needs the pad close",
-    loggedText():find("needs it close") ~= nil)
+check("fulfillment: the log names the distance it fired from",
+    loggedText():find("didn't move the tank at") ~= nil)
 
 -- 7. every sell spot carries the part the sell call fires at
 local gvNode = folder("GameplayVisuals", GRID)
