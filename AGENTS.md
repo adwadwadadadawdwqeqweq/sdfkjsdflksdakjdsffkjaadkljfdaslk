@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.99 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.100 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.99
+python tools/run_all.py        # 29/29 checks on v1.100
 ```
 
-Last full run (v1.99): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.100): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -786,7 +786,12 @@ EVTRequestToCarry(draggable) / EVTRequestToDrop()
   only presses F if it is still up. It only closes what the trip **raised**: the Enabled layer set is
   recorded just before F, so the always-enabled layers (`SettingsMenu`,
   `BuildMode`, `FarmerPass`, `PalletStorage`…) are never touched (v1.99 — the
-  first cut tried to close those and only logged warnings). Every run logs
+  first cut tried to close those and only logged warnings). The buy dialog is
+  closed **by its own container** (v1.100): that screen is a frame inside an
+  always-enabled layer, so Enabled alone reported "no shop menu is open" while
+  the dialog sat on screen — a shown **Purchase/Buy** control now names the
+  container GuiViews holds it in, and that container's own close (the red X) is
+  clicked before the layer pass runs. Every run logs
   `seed shop: <Menu> closed (handler)` or the honest
   `<Menu> is still open after F — close it by hand once`; a run with nothing
   new open says `seed shop: no shop menu is open — nothing to close`.
@@ -1598,6 +1603,13 @@ hop, round after round** and nothing else; a cell both refuse is named
 (`N cell(s) never took a call even with the blade on them — leaving them for
 the next pass`) instead of being tweened over.
 
+**The dialog is not a layer (v1.100).** v1.99's layer diff reported `no shop
+menu is open — nothing to close` on the next live trip while the purchase
+dialog was plainly on screen: it is a frame inside an always-enabled layer, so
+its `Enabled` never changes. The close step now finds a shown **Purchase/Buy**
+control first, walks up to the container GuiViews holds it in, and clicks that
+container's own close; the enabled-layer pass stays as the backstop.
+
 **Only the shop the trip opened (v1.99).** The first live run of the close step
 turned up five layers that are `Enabled` but not on screen — `CompanyDashboard`,
 `SettingsMenu`, `FarmerPass`, `PalletStorage`, `BuildMode` — and it dutifully
@@ -1634,7 +1646,7 @@ settle alone lifted the cultivate grid from **17/50 to 29/41** and the hop from
 so both passes now also take a short beat (**0.25 s** after a stop lands,
 **0.2 s** after a cell) before firing — v1.98.
 
-**Where it stands:** `rebuild v1.99 · fluent gui`, whole suite green (29/29),
+**Where it stands:** `rebuild v1.100 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.99 · fluent gui"
+local VERSION    = "rebuild v1.100 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -3951,8 +3951,54 @@ local okBuild, errBuild = pcall(function()
             end
             return nil
         end
+        -- ▸ THE BUY DIALOG ITSELF IS THE UI TO CLOSE. The store's confirm
+        --   screen is a frame inside an always-enabled layer, so Enabled alone
+        --   found nothing (live: "no shop menu is open" while the dialog sat
+        --   right there). A shown Purchase/Buy control names the container
+        --   GuiViews holds it in; that container's own close (the red X) is
+        --   clicked, and the enabled-layer pass below is the backstop.
+        local function shownPurchase()
+            local fallback
+            for _, g in ipairs(views:GetDescendants()) do
+                if g:IsA("GuiButton") and isShown(g) then
+                    local t = (guiTextOf(g) .. " " .. g.Name):lower()
+                    if t:find("purchase", 1, true) then return g end
+                    if not fallback and t:find("buy", 1, true) then fallback = g end
+                end
+            end
+            return fallback
+        end
+        local function closeDialog()
+            local pus = shownPurchase()
+            if not pus then return nil end
+            local top = pus
+            while top.Parent and top.Parent ~= views do top = top.Parent end
+            for _, d in ipairs(top:GetDescendants()) do
+                if d:IsA("GuiButton") and isShown(d) and closeWords(d) then
+                    local called = invokeHandlers(d)
+                    if not called then pcall(function() d:Activate() end) end
+                    return top.Name, called and "handler" or "Activate"
+                end
+            end
+            return top.Name, nil
+        end
+        local dlgName, dlgHow = closeDialog()
+        task.wait(0.5)
+        if dlgName then
+            if shownPurchase() then
+                pressKey(Enum.KeyCode.F)
+                task.wait(0.6)
+                dlgHow = dlgHow and (dlgHow .. " then F") or "F"
+            end
+            if shownPurchase() then
+                log(string.format("seed shop: ⚠ %s is still open after %s — close it by hand once",
+                    dlgName, tostring(dlgHow)))
+            else
+                log(string.format("seed shop: %s closed (%s)", dlgName, tostring(dlgHow)))
+            end
+        end
         local left = openMenus()
-        if #left == 0 then
+        if #left == 0 and not dlgName then
             log("seed shop: no shop menu is open — nothing to close")
         end
         for _, m in ipairs(left) do
