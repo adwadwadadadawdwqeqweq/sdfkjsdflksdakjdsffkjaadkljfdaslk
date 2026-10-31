@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.78 · fluent gui"
+local VERSION    = "rebuild v1.79 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6482,36 +6482,68 @@ local okBuild, errBuild = pcall(function()
                 if spawned then managerAction(impl.Name, "Store") end
                 return
             end
+            -- ▸ IT WAS HITCHED on the first live run, and the hitch dragged the
+            --   tool back (81 → 43.7 studs off the cell) — so the call was
+            --   refused for DISTANCE, not for the hitch, and answered nothing.
+            --   Take the implement off the tractor first; the HUD saying no
+            --   secondary is the proof it came off.
             local before = cellStage(f.d, cell.id)
             local hitchedTo = hitchedImplementName()
+            local unhitched = false
+            if hitchedTo then
+                local tr = findTractor()
+                spudTestSay("toolapart: the " .. tostring(hitchedTo)
+                    .. " is on a tractor — unhitching it for the test")
+                if tr and spudUnhitchRemote(tr) then
+                    task.wait(0.7)
+                    unhitched = hitchedImplementName() == nil
+                end
+                if not unhitched then
+                    spudTestSay("toolapart: it is still hitched ("
+                        .. tostring(hitchedImplementName()) .. ") — press X next to it, then run again")
+                    if spawned then managerAction(impl.Name, "Store") end
+                    return
+                end
+            end
             local old = impl:GetPivot()
             local target = Vector3.new(cell.X, cell.Y + 10, cell.Z)
             local d0 = (att.WorldPosition - target).Magnitude
-            local moved = pcall(function()
-                impl:PivotTo(old + (target - att.WorldPosition))
-            end)
-            task.wait(0.7)
-            local d1 = (att.WorldPosition - target).Magnitude
+            local function place()
+                pcall(function()
+                    impl:PivotTo(impl:GetPivot() + (target - att.WorldPosition))
+                end)
+                task.wait(0.7)
+                return (att.WorldPosition - target).Magnitude
+            end
+            local d1 = place()
+            if d1 > 6 then d1 = place() end -- one retry: the pose may still be settling
             spudTestSay(string.format(
-                "toolapart: %s (%s), %s — blade was %.0f studs off cell %d, %s to %.1f studs",
+                "toolapart: %s (%s), %s — blade was %.0f studs off cell %d, now %.1f",
                 impl.Name, plan.verb,
-                hitchedTo and ("on the " .. tostring(hitchedTo)) or "free of a ride",
-                d0, cell.id, moved and "teleported" or "REFUSED the move", d1))
-            spudFieldRemoteCall(plan.verb, f.d, cell.id, att)
-            task.wait(1.2)
-            local after = cellStage(f.d, cell.id)
-            spudTestSay(string.format(
-                "toolapart: call with the tool off the tractor — %s → %s — %s",
-                tostring(before), tostring(after),
-                (after and before and after ~= before)
-                    and "TAKEN: the tractor never has to move"
-                    or "IGNORED: the server wants the implement on a ride"))
+                unhitched and "taken off the tractor" or "free of a ride",
+                d0, cell.id, d1))
+            if d1 > 10 then
+                spudTestSay("toolapart: the blade never reached the cell ("
+                    .. string.format("%.0f", d1)
+                    .. " studs off) — firing now would test distance, not the hitch; nothing fired")
+            else
+                spudFieldRemoteCall(plan.verb, f.d, cell.id, att)
+                task.wait(1.2)
+                local after = cellStage(f.d, cell.id)
+                spudTestSay(string.format(
+                    "toolapart: call with the tool off the tractor — %s → %s — %s",
+                    tostring(before), tostring(after),
+                    (after and before and after ~= before)
+                        and "TAKEN: the tractor never has to move"
+                        or "IGNORED: the server wants the implement on a ride"))
+            end
             if spawned then
                 managerAction(impl.Name, "Store")
                 spudTestSay("toolapart: the spawned tool is back in storage")
             else
                 pcall(function() impl:PivotTo(old) end)
-                spudTestSay("toolapart: the tool is back where it was")
+                spudTestSay("toolapart: the tool is back where it was"
+                    .. (unhitched and ", still off the tractor (the pass hitches it when it needs it)" or ""))
             end
             return
         end

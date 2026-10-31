@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.78 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.79 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -72,7 +72,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 ### 1.4 Script limits (these have broken the build before)
 
 13. **Luau's 200-local limit is real and we are 2 away from the practical
-    ceiling.** Run `python tools/local_budget.py`. As of v1.78:
+    ceiling.** Run `python tools/local_budget.py`. As of v1.79:
     `4-space locals before milkCycle: 183 (practical ceiling 185)`,
     whole body `190 / 200`, **headroom 2**. Do **not** add a `local` inside the
     main build closure. Reuse an existing local, convert the feature to a
@@ -140,10 +140,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 30/30 checks on v1.78
+python tools/run_all.py        # 30/30 checks on v1.79
 ```
 
-Last full run (v1.78): **30/30 checks passed** (27 harnesses + 3 gates).
+Last full run (v1.79): **30/30 checks passed** (27 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -691,9 +691,13 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
     none, and brings a **stored** tool out with `managerAction(name, "Spawn")`
     — storing it again afterwards — because a finished pass puts every tool
     back in storage. It records the blade's distance to the cell and whether a
-    ride has the tool (`hitchedImplementName`), teleports the **tool model** so
-    the blade sits 10 studs above the cell, re-reads the blade, fires that one
-    cell with the tool's own attachment, and lets the cell's stage answer:
+    ride has the tool (`hitchedImplementName`) and **takes it off the tractor**
+    first with `spudUnhitchRemote(tr)` (proved by the HUD, v1.79 — a live run
+    with the tool still hitched had the hitch drag it back from 81 to 44 studs,
+    so the call became a distance test and answered nothing), teleports the
+    **tool model** so the blade sits 10 studs above the cell (with one retry),
+    re-reads the blade, fires that one cell with the tool's own attachment only
+    when the blade is actually on it, and lets the cell's stage answer:
     `TAKEN: the tractor never has to move` or `IGNORED: the server wants the
     implement on a ride`. The tool is put back exactly as it was found.
   **Run all** runs the three probes (remote list, field remotes, tool apart);
@@ -1364,7 +1368,18 @@ streamed field, prints each field's stage counts when it finds no usable cell,
 and spawns a stored tool through the captured call (`managerAction(name,
 "Spawn")`), storing it again at the end.
 
-**Where it stands:** `rebuild v1.78 · fluent gui`, whole suite green (30/30),
+**The probe's second run (v1.79).** It found a cell (`Empty`, cell 518) and
+brought the S4204 plow out, but the plow was **still on the tractor**: the
+`PivotTo` moved its blade from 81 to 43.7 studs off the cell and the hitch
+pulled it back, so `Empty → Empty — IGNORED` answered a distance question, not
+the hitch one. The owner saw **one tile get plowed** during the move — the
+game's own drive-over staged a cell under the displaced blade — which is the
+first live hint that a tool's own position is what matters. The probe now
+unhitches first (HUD = no secondary is the proof), retries the placement once,
+and refuses to fire when the blade is more than 10 studs off, so the next
+report is a clean verdict either way.
+
+**Where it stands:** `rebuild v1.79 · fluent gui`, whole suite green (30/30),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching `path: … theta* N pops / N ms, min clear N`, the
 new width line (`tool … — 3-wide …; rows every 30`), the Farm owner picker

@@ -117,8 +117,10 @@ Everything merged into one paste-and-run file:
   **Tool apart** answers whether the tractor has to be there at all: it takes a
   plow/cultivator/seeder (bringing a stored one out, storing it again after),
   finds a cell of that tool's stage on **any** of your fields — it prints every
-  field's stage counts when a field is fully grown and has none — teleports
-  **only the tool** onto that cell, fires it with the tool's own attachment, and
+  field's stage counts when a field is fully grown and has none — takes the
+  tool **off the tractor** first when one has it (a hitch drags it back, which
+  turns the call into a distance test), teleports **only the tool** onto that
+  cell, fires it with the tool's own attachment, and
   lets the cell's own stage answer: `TAKEN` means the tool alone is enough (the
   tractor never has to move), `IGNORED` means the server wants the implement on
   a ride. The tool is put back exactly as it was found.
