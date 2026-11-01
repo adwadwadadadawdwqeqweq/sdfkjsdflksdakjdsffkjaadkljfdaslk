@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.113 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.114 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.113
+python tools/run_all.py        # 29/29 checks on v1.114
 ```
 
-Last full run (v1.113): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.114): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1779,7 +1779,20 @@ probe now dumps the shown controls under `GuiViews.HUD.Notifications` (class,
 name, text, is-it-a-button) and clicks the one whose **name** says
 purchase/buy/confirm, then reports the balance.
 
-**Where it stands:** `rebuild v1.113 · fluent gui`, whole suite green (29/29),
+**Never buy the seed that is already in hand (v1.114).** Owner: *"it's trying
+to buy seeds when it has the exact seed it already bought in it's hands — before
+it tries to buy a seed it should see if it has any"*. A crate an interrupted
+trip left carried is already paid for, and the shop trip bought a second one.
+`buySeedAndFill` now reads the hands from the crate's own
+`Configurations.CurrentHolder` before anything else: a held crate of the picked
+seed skips the shop completely and goes straight to the seeder. The
+"carry the crate to the seeder and pour it in" leg became one helper
+(`seedCrateIntoSeeder`) shared by that path and the bought path, so both end the
+same way — `FNCFillSeeder` first, V second, the seeder's count rising as the
+only proof. The crate stays **in hand** rather than being put down, because
+FillSeeder consumes the crate you are holding.
+
+**Where it stands:** `rebuild v1.114 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.113 · fluent gui"
+local VERSION    = "rebuild v1.114 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -3537,6 +3537,98 @@ local okBuild, errBuild = pcall(function()
         local root = LocalPlayer.Character
             and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if not root then log("seed shop: no character") return false end
+        -- ▸ POUR A CRATE INTO THE SEEDER — the last leg of the trip, shared by
+        --   "just bought a crate" and "one was already in hand". FillSeeder
+        --   works on the crate you are HOLDING, so the crate stays carried; the
+        --   seeder's own count rising is the only proof.
+        local function seedCrateIntoSeeder(crate)
+            local ch = LocalPlayer.Character
+            local r2 = ch and ch:FindFirstChild("HumanoidRootPart")
+            if not r2 then return false end
+            if carrying() then
+                log("seed crate: still carrying the crate — straight to the seeder")
+            elseif not (crate and carryCrate("bought crate", crate)) then
+                log("seed crate: the crate didn't come to hand — pick it up by hand (E) and the seeder fill is next time")
+                return true
+            end
+            local cPart = crate and crate:FindFirstChildWhichIsA("BasePart", true)
+            local seeder2 = findImplement("Planter", r2.Position, nil)
+            if not seeder2 then
+                log("seeder fill: no seeder (KADL) found — the " .. tostring(seedName)
+                    .. " crate is with you; fill the seeder by hand (V)")
+                return true
+            end
+            if seeder2:GetAttribute("InStorage") then
+                log("seeder fill: the seeder is IN STORAGE — respawn it, then fill it by hand (V); the crate is with you")
+                return true
+            end
+            setStage("shop trip: tp to the seeder to pour the crate in")
+            tpChar(seeder2:GetPivot().Position)
+            task.wait(1.2)
+            if stopping() then return false end
+            r2 = LocalPlayer.Character:FindFirstChild("HumanoidRootPart") or r2
+            local cD = cPart and cPart.Parent and (cPart.Position - r2.Position).Magnitude or -1
+            log(string.format("seeder fill: at the %s — the crate is %.0f studs away (%s)",
+                seeder2.Name, cD, cD >= 0 and (cD < 15 and "it came with us" or "it did NOT follow") or "gone"))
+            local n0 = seederSeedState(seeder2)
+            local viaRemote = spudFillSeederRemote(seeder2)
+            log(string.format("seeder fill: %s — the seeder had %s seeds",
+                viaRemote and "FNCFillSeeder(seeder)" or "V (FillSeeder)", tostring(n0)))
+            if not viaRemote then pressKey(Enum.KeyCode.V) end
+            task.wait(1.0)
+            if stopping() then return false end
+            local n1, cap1, kind1
+            local function readFill(tries)
+                for _ = 1, tries do
+                    if stopping() then break end
+                    n1, cap1, kind1 = seederSeedState(seeder2)
+                    if n1 and n0 and n1 > n0 then break end
+                    task.wait(0.5)
+                end
+            end
+            readFill(8) -- ~4 s
+            if viaRemote and not (n1 and n0 and n1 > n0) then
+                log("seeder fill: the remote didn't move the count — pressing V once")
+                pressKey(Enum.KeyCode.V)
+                readFill(4)
+            end
+            if n1 and n0 and n1 > n0 then
+                log(string.format("✅ seeder now holds %d%s seeds%s — the planting pass takes it from here",
+                    n1, cap1 and ("/" .. cap1) or "", kind1 and (" (" .. kind1 .. ")") or ""))
+                return true
+            end
+            log("⚠ the fill could NOT be confirmed (the seeder still reads " .. tostring(n1)
+                .. ") — the crate is with you; fill it by hand (V)")
+            return true
+        end
+        -- ▸ NEVER BUY A SEED THAT IS ALREADY IN HAND (owner 2026-10-31: "it's
+        --   trying to buy seeds when it has the exact seed it already bought in
+        --   it's hands — before it tries to buy a seed it should see if it has
+        --   any, if it has some in it's hands it should drop it then fill the
+        --   seeder or buy the seed"). A crate an interrupted trip left in hand
+        --   is already paid for, and buying again stacks a second crate. The
+        --   hands are read from the crate's own Configurations.CurrentHolder, so
+        --   a matching crate goes to the seeder with no shop trip at all.
+        local heldModel, heldSeed
+        local objects = workspace:FindFirstChild("Objects")
+        local dobjs = objects and objects:FindFirstChild("DraggableObjects")
+        if dobjs then
+            for _, m in ipairs(dobjs:GetChildren()) do
+                local cfg = m:FindFirstChild("Configurations")
+                local chv = cfg and cfg:FindFirstChild("CurrentHolder")
+                local okh, who = pcall(function() return chv and chv.Value end)
+                if okh and who == LocalPlayer then
+                    heldModel = m
+                    heldSeed = crateSeedType(m)
+                    break
+                end
+            end
+        end
+        if heldModel and heldSeed and heldSeed:lower() == seedName:lower() then
+            log(string.format("seed crate: already holding a %s crate from an earlier trip (%s) — not buying another, filling the seeder with it",
+                heldSeed, heldModel:GetFullName()))
+            return seedCrateIntoSeeder(heldModel)
+        end
         local pos, where = findSeedShop()
         if not pos then
             log("seed shop: FarmCo not found (Markers.GotoLocations / Stores.NPCs) — stand in town once, then run the loop again")
@@ -4054,66 +4146,10 @@ local okBuild, errBuild = pcall(function()
             return false
         end
         log("✅ " .. seedName .. " bought (balance " .. tostring(before) .. " → " .. tostring(after) .. ")")
-        -- ▸ STAGE 3 — the crate is ALREADY IN HAND (nothing was put down), so
-        --   only pick something up if the game swapped it out during the buy
-        if carrying() then
-            log("seed crate: still carrying the crate — straight to the seeder")
-        elseif not carryCrate("bought crate", hit.m) then
-            log("seed crate: the bought crate didn't come to hand — pick it up by hand (E) and the seeder fill is next time")
-            return true
-        end
-        local cPart = hit.m:FindFirstChildWhichIsA("BasePart", true)
-        -- ▸ STAGE 4 — GO TO THE SEEDER (user: "go to seeder") and fill it:
-        --   V = FillSeeder, the same proximity-context rule as the crate
-        local seeder = findImplement("Planter", root.Position, nil)
-        if not seeder then
-            log("seeder fill: no seeder (KADL) found — the " .. seedName .. " crate is with you; fill the seeder by hand (V)")
-            return true
-        end
-        if seeder:GetAttribute("InStorage") then
-            log("seeder fill: the seeder is IN STORAGE — respawn it, then fill it by hand (V); the crate is with you")
-            return true
-        end
-        setStage("shop trip: tp to the seeder to pour the crate in")
-        tpChar(seeder:GetPivot().Position)
-        task.wait(1.2)
-        if stopping() then return false end
-        root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart") or root
-        local cD = cPart and cPart.Parent and (cPart.Position - root.Position).Magnitude or -1
-        log(string.format("seeder fill: at the %s — the crate is %.0f studs away (%s)",
-            seeder.Name, cD, cD >= 0 and (cD < 15 and "it came with us" or "it did NOT follow") or "gone"))
-        local n0 = seederSeedState(seeder)
-        -- ▸ the captured FillSeeder call first (FNCFillSeeder(<seeder>)), the
-        --   V press kept as the fallback: the remote is only counted as a
-        --   fill once the seeder's own seed count rises.
-        local viaRemote = spudFillSeederRemote(seeder)
-        log(string.format("seeder fill: %s — the seeder had %s seeds",
-            viaRemote and "FNCFillSeeder(seeder)" or "V (FillSeeder)", tostring(n0)))
-        if not viaRemote then pressKey(Enum.KeyCode.V) end
-        task.wait(1.0)
-        if stopping() then return false end
-        local n1, cap1, kind1
-        local function readFill(tries)
-            for _ = 1, tries do
-                if stopping() then break end
-                n1, cap1, kind1 = seederSeedState(seeder)
-                if n1 and n0 and n1 > n0 then break end
-                task.wait(0.5)
-            end
-        end
-        readFill(8) -- ~4 s
-        if viaRemote and not (n1 and n0 and n1 > n0) then
-            log("seeder fill: the remote didn't move the count — pressing V once")
-            pressKey(Enum.KeyCode.V)
-            readFill(4)
-        end
-        if n1 and n0 and n1 > n0 then
-            log(string.format("✅ seeder now holds %d%s seeds%s — the planting pass takes it from here",
-                n1, cap1 and ("/" .. cap1) or "", kind1 and (" (" .. kind1 .. ")") or ""))
-            return true
-        end
-        log("⚠ the fill could NOT be confirmed (the seeder still reads " .. tostring(n1) .. ") — the crate is with you; fill it by hand (V)")
-        return true
+        -- ▸ STAGE 3/4 — the crate is ALREADY IN HAND (nothing was put down), so
+        --   the fill leg is the shared helper: pick the crate up only if the
+        --   game swapped it out during the buy, go to the seeder, pour it in.
+        return seedCrateIntoSeeder(hit.m)
     end
 
     -- ▸ SEEDER STEP 1 — the seed check (user: "first thing from the seeder:
