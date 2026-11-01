@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.108 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.109 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.108
+python tools/run_all.py        # 29/29 checks on v1.109
 ```
 
-Last full run (v1.108): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.109): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1734,7 +1734,16 @@ linked slot and then talks to the clerk. The counter itself measured 3.5 × 0.5 
 18.5 studs at y=142.2 on x≈-165.6, and a teleport onto the slot pushes the
 character out of it, so the drop has to be made from beside it.
 
-**Where it stands:** `rebuild v1.108 · fluent gui`, whole suite green (29/29),
+**The shelf is GameplayVisuals (v1.109).** Grouping the 61 seed-tagged crates
+by home split them 30 in `Workspace.GameplayVisuals` and 31 in
+`Workspace.Objects`; the unowned crate the probe then took was a loose one under
+Objects with **no** `LinkedCounterAttachment`, so it had no slot to be placed on
+and the trip ended with the crate still in hand. The shelf set is the one the
+till sells from, so the pick now prefers an unowned `GameplayVisuals` crate with
+the chosen seed, and the run places it on its own linked slot, presses F at the
+clerk, clicks a Purchase control if one is shown and reports the balance.
+
+**Where it stands:** `rebuild v1.109 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

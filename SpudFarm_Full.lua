@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.108 · fluent gui"
+local VERSION    = "rebuild v1.109 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5785,19 +5785,41 @@ local okBuild, errBuild = pcall(function()
                     spudTestSay(string.format("shop: crate %d — %s home %s seed %s owner %s, %.0f studs",
                         i, c.m.Name, c.home, c.seed, c.owner or "NOBODY", c.d))
                 end
-                -- the shop's stock: matching seed, no owner. Nearest first.
+                -- ▸ THE SHELF IS GameplayVisuals. Crates under Objects are
+                --   loose ones lying around (the nearest was mine and the next
+                --   few had no linked counter slot); the shop's stock is the
+                --   GameplayVisuals set, which is what the till sells.
+                local shelf = {}
+                for _, c in ipairs(crates) do
+                    if c.m:GetFullName():find("GameplayVisuals", 1, true) then
+                        shelf[#shelf + 1] = c
+                    end
+                end
+                local shl = {}
+                for i = 1, math.min(#shelf, 6) do
+                    local c = shelf[i]
+                    shl[#shl + 1] = string.format("%s %s owner %s %.0f studs",
+                        c.m.Name, c.seed, c.owner or "NOBODY", c.d)
+                end
+                spudTestSay("shop: the shelf: "
+                    .. (#shl > 0 and table.concat(shl, " · ") or "EMPTY"))
                 local want = seed:lower()
                 local hit
-                for _, c in ipairs(crates) do
+                for _, c in ipairs(shelf) do
                     if not c.owner and c.seed:lower() == want then hit = c break end
                 end
                 if not hit then
-                    for _, c in ipairs(crates) do
+                    for _, c in ipairs(shelf) do
                         if not c.owner then hit = c break end
                     end
                 end
                 if not hit then
-                    spudTestSay("shop: every crate has an owner — nothing on the shelf is for sale")
+                    for _, c in ipairs(crates) do
+                        if not c.owner and c.seed:lower() == want then hit = c break end
+                    end
+                end
+                if not hit then
+                    spudTestSay("shop: nothing on the shelf is unowned — nothing for sale here")
                     return
                 end
                 spudTestSay(string.format("shop: taking the unowned %s at %s, %.0f studs away",
@@ -5856,19 +5878,22 @@ local okBuild, errBuild = pcall(function()
                 spudTestSay("shop: F at the clerk raised: "
                     .. (#raised > 0 and table.concat(raised, ", ") or "nothing"))
                 spudTestSay("shop: toast says: " .. toastText())
-                local bts = {}
+                local pus
                 for _, g in ipairs(views:GetDescendants()) do
                     if g:IsA("GuiButton") and shownBy(g) then
-                        local t = guiTextOf(g)
-                        if t ~= "" then bts[#bts + 1] = string.format("'%s'@%s", t, g:GetFullName()) end
-                        if #bts >= 16 then break end
+                        local t = ((guiTextOf(g) or "") .. " " .. g.Name):lower()
+                        if t:find("purchase", 1, true) then pus = g break end
                     end
                 end
-                spudTestSay("shop: visible buttons now: "
-                    .. (#bts > 0 and table.concat(bts, " | ") or "none"))
-                -- and the balance, in case the counter charges on its own
-                task.wait(2.0)
-                spudTestSay(string.format("shop: balance %s → %s", tostring(bal), tostring(coinBalance())))
+                if pus then
+                    spudTestSay(string.format("shop: clicking the Purchase control %s ('%s')",
+                        pus:GetFullName(), guiTextOf(pus)))
+                    local called = invokeHandlers(pus)
+                    if not called then pcall(function() pus:Activate() end) end
+                    task.wait(2.0)
+                end
+                spudTestSay(string.format("shop: balance %s → %s, toast: %s",
+                    tostring(bal), tostring(coinBalance()), toastText()))
                 spudTestSay("shop: probe done")
             end)
             loopThread = savedLoop
