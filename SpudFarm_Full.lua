@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.100 · fluent gui"
+local VERSION    = "rebuild v1.101 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -3931,10 +3931,22 @@ local okBuild, errBuild = pcall(function()
             local txt = guiTextOf(d)
             return txt == "X" or txt == "x" or d.Name == "X"
         end
+        -- ▸ "OPEN" MEANS A VISIBLE BUTTON, NOT Enabled. `Stores` (the shop's
+        --   own layer) stays Enabled with its contents hidden, so an Enabled
+        --   test reported it "still open" after a click that had worked — and
+        --   then pressed F, which RE-OPENED the shop. Every judge below reads
+        --   what is actually on screen.
+        local function layerShown(m)
+            if not (m and m.Enabled) then return false end
+            for _, d in ipairs(m:GetDescendants()) do
+                if d:IsA("GuiButton") and isShown(d) then return true end
+            end
+            return false
+        end
         local function openMenus()
             local out, seen = {}, {}
             eachLayer(function(m)
-                if m.Enabled and not menusBefore[m] and not seen[m] then
+                if not menusBefore[m] and not seen[m] and layerShown(m) then
                     seen[m] = true
                     out[#out + 1] = m
                 end
@@ -4004,14 +4016,22 @@ local okBuild, errBuild = pcall(function()
         for _, m in ipairs(left) do
             local how = closeItself(m)
             task.wait(0.5)
-            if m.Enabled and not how then
+            if layerShown(m) and not how then
                 pressKey(Enum.KeyCode.F) -- the NPC menu's own toggle
                 task.wait(0.6)
                 how = "F"
             end
-            if m.Enabled then
-                log(string.format("seed shop: ⚠ %s is still open after %s — close it by hand once",
-                    m.Name, tostring(how)))
+            if layerShown(m) then
+                -- name what is still on screen, so the next run does not guess
+                local names = {}
+                for _, d in ipairs(m:GetDescendants()) do
+                    if d:IsA("GuiButton") and isShown(d) then
+                        names[#names + 1] = string.format("'%s'", guiTextOf(d))
+                        if #names >= 8 then break end
+                    end
+                end
+                log(string.format("seed shop: ⚠ %s still shows %d button(s) after %s (%s) — close it by hand once",
+                    m.Name, #names, tostring(how), table.concat(names, ", ")))
             else
                 log(string.format("seed shop: %s closed (%s)", m.Name, tostring(how)))
             end

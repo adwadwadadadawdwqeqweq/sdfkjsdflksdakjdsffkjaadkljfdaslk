@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.100 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.101 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.100
+python tools/run_all.py        # 29/29 checks on v1.101
 ```
 
-Last full run (v1.100): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.101): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1603,6 +1603,14 @@ hop, round after round** and nothing else; a cell both refuse is named
 (`N cell(s) never took a call even with the blade on them — leaving them for
 the next pass`) instead of being tweened over.
 
+**Open means visible, not Enabled (v1.101).** The v1.100 run named the
+container — `GuiViews.Stores` — and reported it "still open after handler then
+F", then pressed F. `Stores` stays `Enabled` with its contents hidden, so that
+verdict was wrong and the F **re-opened** the shop. Every judge is now a
+visible button (`layerShown`), so a click that worked ends the step with
+`Stores closed (handler)` and no key is pressed; a real failure names up to
+eight of the buttons still on screen so the next run does not guess.
+
 **The dialog is not a layer (v1.100).** v1.99's layer diff reported `no shop
 menu is open — nothing to close` on the next live trip while the purchase
 dialog was plainly on screen: it is a frame inside an always-enabled layer, so
@@ -1646,7 +1654,7 @@ settle alone lifted the cultivate grid from **17/50 to 29/41** and the hop from
 so both passes now also take a short beat (**0.25 s** after a stop lands,
 **0.2 s** after a cell) before firing — v1.98.
 
-**Where it stands:** `rebuild v1.100 · fluent gui`, whole suite green (29/29),
+**Where it stands:** `rebuild v1.101 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
