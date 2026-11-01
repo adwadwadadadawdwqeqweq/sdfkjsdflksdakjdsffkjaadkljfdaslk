@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.105 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.106 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.105
+python tools/run_all.py        # 29/29 checks on v1.106
 ```
 
-Last full run (v1.105): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.106): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1701,7 +1701,18 @@ itself carries `Primary.LinkedCounterAttachment`. The probe now lists what is
 studs of the clerk (so a counter not named "Counter" shows up by position), and
 prints the crate's link with its class and value.
 
-**Where it stands:** `rebuild v1.105 · fluent gui`, whole suite green (29/29),
+**The counter is real, and the crate has its own slot (v1.106).** The slots
+are attachments: FarmCo's are six `Attachment`s at x=-166, y=142, z=85…100, and
+`SeedBox.Primary.LinkedCounterAttachment` is an **ObjectValue** that points
+straight at the one this crate belongs on. The probe placed the crate 1.1 studs
+from its slot — the toast *"You must place items on the counter to buy them"*
+disappeared with the crate down — but it then pressed F where it stood, 7.6
+studs from the clerk, and raised nothing. The next run places the crate on its
+own linked slot and walks to the **clerk** before pressing F, then clicks a
+shown Purchase control and reports the balance, so the answer is the whole
+transaction rather than one step of it.
+
+**Where it stands:** `rebuild v1.106 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
