@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.104 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.105 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.104
+python tools/run_all.py        # 29/29 checks on v1.105
 ```
 
-Last full run (v1.104): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.105): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1690,7 +1690,18 @@ position, the crate's own linked attachment, then carries the crate onto that
 attachment, drops it, and reads the prompt there (plus the toast and the layer F
 raises) — the placement is what the till is asking for.
 
-**Where it stands:** `rebuild v1.104 · fluent gui`, whole suite green (29/29),
+**The toast says it out loud (v1.105).** The second live probe run named the
+block in the game's own words — the notification read *"You must place items on
+the counter to buy them"* — and showed why the counter stayed invisible: each
+store keeps its slots in `Stores.Buildings.<store>.Persistent.CounterAttachments`,
+which is a **folder of folders**, so a scan for instances named
+`CounterAttachment` found three empty containers and no world position. The crate
+itself carries `Primary.LinkedCounterAttachment`. The probe now lists what is
+*inside* each store's `CounterAttachments`, lists every FarmCo part within 25
+studs of the clerk (so a counter not named "Counter" shows up by position), and
+prints the crate's link with its class and value.
+
+**Where it stands:** `rebuild v1.105 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

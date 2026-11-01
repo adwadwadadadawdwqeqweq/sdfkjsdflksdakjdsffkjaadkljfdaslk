@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.104 · fluent gui"
+local VERSION    = "rebuild v1.105 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5719,46 +5719,62 @@ local okBuild, errBuild = pcall(function()
                 if not (pos and hrp) then spudTestSay("shop: FarmCo not found") return end
                 spudTestSay(string.format("shop: FarmCo at %s (%.0f studs) for '%s'",
                     where, (hrp.Position - pos).Magnitude, seed))
-                -- ▸ THE COUNTER IS PART OF THE BUILDING. The first run found
-                --   only LumberCo's and AnimalCo's counters near the clerk;
-                --   FarmCo keeps its own in
-                --   Stores.Buildings.FarmCo.Persistent.CounterAttachments, and
-                --   every seed box carries Primary.LinkedCounterAttachment.
                 local stores = workspace:FindFirstChild("Stores")
-                local fco = stores and stores:FindFirstChild("Buildings")
-                    and stores.Buildings:FindFirstChild("FarmCo")
-                if fco then
-                    local kids = {}
-                    for _, c in ipairs(fco:GetChildren()) do kids[#kids + 1] = c.Name end
-                    spudTestSay("shop: Stores.Buildings.FarmCo holds: " .. table.concat(kids, ", "))
-                    local bits = {}
-                    for _, d in ipairs(fco:GetDescendants()) do
-                        if d:IsA("BasePart") then
-                            bits[#bits + 1] = string.format("%s (%.0f,%.0f,%.0f)", d.Name,
-                                d.Position.X, d.Position.Y, d.Position.Z)
-                            if #bits >= 40 then break end
-                        end
+                local buildings = stores and stores:FindFirstChild("Buildings")
+                local fco = buildings and buildings:FindFirstChild("FarmCo")
+                if not fco then spudTestSay("shop: Stores.Buildings.FarmCo is missing") return end
+                local npcs = stores:FindFirstChild("NPCs")
+                local clerk
+                if npcs then
+                    for _, m in ipairs(npcs:GetChildren()) do
+                        if m.Name:lower():find("farmco", 1, true) then clerk = m break end
                     end
-                    spudTestSay("shop: FarmCo parts: "
-                        .. (#bits > 0 and table.concat(bits, " · ") or "none"))
-                else
-                    spudTestSay("shop: Stores.Buildings.FarmCo is missing")
                 end
+                local cPart = clerk and clerk:FindFirstChildWhichIsA("BasePart", true)
+                local cPos = cPart and cPart.Position or pos
+                spudTestSay(string.format("shop: the clerk is at (%.0f, %.0f, %.0f)",
+                    cPos.X, cPos.Y, cPos.Z))
+                -- ▸ WHERE THE CRATE GOES. Every store keeps its slots in
+                --   Persistent.CounterAttachments (a folder, so the first probe
+                --   found no world position in it) — list what is INSIDE each
+                --   one, and every FarmCo part near the clerk so a counter that
+                --   is not named "Counter" still shows up.
                 local spots = {}
-                for _, d in ipairs(workspace:GetDescendants()) do
-                    if d.Name:lower():find("counterattachment", 1, true) then
-                        local okp, wp = pcall(function() return d.WorldPosition end)
-                        spots[#spots + 1] = { d = d, p = (okp and wp) or nil }
+                for _, b in ipairs({ "LumberCo", "FarmCo", "AnimalCo" }) do
+                    local st = buildings:FindFirstChild(b)
+                    local ca = st and st:FindFirstChild("Persistent")
+                        and st.Persistent:FindFirstChild("CounterAttachments")
+                    if ca then
+                        local kids = {}
+                        for _, c in ipairs(ca:GetChildren()) do
+                            local okp, wp = pcall(function()
+                                return c:IsA("Attachment") and c.WorldPosition or nil
+                            end)
+                            kids[#kids + 1] = c.Name .. "[" .. c.ClassName .. "]"
+                                .. ((okp and wp) and string.format("(%.0f,%.0f,%.0f)", wp.X, wp.Y, wp.Z) or "")
+                            if c:IsA("Attachment") and okp and wp then
+                                spots[#spots + 1] = { d = c, p = wp, store = b }
+                            end
+                        end
+                        spudTestSay(string.format("shop: %s counter slots: %s", b,
+                            #kids > 0 and table.concat(kids, " · ") or "empty"))
                     end
                 end
-                local sl = {}
-                for i = 1, math.min(#spots, 20) do
-                    local s = spots[i]
-                    sl[#sl + 1] = s.d:GetFullName()
-                        .. (s.p and string.format(" (%.0f,%.0f,%.0f)", s.p.X, s.p.Y, s.p.Z) or "")
+                local near2 = {}
+                for _, d in ipairs(fco:GetDescendants()) do
+                    if d:IsA("BasePart") and (d.Position - cPos).Magnitude <= 25 then
+                        near2[#near2 + 1] = { d = d, dist = (d.Position - cPos).Magnitude }
+                    end
                 end
-                spudTestSay("shop: counter attachments: "
-                    .. (#sl > 0 and table.concat(sl, " · ") or "none"))
+                table.sort(near2, function(a, b) return a.dist < b.dist end)
+                local l2 = {}
+                for i = 1, math.min(#near2, 30) do
+                    local e = near2[i]
+                    l2[#l2 + 1] = string.format("%s(%.0f,%.0f,%.0f · %.0f au)", e.d.Name,
+                        e.d.Position.X, e.d.Position.Y, e.d.Position.Z, e.dist)
+                end
+                spudTestSay("shop: FarmCo parts within 25 studs of the clerk: "
+                    .. (#l2 > 0 and table.concat(l2, " · ") or "none"))
                 if carrying() then
                     spudTestSay("shop: dropping what is in hand first")
                     spudDropRemote()
@@ -5777,8 +5793,13 @@ local okBuild, errBuild = pcall(function()
                 offers("at the " .. hit.m.Name .. " crate")
                 local lca = hit.m:FindFirstChild("LinkedCounterAttachment", true)
                 if lca then
-                    local okp, wp = pcall(function() return lca.WorldPosition end)
-                    spudTestSay(string.format("shop: the crate links to %s%s", lca:GetFullName(),
+                    local v = lca:IsA("ObjectValue") and lca.Value or nil
+                    local okp, wp = pcall(function()
+                        return lca:IsA("Attachment") and lca.WorldPosition or nil
+                    end)
+                    spudTestSay(string.format("shop: the crate links to %s[%s]%s%s",
+                        lca:GetFullName(), lca.ClassName,
+                        v and (" -> " .. v:GetFullName()) or "",
                         (okp and wp) and string.format(" (%.0f,%.0f,%.0f)", wp.X, wp.Y, wp.Z) or ""))
                 end
                 if not carryCrate("seed crate", hit.m) then
@@ -5787,23 +5808,25 @@ local okBuild, errBuild = pcall(function()
                 end
                 local best
                 for _, s in ipairs(spots) do
-                    if s.p and s.d:GetFullName():find("FarmCo", 1, true) then best = s break end
+                    if s.store == "FarmCo" then best = s break end
                 end
-                best = best or spots[1]
-                if best and best.p then
+                if not best then
+                    for _, s in ipairs(spots) do best = s break end
+                end
+                if best then
                     tpChar(best.p)
                     task.wait(1.0)
-                    offers("standing on " .. best.d:GetFullName())
+                    offers("standing on the " .. best.store .. " slot " .. best.d.Name)
                     spudDropRemote()
                     task.wait(1.5)
                     local cp = hit.m:FindFirstChildWhichIsA("BasePart", true)
                     spudTestSay(string.format(
-                        "shop: after the drop there — crate %s studs from that attachment, parent %s",
+                        "shop: after the drop there — crate %s studs from that slot, parent %s",
                         (cp and string.format("%.1f", (cp.Position - best.p).Magnitude)) or "?",
                         hit.m.Parent and hit.m.Parent:GetFullName() or "nil"))
                     offers("after dropping it there")
                 else
-                    spudTestSay("shop: no counter attachment with a world position")
+                    spudTestSay("shop: no counter attachment with a world position — nothing to stand on")
                 end
                 local beforeL = {}
                 for _, d in ipairs(views:GetDescendants()) do
