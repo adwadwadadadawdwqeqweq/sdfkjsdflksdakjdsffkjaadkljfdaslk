@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.106 · fluent gui"
+local VERSION    = "rebuild v1.107 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5701,16 +5701,23 @@ local okBuild, errBuild = pcall(function()
                         #acts > 0 and table.concat(acts, ",") or "",
                         #bills > 0 and table.concat(bills, " | ") or ""))
                 end
-                local function toastText()
-                    local out = {}
-                    pcall(function()
-                        for _, d in ipairs(views.HUD.Notifications:GetDescendants()) do
-                            if d:IsA("TextLabel") and d.Text ~= "" and shownBy(d) then
-                                out[#out + 1] = d.Text
-                            end
+                -- a draggable's own state: every attribute and every
+                -- Configurations value, so "placed on the counter" has a name
+                local function crateState(m, when)
+                    local bits = {}
+                    for k, v in pairs(m:GetAttributes()) do
+                        bits[#bits + 1] = tostring(k) .. "=" .. tostring(v)
+                    end
+                    local cfg = m:FindFirstChild("Configurations")
+                    if cfg then
+                        for _, c in ipairs(cfg:GetChildren()) do
+                            local ok, v = pcall(function() return c.Value end)
+                            local sv = (ok and typeof(v) == "Instance") and v:GetFullName()
+                                or (ok and tostring(v)) or "?"
+                            bits[#bits + 1] = c.Name .. "=" .. sv
                         end
-                    end)
-                    return #out > 0 and table.concat(out, " / ") or "nothing"
+                    end
+                    spudTestSay("shop: the crate " .. when .. " — " .. table.concat(bits, " · "))
                 end
                 local seed = seedChoice or "Wheat"
                 local hrp = LocalPlayer.Character
@@ -5730,8 +5737,6 @@ local okBuild, errBuild = pcall(function()
                 end
                 local cPart = clerk and clerk:FindFirstChildWhichIsA("BasePart", true)
                 local cPos = cPart and cPart.Position or pos
-                spudTestSay(string.format("shop: the clerk is at (%.0f, %.0f, %.0f)",
-                    cPos.X, cPos.Y, cPos.Z))
                 if carrying() then
                     spudTestSay("shop: dropping what is in hand first")
                     spudDropRemote()
@@ -5739,88 +5744,75 @@ local okBuild, errBuild = pcall(function()
                 end
                 tpChar(pos)
                 task.wait(1.5)
-                offers("at the shop, empty-handed")
                 local hit = findSeedCrate(seed)
                 if not hit then
                     spudTestSay("shop: no crate sells '" .. seed .. "' here")
                     return
                 end
-                tpChar(hit.pos)
-                task.wait(1.0)
-                offers("at the " .. hit.m.Name .. " crate")
-                -- ▸ WHERE THIS CRATE GOES: every seed box carries an ObjectValue
-                --   that points at ITS OWN slot in the store's
-                --   Persistent.CounterAttachments. The slot's world position is
-                --   the place the till is asking for.
+                -- ▸ THE COUNTER'S OWN SURFACE. The slots sit on it, so the
+                --   slab under the slot is the thing the till means by
+                --   "counter" — print it with its size, and the crate's own
+                --   attributes/configurations before and after a drop, so
+                --   "placed" is a readable state and not a guess.
                 local lca = hit.m:FindFirstChild("LinkedCounterAttachment", true)
                 local linked = (lca and lca:IsA("ObjectValue")) and lca.Value or nil
                 local slotPos = (linked and linked:IsA("Attachment")) and linked.WorldPosition or nil
-                spudTestSay(string.format("shop: the crate links to %s%s", linked and linked:GetFullName() or "nothing",
-                    slotPos and string.format(" (%.0f,%.0f,%.0f)", slotPos.X, slotPos.Y, slotPos.Z) or ""))
+                if not slotPos then
+                    spudTestSay("shop: this crate has no linked counter slot")
+                    return
+                end
+                spudTestSay(string.format("shop: the crate links to %s (%.1f,%.1f,%.1f)",
+                    linked:GetFullName(), slotPos.X, slotPos.Y, slotPos.Z))
+                local fco = buildings and buildings:FindFirstChild("FarmCo")
+                local slabs = {}
+                if fco then
+                    for _, d in ipairs(fco:GetDescendants()) do
+                        if d:IsA("BasePart") and (d.Position - slotPos).Magnitude <= 12 then
+                            local area = d.Size.X * d.Size.Z
+                            if d.Size.Y <= 4 and area >= 16 then
+                                slabs[#slabs + 1] = { d = d, area = area }
+                            end
+                        end
+                    end
+                end
+                table.sort(slabs, function(a, b) return a.area > b.area end)
+                local sl = {}
+                for i = 1, math.min(#slabs, 4) do
+                    local d = slabs[i].d
+                    sl[#sl + 1] = string.format("%s at (%.1f,%.1f,%.1f) size (%.1f,%.1f,%.1f)",
+                        d.Name, d.Position.X, d.Position.Y, d.Position.Z,
+                        d.Size.X, d.Size.Y, d.Size.Z)
+                end
+                spudTestSay("shop: counter slabs near the slot: "
+                    .. (#sl > 0 and table.concat(sl, " · ") or "none"))
+                crateState(hit.m, "on the shelf")
+                tpChar(hit.pos)
+                task.wait(1.0)
                 if not carryCrate("seed crate", hit.m) then
                     spudTestSay("shop: the crate didn't come up — stopping the probe")
                     return
                 end
-                if slotPos then
-                    tpChar(slotPos)
-                    task.wait(1.0)
-                    offers("on its counter slot, crate in hand")
-                    spudDropRemote()
+                crateState(hit.m, "in hand")
+                -- stand on the customer side of the counter and put it on top
+                tpChar(slotPos)
+                task.wait(1.0)
+                offers("on its counter slot, crate in hand")
+                spudDropRemote()
+                task.wait(1.5)
+                local cp = hit.m:FindFirstChildWhichIsA("BasePart", true)
+                local ch2 = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                spudTestSay(string.format(
+                    "shop: after the drop — crate at %s, %.1f studs from the slot, character at %s",
+                    cp and string.format("(%.1f,%.1f,%.1f)", cp.Position.X, cp.Position.Y, cp.Position.Z) or "?",
+                    cp and (cp.Position - slotPos).Magnitude or -1,
+                    ch2 and string.format("(%.1f,%.1f,%.1f)", ch2.Position.X, ch2.Position.Y, ch2.Position.Z) or "?"))
+                crateState(hit.m, "after the drop")
+                offers("crate on the counter")
+                -- what E and F do from here
+                for _, k in ipairs({ Enum.KeyCode.E, Enum.KeyCode.F }) do
+                    pressKey(k)
                     task.wait(1.5)
-                    local cp = hit.m:FindFirstChildWhichIsA("BasePart", true)
-                    spudTestSay(string.format(
-                        "shop: after the drop — crate %s studs from its slot, parent %s",
-                        (cp and string.format("%.1f", (cp.Position - slotPos).Magnitude)) or "?",
-                        hit.m.Parent and hit.m.Parent:GetFullName() or "nil"))
-                    offers("crate on the counter")
-                else
-                    spudTestSay("shop: this crate has no linked counter slot — nothing to place it on")
-                end
-                -- ▸ AND NOW TALK TO THE CLERK, with the crate on the counter.
-                --   Every failed trip so far pressed F while CARRYING, which is
-                --   what the till answers with "You must place items on the
-                --   counter to buy them".
-                tpChar(cPos)
-                task.wait(1.2)
-                offers("at the clerk, crate on the counter")
-                local balBefore = coinBalance()
-                local beforeL = {}
-                for _, d in ipairs(views:GetDescendants()) do
-                    if d:IsA("LayerCollector") and d.Enabled then beforeL[d] = true end
-                end
-                pressKey(Enum.KeyCode.F)
-                task.wait(1.8)
-                local raised = {}
-                for _, d in ipairs(views:GetDescendants()) do
-                    if d:IsA("LayerCollector") and d.Enabled and not beforeL[d] then
-                        local any = false
-                        for _, g in ipairs(d:GetDescendants()) do
-                            if g:IsA("GuiButton") and shownBy(g) then any = true break end
-                        end
-                        raised[#raised + 1] = d.Name .. (any and " (buttons shown)" or " (no buttons)")
-                    end
-                end
-                spudTestSay("shop: F at the clerk raised: "
-                    .. (#raised > 0 and table.concat(raised, ", ") or "nothing"))
-                spudTestSay("shop: toast says: " .. toastText())
-                offers("with the shop up")
-                local pus
-                for _, g in ipairs(views:GetDescendants()) do
-                    if g:IsA("GuiButton") and shownBy(g) then
-                        local t = ((guiTextOf(g) or "") .. " " .. g.Name):lower()
-                        if t:find("purchase", 1, true) then pus = g break end
-                    end
-                end
-                if pus then
-                    spudTestSay(string.format("shop: clicking the Purchase control %s ('%s')",
-                        pus:GetFullName(), guiTextOf(pus)))
-                    local called = invokeHandlers(pus)
-                    if not called then pcall(function() pus:Activate() end) end
-                    task.wait(2.0)
-                    spudTestSay(string.format("shop: after Purchase — balance %s → %s, toast: %s",
-                        tostring(balBefore), tostring(coinBalance()), toastText()))
-                else
-                    spudTestSay("shop: no Purchase control is shown at the clerk with the crate on the counter")
+                    offers("after " .. k.Name .. " at the counter")
                 end
                 spudTestSay("shop: probe done")
             end)

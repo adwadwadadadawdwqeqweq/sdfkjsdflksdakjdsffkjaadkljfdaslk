@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.106 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.107 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.106
+python tools/run_all.py        # 29/29 checks on v1.107
 ```
 
-Last full run (v1.106): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.107): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1712,7 +1712,17 @@ own linked slot and walks to the **clerk** before pressing F, then clicks a
 shown Purchase control and reports the balance, so the answer is the whole
 transaction rather than one step of it.
 
-**Where it stands:** `rebuild v1.106 · fluent gui`, whole suite green (29/29),
+**The clerk sells pallets, not seeds (v1.107).** F at the FarmCo clerk with
+the crate on its slot raised `GuiViews.Stores.PalletStoreMenu` — a pallet till
+whose Purchase button answered *"You need to own the Forklift License!"*, and
+whose label dump (`CapacityLabel`, `PalletAmount`, `PalletInfo`, `Price`) is
+exactly the "buy popup" every earlier trip had been reading as the seed dialog.
+So the clerk was never the seed till: the seed box on its counter slot is. The
+probe now prints the crate's own attributes and `Configurations` before, in hand
+and after the drop (so "placed" is a readable state, not a guess), the counter
+slabs under the slot with their sizes, and what E and F do from the counter.
+
+**Where it stands:** `rebuild v1.107 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
