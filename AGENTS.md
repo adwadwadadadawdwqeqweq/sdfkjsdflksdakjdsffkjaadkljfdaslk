@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.109 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.110 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.109
+python tools/run_all.py        # 29/29 checks on v1.110
 ```
 
-Last full run (v1.109): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.110): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1743,7 +1743,19 @@ till sells from, so the pick now prefers an unowned `GameplayVisuals` crate with
 the chosen seed, and the run places it on its own linked slot, presses F at the
 clerk, clicks a Purchase control if one is shown and reports the balance.
 
-**Where it stands:** `rebuild v1.109 · fluent gui`, whole suite green (29/29),
+**The shelf sells pallets, the floor sells seeds (v1.110).** `GameplayVisuals.
+LockedDraggables` is pallet stock: standing at one of those boxes offers
+**nothing**, the nearest shelf crates are Potato and Grape (the Wheat ones are
+farther), and F at the clerk raised `PalletStoreMenu` — *"You need to own the
+Forklift License!"*. The boxes with a `Carry` prompt are the unowned
+`Objects.DraggableObjects` ones, and F at the clerk while carrying one raises
+the real till: **"Are you sure you want to buy 1 item? — Wheat Seeds, 100 —
+Purchase"**. That dialog is a frame inside an always-enabled layer, which is why
+every `Enabled`-layer check read "nothing raised" while it sat on the screen. The
+probe now finds it by its own words, prints its container and buttons, clicks its
+Purchase control and reports the balance and the crate's owner.
+
+**Where it stands:** `rebuild v1.110 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
