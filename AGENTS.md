@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.107 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.108 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.107
+python tools/run_all.py        # 29/29 checks on v1.108
 ```
 
-Last full run (v1.107): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.108): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1722,7 +1722,19 @@ probe now prints the crate's own attributes and `Configurations` before, in hand
 and after the drop (so "placed" is a readable state, not a guess), the counter
 slabs under the slot with their sizes, and what E and F do from the counter.
 
-**Where it stands:** `rebuild v1.107 · fluent gui`, whole suite green (29/29),
+**It was carrying my own box (v1.108).** The crate every trip carried read
+`Configurations.Owner = Players.oksimba_2` on the shelf — it is the player's own
+seed box, sitting in `Objects.DraggableObjects`, so putting it on the counter
+could never buy anything. `findSeedCrate` prefers a tagged match and then the
+nearest, and the nearest tagged Wheat box was mine. The shop's stock is the
+**unowned** crates in `GameplayVisuals.LockedDraggables`. The probe now groups
+every seed-tagged crate by the folder it lives in and prints the nearest with its
+owner, picks the nearest **unowned** one with the chosen seed, places it on its
+linked slot and then talks to the clerk. The counter itself measured 3.5 × 0.5 ×
+18.5 studs at y=142.2 on x≈-165.6, and a teleport onto the slot pushes the
+character out of it, so the drop has to be made from beside it.
+
+**Where it stands:** `rebuild v1.108 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
