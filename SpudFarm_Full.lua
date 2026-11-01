@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.103 · fluent gui"
+local VERSION    = "rebuild v1.104 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5653,7 +5653,16 @@ local okBuild, errBuild = pcall(function()
         --   and at anything named like a till, before and after the crate is
         --   put down — so the counter and its prompt are measured, not guessed.
         if kind == "shop" then
-            local function shopProbe()
+            -- ▸ A PROBE IS NOT A FARM PASS, but the helpers it has to use
+            --   (carryCrate, spudDropRemote, the key presses) ask stopping()
+            --   whether the loop should break — and outside a loop that is
+            --   always true, so the first live run gave up before the crate
+            --   ever came up. The probe lends itself the loop slot for its own
+            --   run and hands it straight back, so every helper behaves
+            --   exactly as it does inside a pass.
+            local savedLoop = loopThread
+            loopThread = coroutine.running()
+            local okProbe, errProbe = pcall(function()
                 local pgi = LocalPlayer:FindFirstChildOfClass("PlayerGui")
                 local views = pgi and pgi:FindFirstChild("GuiViews")
                 if not views then spudTestSay("shop: PlayerGui.GuiViews missing") return end
@@ -5695,8 +5704,7 @@ local okBuild, errBuild = pcall(function()
                 local function toastText()
                     local out = {}
                     pcall(function()
-                        local notes = views.HUD.Notifications
-                        for _, d in ipairs(notes:GetDescendants()) do
+                        for _, d in ipairs(views.HUD.Notifications:GetDescendants()) do
                             if d:IsA("TextLabel") and d.Text ~= "" and shownBy(d) then
                                 out[#out + 1] = d.Text
                             end
@@ -5711,6 +5719,46 @@ local okBuild, errBuild = pcall(function()
                 if not (pos and hrp) then spudTestSay("shop: FarmCo not found") return end
                 spudTestSay(string.format("shop: FarmCo at %s (%.0f studs) for '%s'",
                     where, (hrp.Position - pos).Magnitude, seed))
+                -- ▸ THE COUNTER IS PART OF THE BUILDING. The first run found
+                --   only LumberCo's and AnimalCo's counters near the clerk;
+                --   FarmCo keeps its own in
+                --   Stores.Buildings.FarmCo.Persistent.CounterAttachments, and
+                --   every seed box carries Primary.LinkedCounterAttachment.
+                local stores = workspace:FindFirstChild("Stores")
+                local fco = stores and stores:FindFirstChild("Buildings")
+                    and stores.Buildings:FindFirstChild("FarmCo")
+                if fco then
+                    local kids = {}
+                    for _, c in ipairs(fco:GetChildren()) do kids[#kids + 1] = c.Name end
+                    spudTestSay("shop: Stores.Buildings.FarmCo holds: " .. table.concat(kids, ", "))
+                    local bits = {}
+                    for _, d in ipairs(fco:GetDescendants()) do
+                        if d:IsA("BasePart") then
+                            bits[#bits + 1] = string.format("%s (%.0f,%.0f,%.0f)", d.Name,
+                                d.Position.X, d.Position.Y, d.Position.Z)
+                            if #bits >= 40 then break end
+                        end
+                    end
+                    spudTestSay("shop: FarmCo parts: "
+                        .. (#bits > 0 and table.concat(bits, " · ") or "none"))
+                else
+                    spudTestSay("shop: Stores.Buildings.FarmCo is missing")
+                end
+                local spots = {}
+                for _, d in ipairs(workspace:GetDescendants()) do
+                    if d.Name:lower():find("counterattachment", 1, true) then
+                        local okp, wp = pcall(function() return d.WorldPosition end)
+                        spots[#spots + 1] = { d = d, p = (okp and wp) or nil }
+                    end
+                end
+                local sl = {}
+                for i = 1, math.min(#spots, 20) do
+                    local s = spots[i]
+                    sl[#sl + 1] = s.d:GetFullName()
+                        .. (s.p and string.format(" (%.0f,%.0f,%.0f)", s.p.X, s.p.Y, s.p.Z) or "")
+                end
+                spudTestSay("shop: counter attachments: "
+                    .. (#sl > 0 and table.concat(sl, " · ") or "none"))
                 if carrying() then
                     spudTestSay("shop: dropping what is in hand first")
                     spudDropRemote()
@@ -5718,50 +5766,6 @@ local okBuild, errBuild = pcall(function()
                 end
                 tpChar(pos)
                 task.wait(1.5)
-                local stores = workspace:FindFirstChild("Stores")
-                local npcs = stores and stores:FindFirstChild("NPCs")
-                local owner
-                if npcs then
-                    for _, m in ipairs(npcs:GetChildren()) do
-                        if m.Name:lower():find("farmco", 1, true) then owner = m break end
-                    end
-                end
-                local oPart = owner and owner:FindFirstChildWhichIsA("BasePart", true)
-                if not oPart then spudTestSay("shop: the FarmCo Owner has no readable part") return end
-                spudTestSay(string.format("shop: the clerk is %s at (%.0f, %.0f, %.0f)",
-                    owner:GetFullName(), oPart.Position.X, oPart.Position.Y, oPart.Position.Z))
-                local near, named = {}, {}
-                for _, d in ipairs(workspace:GetDescendants()) do
-                    if d:IsA("BasePart") then
-                        local dm = (d.Position - oPart.Position).Magnitude
-                        if dm <= 40 then near[#near + 1] = { p = d, d = dm } end
-                    end
-                    local n = d.Name:lower()
-                    if n:find("counter", 1, true) or n:find("till", 1, true)
-                        or n:find("checkout", 1, true) or n:find("register", 1, true)
-                        or n:find("cashier", 1, true) then
-                        named[#named + 1] = d
-                    end
-                end
-                table.sort(near, function(a, b) return a.d < b.d end)
-                local listed = {}
-                for i = 1, math.min(#near, 25) do
-                    local e = near[i]
-                    listed[#listed + 1] = string.format("%s(%.0f)", e.p.Name, e.d)
-                end
-                spudTestSay("shop: parts within 40 studs of the clerk: " .. table.concat(listed, ", "))
-                if #named == 0 then
-                    spudTestSay("shop: nothing streamed here is named counter/till/checkout/register/cashier")
-                else
-                    for i = 1, math.min(#named, 12) do
-                        local d = named[i]
-                        local pp = d:IsA("BasePart") and d.Position
-                            or (d:FindFirstChildWhichIsA("BasePart", true) or {}).Position
-                        spudTestSay(string.format("shop: '%s' %s%s", d.Name, d:GetFullName(),
-                            pp and string.format(" at (%.0f, %.0f, %.0f), %.0f studs from the clerk",
-                                pp.X, pp.Y, pp.Z, (pp - oPart.Position).Magnitude) or ""))
-                    end
-                end
                 offers("at the shop, empty-handed")
                 local hit = findSeedCrate(seed)
                 if not hit then
@@ -5771,31 +5775,36 @@ local okBuild, errBuild = pcall(function()
                 tpChar(hit.pos)
                 task.wait(1.0)
                 offers("at the " .. hit.m.Name .. " crate")
+                local lca = hit.m:FindFirstChild("LinkedCounterAttachment", true)
+                if lca then
+                    local okp, wp = pcall(function() return lca.WorldPosition end)
+                    spudTestSay(string.format("shop: the crate links to %s%s", lca:GetFullName(),
+                        (okp and wp) and string.format(" (%.0f,%.0f,%.0f)", wp.X, wp.Y, wp.Z) or ""))
+                end
                 if not carryCrate("seed crate", hit.m) then
                     spudTestSay("shop: the crate didn't come up — stopping the probe")
                     return
                 end
-                tpChar(oPart.Position)
-                task.wait(1.2)
-                offers("at the clerk, crate in hand")
-                local counter = named[1]
-                local cPos = counter and (counter:IsA("BasePart") and counter.Position
-                    or (counter:FindFirstChildWhichIsA("BasePart", true) or {}).Position)
-                if cPos then
-                    tpChar(cPos)
-                    task.wait(1.0)
-                    offers("standing on the '" .. counter.Name .. "'")
-                else
-                    spudTestSay("shop: no counter-shaped part — staying at the clerk")
+                local best
+                for _, s in ipairs(spots) do
+                    if s.p and s.d:GetFullName():find("FarmCo", 1, true) then best = s break end
                 end
-                spudDropRemote()
-                task.wait(1.2)
-                local cp = hit.m:FindFirstChildWhichIsA("BasePart", true)
-                local r2 = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                spudTestSay(string.format("shop: after the drop — crate %s studs from the character, hands %s",
-                    (cp and r2) and string.format("%.1f", (cp.Position - r2.Position).Magnitude) or "?",
-                    carrying() and "still full" or "empty"))
-                offers("after that drop")
+                best = best or spots[1]
+                if best and best.p then
+                    tpChar(best.p)
+                    task.wait(1.0)
+                    offers("standing on " .. best.d:GetFullName())
+                    spudDropRemote()
+                    task.wait(1.5)
+                    local cp = hit.m:FindFirstChildWhichIsA("BasePart", true)
+                    spudTestSay(string.format(
+                        "shop: after the drop there — crate %s studs from that attachment, parent %s",
+                        (cp and string.format("%.1f", (cp.Position - best.p).Magnitude)) or "?",
+                        hit.m.Parent and hit.m.Parent:GetFullName() or "nil"))
+                    offers("after dropping it there")
+                else
+                    spudTestSay("shop: no counter attachment with a world position")
+                end
                 local beforeL = {}
                 for _, d in ipairs(views:GetDescendants()) do
                     if d:IsA("LayerCollector") and d.Enabled then beforeL[d] = true end
@@ -5812,7 +5821,8 @@ local okBuild, errBuild = pcall(function()
                         raised[#raised + 1] = d.Name .. (any and " (buttons shown)" or " (no buttons)")
                     end
                 end
-                spudTestSay("shop: F raised: " .. (#raised > 0 and table.concat(raised, ", ") or "nothing"))
+                spudTestSay("shop: F raised: "
+                    .. (#raised > 0 and table.concat(raised, ", ") or "nothing"))
                 spudTestSay("shop: toast says: " .. toastText())
                 local bts = {}
                 for _, g in ipairs(views:GetDescendants()) do
@@ -5822,11 +5832,13 @@ local okBuild, errBuild = pcall(function()
                         if #bts >= 20 then break end
                     end
                 end
-                spudTestSay("shop: visible buttons now: " .. (#bts > 0 and table.concat(bts, " | ") or "none"))
+                spudTestSay("shop: visible buttons now: "
+                    .. (#bts > 0 and table.concat(bts, " | ") or "none"))
                 offers("with the shop up")
                 spudTestSay("shop: probe done")
-            end
-            shopProbe()
+            end)
+            loopThread = savedLoop
+            if not okProbe then spudTestSay("shop: probe crashed: " .. tostring(errProbe)) end
             return
         end
 

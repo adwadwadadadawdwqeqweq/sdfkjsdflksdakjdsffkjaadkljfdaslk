@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.103 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.104 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.103
+python tools/run_all.py        # 29/29 checks on v1.104
 ```
 
-Last full run (v1.103): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.104): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1677,7 +1677,20 @@ down, re-reads, presses F, and reports which layer F raised, the toast text and
 the visible buttons. One run names the counter and its prompt instead of
 guessing them.
 
-**Where it stands:** `rebuild v1.103 · fluent gui`, whole suite green (29/29),
+**The counter is in the building (v1.104).** The first live run of the probe
+answered two things and never got to the crate: every helper it uses asks
+`stopping()`, which is **true whenever no farm loop is running**, so
+`carryCrate` gave up after one attempt — the probe now lends itself the loop
+slot for its own run and hands it straight back. And the shop's own geometry is
+in `Stores.Buildings.FarmCo.Persistent.CounterAttachments` (the counters the
+first run found near the clerk were LumberCo's at 31 studs and AnimalCo's at
+56), while every seed box carries `Primary.LinkedCounterAttachment`. The second
+run prints FarmCo's children and parts, every counter attachment with its world
+position, the crate's own linked attachment, then carries the crate onto that
+attachment, drops it, and reads the prompt there (plus the toast and the layer F
+raises) — the placement is what the till is asking for.
+
+**Where it stands:** `rebuild v1.104 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
