@@ -117,6 +117,12 @@ Everything merged into one paste-and-run file:
   `FNCConvertRundownField()` with **no arguments** just to read the shape they
   demand (an error names it; nothing that could rebuild the field is handed to
   them).
+  **Shop counter** repeats the seed-buy trip and prints the game's own
+  context actions and prompt billboards at the shelf, at the FarmCo clerk and at
+  anything named counter/till/checkout/register/cashier — then puts the crate
+  down, re-reads, presses F, and reports which layer F raised, the toast text
+  and the visible buttons. It exists because the till answers *"You must place
+  items on the counter to buy them"* and the buy has never landed.
   Every line is logged as `test:` and **Copy report** puts place id, build, player,
   the whole test run **and the last 60 farm-log lines** on the clipboard — so one
   press answers a farm question too. **Copy console** is the same clipboard

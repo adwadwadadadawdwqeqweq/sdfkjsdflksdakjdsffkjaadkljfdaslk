@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.102 · fluent gui"
+local VERSION    = "rebuild v1.103 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5645,6 +5645,191 @@ local okBuild, errBuild = pcall(function()
             return
         end
 
+        -- ▸ SHOP COUNTER (probe). The seed buy never lands: the captured
+        --   remote and the dialog's own buttons both leave the balance alone,
+        --   and the game answers "You must place items on the counter to buy
+        --   them". This repeats the real trip and prints what the GAME offers
+        --   (context actions + prompt billboards) at the shelf, at the clerk
+        --   and at anything named like a till, before and after the crate is
+        --   put down — so the counter and its prompt are measured, not guessed.
+        if kind == "shop" then
+            local function shopProbe()
+                local pgi = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+                local views = pgi and pgi:FindFirstChild("GuiViews")
+                if not views then spudTestSay("shop: PlayerGui.GuiViews missing") return end
+                local function shownBy(o)
+                    local p = o
+                    while p and p ~= views do
+                        if p:IsA("LayerCollector") and not p.Enabled then return false end
+                        if p:IsA("GuiObject") and not p.Visible then return false end
+                        p = p.Parent
+                    end
+                    return true
+                end
+                local function offers(where)
+                    local acts, bills = {}, {}
+                    pcall(function()
+                        local cpa = views.HUD.PCGP_ContextActions
+                        for _, b in ipairs(cpa.Buttons:GetChildren()) do
+                            if b:IsA("GuiObject") and b.Visible then acts[#acts + 1] = b.Name end
+                        end
+                        for _, b in ipairs(cpa.Billboards:GetChildren()) do
+                            local on = (b:IsA("LayerCollector") and b.Enabled)
+                                or (b:IsA("GuiObject") and b.Visible) or false
+                            if on then
+                                local txt = {}
+                                for _, d in ipairs(b:GetDescendants()) do
+                                    if d:IsA("TextLabel") and d.Text ~= "" then
+                                        txt[#txt + 1] = d.Text
+                                    end
+                                end
+                                bills[#bills + 1] = b.Name
+                                    .. (#txt > 0 and (" '" .. table.concat(txt, " ") .. "'") or "")
+                            end
+                        end
+                    end)
+                    spudTestSay(string.format("shop: %s — actions [%s] prompts [%s]", where,
+                        #acts > 0 and table.concat(acts, ",") or "",
+                        #bills > 0 and table.concat(bills, " | ") or ""))
+                end
+                local function toastText()
+                    local out = {}
+                    pcall(function()
+                        local notes = views.HUD.Notifications
+                        for _, d in ipairs(notes:GetDescendants()) do
+                            if d:IsA("TextLabel") and d.Text ~= "" and shownBy(d) then
+                                out[#out + 1] = d.Text
+                            end
+                        end
+                    end)
+                    return #out > 0 and table.concat(out, " / ") or "nothing"
+                end
+                local seed = seedChoice or "Wheat"
+                local hrp = LocalPlayer.Character
+                    and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                local pos, where = findSeedShop()
+                if not (pos and hrp) then spudTestSay("shop: FarmCo not found") return end
+                spudTestSay(string.format("shop: FarmCo at %s (%.0f studs) for '%s'",
+                    where, (hrp.Position - pos).Magnitude, seed))
+                if carrying() then
+                    spudTestSay("shop: dropping what is in hand first")
+                    spudDropRemote()
+                    task.wait(0.8)
+                end
+                tpChar(pos)
+                task.wait(1.5)
+                local stores = workspace:FindFirstChild("Stores")
+                local npcs = stores and stores:FindFirstChild("NPCs")
+                local owner
+                if npcs then
+                    for _, m in ipairs(npcs:GetChildren()) do
+                        if m.Name:lower():find("farmco", 1, true) then owner = m break end
+                    end
+                end
+                local oPart = owner and owner:FindFirstChildWhichIsA("BasePart", true)
+                if not oPart then spudTestSay("shop: the FarmCo Owner has no readable part") return end
+                spudTestSay(string.format("shop: the clerk is %s at (%.0f, %.0f, %.0f)",
+                    owner:GetFullName(), oPart.Position.X, oPart.Position.Y, oPart.Position.Z))
+                local near, named = {}, {}
+                for _, d in ipairs(workspace:GetDescendants()) do
+                    if d:IsA("BasePart") then
+                        local dm = (d.Position - oPart.Position).Magnitude
+                        if dm <= 40 then near[#near + 1] = { p = d, d = dm } end
+                    end
+                    local n = d.Name:lower()
+                    if n:find("counter", 1, true) or n:find("till", 1, true)
+                        or n:find("checkout", 1, true) or n:find("register", 1, true)
+                        or n:find("cashier", 1, true) then
+                        named[#named + 1] = d
+                    end
+                end
+                table.sort(near, function(a, b) return a.d < b.d end)
+                local listed = {}
+                for i = 1, math.min(#near, 25) do
+                    local e = near[i]
+                    listed[#listed + 1] = string.format("%s(%.0f)", e.p.Name, e.d)
+                end
+                spudTestSay("shop: parts within 40 studs of the clerk: " .. table.concat(listed, ", "))
+                if #named == 0 then
+                    spudTestSay("shop: nothing streamed here is named counter/till/checkout/register/cashier")
+                else
+                    for i = 1, math.min(#named, 12) do
+                        local d = named[i]
+                        local pp = d:IsA("BasePart") and d.Position
+                            or (d:FindFirstChildWhichIsA("BasePart", true) or {}).Position
+                        spudTestSay(string.format("shop: '%s' %s%s", d.Name, d:GetFullName(),
+                            pp and string.format(" at (%.0f, %.0f, %.0f), %.0f studs from the clerk",
+                                pp.X, pp.Y, pp.Z, (pp - oPart.Position).Magnitude) or ""))
+                    end
+                end
+                offers("at the shop, empty-handed")
+                local hit = findSeedCrate(seed)
+                if not hit then
+                    spudTestSay("shop: no crate sells '" .. seed .. "' here")
+                    return
+                end
+                tpChar(hit.pos)
+                task.wait(1.0)
+                offers("at the " .. hit.m.Name .. " crate")
+                if not carryCrate("seed crate", hit.m) then
+                    spudTestSay("shop: the crate didn't come up — stopping the probe")
+                    return
+                end
+                tpChar(oPart.Position)
+                task.wait(1.2)
+                offers("at the clerk, crate in hand")
+                local counter = named[1]
+                local cPos = counter and (counter:IsA("BasePart") and counter.Position
+                    or (counter:FindFirstChildWhichIsA("BasePart", true) or {}).Position)
+                if cPos then
+                    tpChar(cPos)
+                    task.wait(1.0)
+                    offers("standing on the '" .. counter.Name .. "'")
+                else
+                    spudTestSay("shop: no counter-shaped part — staying at the clerk")
+                end
+                spudDropRemote()
+                task.wait(1.2)
+                local cp = hit.m:FindFirstChildWhichIsA("BasePart", true)
+                local r2 = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                spudTestSay(string.format("shop: after the drop — crate %s studs from the character, hands %s",
+                    (cp and r2) and string.format("%.1f", (cp.Position - r2.Position).Magnitude) or "?",
+                    carrying() and "still full" or "empty"))
+                offers("after that drop")
+                local beforeL = {}
+                for _, d in ipairs(views:GetDescendants()) do
+                    if d:IsA("LayerCollector") and d.Enabled then beforeL[d] = true end
+                end
+                pressKey(Enum.KeyCode.F)
+                task.wait(1.5)
+                local raised = {}
+                for _, d in ipairs(views:GetDescendants()) do
+                    if d:IsA("LayerCollector") and d.Enabled and not beforeL[d] then
+                        local any = false
+                        for _, g in ipairs(d:GetDescendants()) do
+                            if g:IsA("GuiButton") and shownBy(g) then any = true break end
+                        end
+                        raised[#raised + 1] = d.Name .. (any and " (buttons shown)" or " (no buttons)")
+                    end
+                end
+                spudTestSay("shop: F raised: " .. (#raised > 0 and table.concat(raised, ", ") or "nothing"))
+                spudTestSay("shop: toast says: " .. toastText())
+                local bts = {}
+                for _, g in ipairs(views:GetDescendants()) do
+                    if g:IsA("GuiButton") and shownBy(g) then
+                        local t = guiTextOf(g)
+                        if t ~= "" then bts[#bts + 1] = string.format("'%s'@%s", t, g:GetFullName()) end
+                        if #bts >= 20 then break end
+                    end
+                end
+                spudTestSay("shop: visible buttons now: " .. (#bts > 0 and table.concat(bts, " | ") or "none"))
+                offers("with the shop up")
+                spudTestSay("shop: probe done")
+            end
+            shopProbe()
+            return
+        end
+
         -- ▸ REMOTE LIST — read-only inventory of every remote the client can
         --   see. The field calls we know are the ones the game fired by hand;
         --   a bulk/field door that was never fired would only show up here.
@@ -7198,6 +7383,9 @@ local okBuild, errBuild = pcall(function()
     end })
     Tabs.Tests:CreateButton({ Title = "Field remotes", Callback = function()
         task.spawn(function() spudTestRun("fieldremotes") end)
+    end })
+    Tabs.Tests:CreateButton({ Title = "Shop counter", Callback = function()
+        task.spawn(function() spudTestRun("shop") end)
     end })
     Tabs.Tests:CreateButton({ Title = "Run all", Callback = function()
         task.spawn(function() spudTestRunAll() end)
