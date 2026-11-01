@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.110 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.111 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.110
+python tools/run_all.py        # 29/29 checks on v1.111
 ```
 
-Last full run (v1.110): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.111): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1755,7 +1755,16 @@ every `Enabled`-layer check read "nothing raised" while it sat on the screen. Th
 probe now finds it by its own words, prints its container and buttons, clicks its
 Purchase control and reports the balance and the crate's owner.
 
-**Where it stands:** `rebuild v1.110 · fluent gui`, whole suite green (29/29),
+**The crate goes on the counter first (v1.111).** The dialog is real — live it
+priced Wheat Seeds at **100** and, with a Potato crate in hand, Potato Seeds at
+**120,000** — so the buy is: carry a floor crate to the clerk, put it on the
+counter, F, Purchase. Clicking Purchase with the crate still in hand is the
+"place items on the counter" answer. The probe places the crate on the counter
+slab (3.5 × 0.5 × 18.5 at y=142.2, the slab under the slots) and only then
+talks to the clerk, reads the dialog by its own words, clicks its Purchase and
+reports the balance and the crate's owner.
+
+**Where it stands:** `rebuild v1.111 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

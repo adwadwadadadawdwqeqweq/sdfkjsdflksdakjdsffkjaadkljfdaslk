@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.110 · fluent gui"
+local VERSION    = "rebuild v1.111 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5777,6 +5777,45 @@ local okBuild, errBuild = pcall(function()
                 if not carryCrate("seed crate", hit.m) then
                     spudTestSay("shop: the crate didn't come up — stopping the probe")
                     return
+                end
+                -- ▸ PUT IT ON THE COUNTER FIRST. Buying with the crate still
+                --   in hand is what the till answers with "You must place items
+                --   on the counter to buy them". The counter top is the slab
+                --   under the slots (3.5 x 0.5 x 18.5 at y=142.2); the crate
+                --   follows the teleport, so teleporting onto the slab and
+                --   dropping puts it on the counter.
+                local fco = stores:FindFirstChild("Buildings")
+                    and stores.Buildings:FindFirstChild("FarmCo")
+                local slab
+                if fco then
+                    local bestArea = 0
+                    for _, d in ipairs(fco:GetDescendants()) do
+                        if d:IsA("BasePart") and (d.Position - cPos).Magnitude <= 15 then
+                            local area = d.Size.X * d.Size.Z
+                            if d.Size.Y <= 4 and area >= 16 and area > bestArea then
+                                bestArea, slab = area, d
+                            end
+                        end
+                    end
+                end
+                if slab then
+                    local top = Vector3.new(slab.Position.X,
+                        slab.Position.Y + slab.Size.Y / 2 + 1.5, slab.Position.Z)
+                    spudTestSay(string.format(
+                        "shop: the counter is %s at (%.1f,%.1f,%.1f) size (%.1f,%.1f,%.1f) — placing the crate on it",
+                        slab:GetFullName(), slab.Position.X, slab.Position.Y, slab.Position.Z,
+                        slab.Size.X, slab.Size.Y, slab.Size.Z))
+                    tpChar(top)
+                    task.wait(1.0)
+                    spudDropRemote()
+                    task.wait(1.5)
+                    local cp = hit.m:FindFirstChildWhichIsA("BasePart", true)
+                    spudTestSay(string.format(
+                        "shop: the crate is at %s after placing — %.1f studs from the counter top",
+                        cp and string.format("(%.1f,%.1f,%.1f)", cp.Position.X, cp.Position.Y, cp.Position.Z) or "?",
+                        cp and (cp.Position - top).Magnitude or -1))
+                else
+                    spudTestSay("shop: no counter slab found within 15 studs of the clerk")
                 end
                 -- walk the crate to the clerk and ask to buy it
                 tpChar(cPos)
