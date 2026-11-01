@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.112 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.113 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.112
+python tools/run_all.py        # 29/29 checks on v1.113
 ```
 
-Last full run (v1.112): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.113): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1772,7 +1772,14 @@ computer till reads the box you are carrying and prices it (Wheat 100, Potato
 clicks the dialog's own Purchase straight away, reporting the balance and the
 crate's owner, to see whether the hand-held buy is the whole transaction.
 
-**Where it stands:** `rebuild v1.112 · fluent gui`, whole suite green (29/29),
+**The confirm panel is drawn, not typed (v1.113).** F with the crate in hand
+puts the panel on screen, yet no `TextLabel` under `GuiViews` carries "Are you
+sure you want to buy" — the title and the green Purchase control are images. The
+probe now dumps the shown controls under `GuiViews.HUD.Notifications` (class,
+name, text, is-it-a-button) and clicks the one whose **name** says
+purchase/buy/confirm, then reports the balance.
+
+**Where it stands:** `rebuild v1.113 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

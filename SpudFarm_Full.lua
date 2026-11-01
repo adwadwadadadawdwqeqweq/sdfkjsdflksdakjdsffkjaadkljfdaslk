@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.112 · fluent gui"
+local VERSION    = "rebuild v1.113 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5785,54 +5785,56 @@ local okBuild, errBuild = pcall(function()
                 local bal = coinBalance()
                 pressKey(Enum.KeyCode.F)
                 task.wait(1.8)
-                -- ▸ THE CONFIRM DIALOG IS A FRAME, NOT A LAYER. Judging the F by
-                --   a new Enabled layer read "nothing raised" while the
-                --   "Are you sure you want to buy 1 item?" panel sat on screen.
-                --   Find it by its own words and read its container.
-                local dlg
-                for _, g in ipairs(views:GetDescendants()) do
-                    if g:IsA("TextLabel") and shownBy(g) then
-                        local t = (guiTextOf(g) or ""):lower():gsub("%s+", "")
-                        if t:find("wanttobuy", 1, true) or t:find("aresure", 1, true) then
-                            dlg = g break
-                        end
-                    end
-                end
-                if not dlg then
-                    spudTestSay("shop: F raised no buy dialog (no 'are you sure you want to buy' text is shown)")
-                else
-                    local top = dlg
-                    while top.Parent and top.Parent ~= views do top = top.Parent end
-                    local texts, btns = {}, {}
-                    for _, g in ipairs(top:GetDescendants()) do
-                        if g:IsA("TextLabel") and g.Text ~= "" and shownBy(g) then
-                            texts[#texts + 1] = g.Text
-                        elseif g:IsA("GuiButton") and shownBy(g) then
-                            btns[#btns + 1] = string.format("'%s'@%s", guiTextOf(g), g:GetFullName())
-                        end
-                    end
-                    spudTestSay("shop: the buy dialog is " .. top:GetFullName()
-                        .. " — text: " .. table.concat(texts, " | "))
-                    spudTestSay("shop: its buttons: "
-                        .. (#btns > 0 and table.concat(btns, " · ") or "none"))
-                    local target
-                    for _, g in ipairs(top:GetDescendants()) do
-                        if g:IsA("GuiButton") and shownBy(g) then
-                            local t = ((guiTextOf(g) or "") .. " " .. g.Name):lower()
-                            if t:find("purchase", 1, true) or t:find("buy", 1, true)
-                                or t:find("^yes", 1) then
-                                target = g break
+                -- ▸ THE CONFIRM DIALOG IS NOT WHERE THE TEXT SEARCH LOOKED.
+                --   A live F with the crate in hand puts the "Are you sure you
+                --   want to buy 1 item? ... Purchase" panel on screen, yet no
+                --   TextLabel anywhere under GuiViews carried those words — the
+                --   panel is drawn with images. So dump the whole Notifications
+                --   subtree (class, name, visibility, text) and click the
+                --   control whose NAME or text says purchase/buy/confirm.
+                local notes = pcall(function() return views.HUD.Notifications end)
+                    and views.HUD.Notifications or nil
+                if notes then
+                    local dump, n = {}, 0
+                    for _, g in ipairs(notes:GetDescendants()) do
+                        if g:IsA("GuiObject") or g:IsA("LayerCollector") then
+                            local shown2 = shownBy(g)
+                            local tx = (g:IsA("TextLabel") or g:IsA("TextButton"))
+                                and guiTextOf(g) or ""
+                            if shown2 and (g:IsA("GuiButton") or tx ~= "") then
+                                n += 1
+                                dump[#dump + 1] = string.format("%s %s%s%s",
+                                    g.ClassName, g.Name,
+                                    tx ~= "" and (" '" .. tx .. "'") or "",
+                                    g:IsA("GuiButton") and " BUTTON" or "")
+                                if n >= 40 then break end
                             end
                         end
                     end
-                    if target then
-                        spudTestSay("shop: clicking " .. target:GetFullName() .. " ('" .. guiTextOf(target) .. "')")
-                        local called = invokeHandlers(target)
-                        if not called then pcall(function() target:Activate() end) end
-                        task.wait(2.5)
-                    else
-                        spudTestSay("shop: the dialog has no usable Purchase control")
+                    spudTestSay("shop: shown controls under HUD.Notifications: "
+                        .. (#dump > 0 and table.concat(dump, " · ") or "none"))
+                else
+                    spudTestSay("shop: GuiViews.HUD.Notifications is missing")
+                end
+                local target
+                local scope = notes or views
+                for _, g in ipairs(scope:GetDescendants()) do
+                    if g:IsA("GuiButton") and shownBy(g) then
+                        local t = ((guiTextOf(g) or "") .. " " .. g.Name):lower()
+                        if t:find("purchase", 1, true) or t:find("buy", 1, true)
+                            or t:find("confirm", 1, true) then
+                            target = g break
+                        end
                     end
+                end
+                if target then
+                    spudTestSay(string.format("shop: clicking %s [%s] '%s'",
+                        target:GetFullName(), target.ClassName, guiTextOf(target)))
+                    local called = invokeHandlers(target)
+                    if not called then pcall(function() target:Activate() end) end
+                    task.wait(2.5)
+                else
+                    spudTestSay("shop: no shown purchase/buy/confirm button under Notifications")
                 end
                 -- the proof: the balance, and the crate's owner
                 local cfg = hit.m:FindFirstChild("Configurations")
