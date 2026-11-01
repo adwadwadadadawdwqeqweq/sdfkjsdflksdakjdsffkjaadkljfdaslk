@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.101 · fluent gui"
+local VERSION    = "rebuild v1.102 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -3611,6 +3611,14 @@ local okBuild, errBuild = pcall(function()
             log("seed crate: that is more than the balance — not buying it (pick a cheaper seed or sell something first)")
             return false
         end
+        -- a crate left in hand from an interrupted trip makes the till answer
+        -- "You must place items on the counter to buy them" and the purchase
+        -- never lands — start every trip empty-handed
+        if carrying() then
+            log("seed crate: something is already in hand — dropping it before picking a fresh crate")
+            spudDropRemote()
+            task.wait(0.8)
+        end
         setStage("shop trip: tp to the " .. tostring(seedName) .. " crate")
         tpChar(hit.pos)
         task.wait(1.0)
@@ -3969,16 +3977,17 @@ local okBuild, errBuild = pcall(function()
         --   right there). A shown Purchase/Buy control names the container
         --   GuiViews holds it in; that container's own close (the red X) is
         --   clicked, and the enabled-layer pass below is the backstop.
+        -- ▸ ONLY THE BUY DIALOG'S OWN CONTROL COUNTS. The shop list behind it
+        --   keeps showing "Buy" buttons, so matching "buy" read the store as
+        --   still popped up after its dialog had closed (and the F retry then
+        --   re-opened it). The dialog's control says Purchase.
         local function shownPurchase()
-            local fallback
             for _, g in ipairs(views:GetDescendants()) do
                 if g:IsA("GuiButton") and isShown(g) then
                     local t = (guiTextOf(g) .. " " .. g.Name):lower()
                     if t:find("purchase", 1, true) then return g end
-                    if not fallback and t:find("buy", 1, true) then fallback = g end
                 end
             end
-            return fallback
         end
         local function closeDialog()
             local pus = shownPurchase()
@@ -3997,10 +4006,13 @@ local okBuild, errBuild = pcall(function()
         local dlgName, dlgHow = closeDialog()
         task.wait(0.5)
         if dlgName then
-            if shownPurchase() then
-                pressKey(Enum.KeyCode.F)
-                task.wait(0.6)
-                dlgHow = dlgHow and (dlgHow .. " then F") or "F"
+            if shownPurchase() and dlgHow then
+                -- a click can be swallowed while the panel animates: the same
+                -- container's close gets one more press. F is NOT used here —
+                -- it toggles the shop and would re-open what just closed.
+                closeDialog()
+                task.wait(0.5)
+                dlgHow = dlgHow .. " then again"
             end
             if shownPurchase() then
                 log(string.format("seed shop: ⚠ %s is still open after %s — close it by hand once",

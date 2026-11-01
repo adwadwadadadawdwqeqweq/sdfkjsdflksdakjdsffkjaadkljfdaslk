@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.101 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.102 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.101
+python tools/run_all.py        # 29/29 checks on v1.102
 ```
 
-Last full run (v1.101): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.102): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1603,6 +1603,15 @@ hop, round after round** and nothing else; a cell both refuse is named
 (`N cell(s) never took a call even with the blade on them — leaving them for
 the next pass`) instead of being tweened over.
 
+**Purchase, not Buy, and an empty hand (v1.102).** Two live finds. The
+dialog pass matched any shown "Buy" control, and the shop LIST behind the
+dialog keeps its Buy buttons on screen — so a close that had worked read as
+"still open", pressed F and re-opened the shop. It now matches the dialog's own
+**Purchase** control only, and a second click replaces the F retry. And a trip
+that started with a crate already in hand made the till answer *"You must place
+items on the counter to buy them"*, so every trip now drops what it is holding
+before picking a fresh crate.
+
 **Open means visible, not Enabled (v1.101).** The v1.100 run named the
 container — `GuiViews.Stores` — and reported it "still open after handler then
 F", then pressed F. `Stores` stays `Enabled` with its contents hidden, so that
@@ -1654,7 +1663,7 @@ settle alone lifted the cultivate grid from **17/50 to 29/41** and the hop from
 so both passes now also take a short beat (**0.25 s** after a stop lands,
 **0.2 s** after a cell) before firing — v1.98.
 
-**Where it stands:** `rebuild v1.101 · fluent gui`, whole suite green (29/29),
+**Where it stands:** `rebuild v1.102 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
