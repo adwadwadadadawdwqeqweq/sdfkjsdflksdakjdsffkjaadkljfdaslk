@@ -8,13 +8,13 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.115 ·
-  fluent gui` (`VERSION`, line 15). ≈12.3k lines.
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.116 ·
+  fluent gui` (`VERSION`, line 15). ≈12.4k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
   `luau-analyze.exe`).
 - Nothing here is a library or a build system. There is no bundler, no package
-  manager, no CI. Validation is a compile check plus twenty-seven harness scripts in
+  manager, no CI. Validation is a compile check plus twenty-eight harness scripts in
   `tools/` (`python tools/run_all.py` runs the whole gate).
 
 ---
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.115
+python tools/run_all.py        # 30/30 checks on v1.116
 ```
 
-Last full run (v1.115): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.116): **30/30 checks passed** (27 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -172,6 +172,7 @@ Last full run (v1.115): **29/29 checks passed** (26 harnesses + 3 gates).
 | `row_steer_test.py` | The row decision in the wide band: `spudRowNeedsAlign` asks for ONE snap only past `spudRowAng` (15°) or `spudRowTol` (6 studs); `spudRowSteer` presses nothing inside the band; `spudRowEase` takes a step off the throttle after three steering flips (×0.7, floor 30 %) and gives one back per steady 3 s. |
 | `foreign_respawn_test.py` | `spudMayRespawn()` is false while a Farm owner is picked, and `ensureToolNearby` then never calls `respawnTool`: a stored or far-away tool is named and the pass is skipped, while `(mine)` still respawns. |
 | `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and an unstreamed/empty folder returns no pad instead of a guess. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
+| `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", and the run's shop-trip cap is at least the seed pass's `refill N/3` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out. |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
 | `test_doctor.py` | The in-script 🩺 DOCTOR report runs on stubbed world objects and reports, not crashes. |
 
@@ -1799,7 +1800,39 @@ a hands-and-owned scan in one pass over `Objects.DraggableObjects`: a crate whos
 bought, nearest first, and the trip teleports to it, drops whatever else is in
 hand, carries it and pours it into the seeder — no shop trip, no coins.
 
-**Where it stands:** `rebuild v1.115 · fluent gui`, whole suite green (29/29),
+**Half a crate is not a full field (v1.116).** Owner: *"now some times it missed
+some tiles wheile seeding and it fuckes the whole thing up"*. The live console
+named the chain, and it was **not** the server refusing calls — every call the
+grid made took:
+
+```
+the seeder is empty — going to buy Wheat (50 cell(s) need seed right now)
+seed crate: you already own a Wheat crate 80 studs away — using it instead of buying one
+✅ seeder now holds 23/50 seeds (Wheat)
+remote seed: fired 23 of 50 cell(s) from 8 stop(s), 9 per stop — 23 took, 27 left
+seeder EMPTY with 27 cell(s) … refill 1/3: buying Wheat and filling
+the seeder is still empty and the shop was already tried this run — not teleporting again
+the refill put no seeds in the seeder — stopping this pass
+```
+
+Two defects, both real. **(1)** The v1.114/v1.115 short-circuit asked only *which
+seed* a crate held, never *how much*: a crate left half-full (23 of 50) made the
+trip report "loaded", the field has 50 cells, and 27 tiles stayed Cultivated for
+the whole growth cycle (the next loop read `27 cultivated, 0 seeded, 23
+standing`). An owned crate that **reads** 0 seeds is now skipped outright; the
+count comes from the crate's own `Configurations.Capacity` (the same field the
+seeder uses) and a crate that cannot be read is still used — rule 7, unreadable
+is not empty. **(2)** `seedShopTried` was a once-per-**run** boolean, so the seed
+pass's own promise (`refill 1/3`, `seedPasses`) was dead code from the second
+trip on: any run that started with an empty seeder spent its only trip at the
+start and could never refill mid-field. It is now a counter `seedShopTries`
+against the global `spudSeedTripsMax = 4` — the entry trip **plus** the pass's
+three refills — and the refusal line names the number it hit. New
+`seed_refill_test.py` (19 checks) pins both the crate read and the arithmetic tie
+between the two counters, and asserts `seedShopTried` never comes back. Suite
+**30/30**.
+
+**Where it stands:** `rebuild v1.116 · fluent gui`, whole suite green (30/30),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

@@ -164,7 +164,14 @@ Everything merged into one paste-and-run file:
   you already have is never bought again**: a crate an interrupted trip left
   carried is read from its own `Configurations.CurrentHolder`, and a crate you
   own (its `Configurations.Owner` is you) is read anywhere on the plot, nearest
-  first — either one skips the shop entirely and is poured into the seeder. After a
+  first — either one skips the shop entirely and is poured into the seeder. What
+  decides "have it" is **how many seeds the crate holds**, read from its own
+  `Configurations.Capacity` (the same field the seeder uses): a half crate fills
+  the seeder half-way and the pass comes back for more, and a crate that reads
+  empty is skipped as the empty box it is — a crate that cannot be read at all is
+  still used. A run is allowed **four** shop trips rather than one, so the seed
+  pass's own `refill 1/3` promise is reachable when the field is bigger than the
+  seeder. After a
   seed is bought the **shop menu is closed** on the way out: the open menu is
   read from `GuiViews.Menus`, its own close control is clicked inside it, the
   result is re-read, and F is only the fallback — so the UI does not stay up

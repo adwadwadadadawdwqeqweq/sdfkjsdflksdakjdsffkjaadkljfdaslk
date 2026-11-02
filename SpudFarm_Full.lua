@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.115 · fluent gui"
+local VERSION    = "rebuild v1.116 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -3211,6 +3211,35 @@ local okBuild, errBuild = pcall(function()
         return count, cap, kind
     end
 
+    -- ▸ WHAT A CRATE ACTUALLY HOLDS. A crate carries its seed count the same
+    --   way the seeder does — Configurations.Capacity — and a trip that ignored
+    --   it poured a half-empty box and called the seeder loaded.
+    function spudCrateSeedCount(m)
+        local ok, n = pcall(function()
+            local conf = m:FindFirstChild("Configurations")
+            local c = conf and conf:FindFirstChild("Capacity")
+            if not (c and c:IsA("IntValue")) then return nil end
+            return c.Value
+        end)
+        if not ok then return nil end
+        return n
+    end
+
+    -- an unreadable crate is NOT an empty one (owner rule 7): it is still used
+    function spudCrateHasSeed(count)
+        return count == nil or count > 0
+    end
+
+    -- ▸ THE SHOP TRIP IS A BUDGET, NOT A ONE-SHOT. The seed pass promises
+    --   "refill 1/3", but the run used to latch after its first trip — so every
+    --   refill after the trip that filled the seeder was refused, and the field
+    --   kept its unseeded tiles. The cap is that promise plus the trip that
+    --   loads the seeder in the first place.
+    spudSeedTripsMax = 4
+    function spudSeedTripAllowed(tries, max)
+        return (tonumber(tries) or 0) < (tonumber(max) or 0)
+    end
+
     -- how many cells across ALL my fields still need seeding (cells at
     -- "Cultivated"), and across how many fields — the yardstick for the
     -- user's re-seed rule: "if the seeder has seeds in it and the fields
@@ -3261,9 +3290,10 @@ local okBuild, errBuild = pcall(function()
     --   miss logs the shelf / the menu's buttons, so nothing fails silently.
     local seedChoice -- the Farm tab picker writes this (declared up here
                      -- because the seed check below reads it)
-    -- one shop trip per run, max: a failed purchase must never send the
-    -- character teleporting again later in the same run
-    local seedShopTried = false
+    -- how many shop trips THIS run has made. A run may buy more than once — the
+    -- seed pass refills an empty seeder mid-field — up to spudSeedTripsMax, and
+    -- the caller reports a trip that put nothing in the seeder.
+    local seedShopTries = 0
     -- the game's own SEED_TYPE table both ways (filled by the Farm tab
     -- picker's read of FieldHelper): names for the dropdown, ids so a crate
     -- that keeps the numeric SeedType can still be named.
@@ -3614,7 +3644,7 @@ local okBuild, errBuild = pcall(function()
         --   A crate whose Configurations.Owner is you is already bought — it is
         --   read here, nearest first, so the trip uses it instead of spending
         --   coins on a second one.
-        local heldModel, heldSeed, ownModel, ownSeed, ownPart, ownDist
+        local heldModel, heldSeed, heldCount, ownModel, ownSeed, ownPart, ownDist, ownCount
         local objects = workspace:FindFirstChild("Objects")
         local dobjs = objects and objects:FindFirstChild("DraggableObjects")
         if dobjs then
@@ -3623,27 +3653,37 @@ local okBuild, errBuild = pcall(function()
                 local chv = cfg and cfg:FindFirstChild("CurrentHolder")
                 local okh, who = pcall(function() return chv and chv.Value end)
                 local seedM = crateSeedType(m)
+                local cnt = spudCrateSeedCount(m)
                 local p = m:FindFirstChildWhichIsA("BasePart", true)
                 if okh and who == LocalPlayer then
-                    heldModel, heldSeed = m, seedM
+                    heldModel, heldSeed, heldCount = m, seedM, cnt
                 elseif seedM and p and seedM:lower() == seedName:lower() then
                     local ov = cfg and cfg:FindFirstChild("Owner")
                     local oko, ownerV = pcall(function() return ov and ov.Value end)
                     local dist = (p.Position - root.Position).Magnitude
-                    if oko and ownerV == LocalPlayer and (not ownDist or dist < ownDist) then
-                        ownModel, ownSeed, ownPart, ownDist = m, seedM, p, dist
+                    if oko and ownerV == LocalPlayer and spudCrateHasSeed(cnt)
+                        and (not ownDist or dist < ownDist) then
+                        ownModel, ownSeed, ownPart, ownDist, ownCount = m, seedM, p, dist, cnt
                     end
                 end
             end
         end
         if heldModel and heldSeed and heldSeed:lower() == seedName:lower() then
-            log(string.format("seed crate: already holding a %s crate from an earlier trip (%s) — not buying another, filling the seeder with it",
-                heldSeed, heldModel:GetFullName()))
-            return seedCrateIntoSeeder(heldModel)
+            if spudCrateHasSeed(heldCount) then
+                log(string.format("seed crate: already holding a %s crate with %s seed(s) from an earlier trip (%s) — not buying another, filling the seeder with it",
+                    heldSeed, tostring(heldCount), heldModel:GetFullName()))
+                return seedCrateIntoSeeder(heldModel)
+            end
+            -- ▸ AN EMPTY BOX IS NOT SEED (live v1.115: a trip poured a crate
+            --   that held 23 of 50 and the pass ran dry mid-field; a crate that
+            --   has already been emptied is worse — it fills nothing and used to
+            --   spend the trip anyway). The shop branch drops what is in hand.
+            log(string.format("seed crate: the %s crate in hand reads %s seed(s) — an empty box is not seed, so this trip looks for one that is",
+                heldSeed, tostring(heldCount)))
         end
         if ownModel then
-            log(string.format("seed crate: you already own a %s crate %.0f studs away (%s) — using it instead of buying one",
-                ownSeed, ownDist, ownModel:GetFullName()))
+            log(string.format("seed crate: you already own a %s crate with %s seed(s) %.0f studs away (%s) — using it instead of buying one",
+                ownSeed, tostring(ownCount), ownDist, ownModel:GetFullName()))
             if carrying() then
                 log("seed crate: dropping what is in hand first")
                 spudDropRemote()
@@ -4188,9 +4228,10 @@ local okBuild, errBuild = pcall(function()
     --   Without it the empty case is reported and that is all — no F press,
     --   no teleport (user: "why does when i start it, it just teleports to
     --   the store even when it's not time to buy seeds … it should only buy
-    --   seeds when it is at the planting loop"). At most ONE shop trip per
-    --   run (seedShopTried). F = ExitEquipment (context-key dump), pressed
-    --   ONLY while seated.
+    --   seeds when it is at the planting loop"). The run's shop trips are
+    --   counted (seedShopTries against spudSeedTripsMax), because the seed pass
+    --   refills an empty seeder mid-field. F = ExitEquipment (context-key dump),
+    --   pressed ONLY while seated.
     local function seedCheck(tr, hum, allowBuy)
         if stopping() then return false end
         log("— seed check —")
@@ -4248,11 +4289,12 @@ local okBuild, errBuild = pcall(function()
             log("the seeder is empty and nothing is picked in the Farm tab's Seed dropdown — pick a seed and the loop can buy it")
             return false
         end
-        if seedShopTried then
-            log("the seeder is still empty and the shop was already tried this run — not teleporting again (pick a different seed, or fill it by hand)")
+        if not spudSeedTripAllowed(seedShopTries, spudSeedTripsMax) then
+            log(string.format("the seeder is still empty and this run already made %d shop trip(s) (the cap is %d) — not teleporting again (pick a different seed, or fill it by hand)",
+                seedShopTries, spudSeedTripsMax))
             return false
         end
-        seedShopTried = true
+        seedShopTries += 1
         -- ▸ Only reachable with allowBuy (the PLANT stage), and the caller
         --   only passes it when Cultivated cells are actually waiting — an
         --   EMPTY seeder + a picked seed + real planting to do = buy it.
@@ -6554,7 +6596,7 @@ local okBuild, errBuild = pcall(function()
         if farmOwnerPick then
             log("farm owner: working " .. farmOwnerPick .. "'s fields")
         end
-        seedShopTried = false -- each run gets at most one seed-shop trip
+        seedShopTries = 0 -- this run's shop trips are counted against spudSeedTripsMax
         local char = LocalPlayer.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         if not hum then log("no character") return end
