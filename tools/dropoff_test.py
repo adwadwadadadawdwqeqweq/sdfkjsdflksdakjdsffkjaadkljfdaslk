@@ -216,6 +216,36 @@ check("no pad anywhere: no pad", type(spots8) == "table" and #spots8 == 0, nil)
 check("no pad anywhere: the line names the world read",
     loggedText():find("no unload pad") ~= nil, loggedText())
 
+-- 4c. A GOTO MARKER IS NOT A PAD (live 2026-11-02). The world-walk scored
+--     Ugc.Markers.GotoLocations.Warehouse as the pad, the run hopped 838 studs
+--     onto it and parked: load 50, coins 14459 -> 14459 after 16 s. Then the
+--     same trip again every 60 s, so 50 Harvestable cells were never picked.
+--     A marker is a place to TRAVEL to (the seed shop does exactly that with
+--     Markers.GotoLocations.FarmCo), so it comes back as the waypoint to hop
+--     to and the pad is re-read once the area is streamed.
+local ugc = folder("Ugc", workspace)
+local mkNode = folder("Markers", ugc)
+local gtNode = folder("GotoLocations", mkNode)
+part("Warehouse", gtNode, -367, 138, -108, 8, 1, 8)
+logged = {}
+local spots9, wp9, wpWhere9 = spudFulfillSpots()
+check("marker: a goto marker is never the pad", #spots9 == 0, #spots9 .. " spot(s)")
+check("marker: the marker comes back as the waypoint to hop to",
+    wp9 ~= nil and math.abs(wp9.X + 367) < 0.01,
+    wp9 and string.format("x=%.0f", wp9.X) or "nil")
+check("marker: the waypoint names its real path",
+    wpWhere9 ~= nil and wpWhere9:find("GotoLocations") ~= nil, tostring(wpWhere9))
+check("marker: it still says no unload pad was found",
+    loggedText():find("no unload pad") ~= nil, loggedText())
+-- and a real pad elsewhere still wins over refusing
+part("Deposit_Warehouse", folder("CompanyArea", folder("Buildings", folder("Objects", workspace))),
+    -353, 138, -90, 30, 4, 30)
+local spots10, wp10 = spudFulfillSpots()
+check("marker: a real pad beside the marker is the one returned",
+    #spots10 == 1 and spots10[1].what:find("CompanyArea") ~= nil,
+    spots10[1] and tostring(spots10[1].what) or "no pad")
+check("marker: with a pad found no waypoint is needed", wp10 == nil)
+
 -- 5. the pad behaviour itself: Fulfillment presses nothing, Sell calls then
 --    falls back to Q/E, and the tank dropping is the only proof
 local vtime = 0
@@ -374,6 +404,39 @@ check("fulfillment: a far pad still takes the trip",
     okFar == true and soldAt ~= nil and #hops >= 1)
 check("fulfillment: the log names the distance it fired from",
     loggedText():find("didn't move the tank at") ~= nil)
+
+-- 6g. no pad streamed, but the world read named a WAREHOUSE WAYPOINT: the trip
+--     goes there (that is what a marker is for), lets the area stream and looks
+--     again — instead of parking on the waypoint and hammering it every 60 s
+local fulfills = 0
+function spudFulfillSpots()
+    fulfills += 1
+    if fulfills == 1 then
+        return {}, Vector3.new(-367, 138, -108), "Ugc.Markers.GotoLocations.Warehouse"
+    end
+    return { { p = Vector3.new(-353, 140, -90),
+        what = "Objects.Buildings.CompanyArea.Deposit_Warehouse",
+        store = "Fulfillment", part = "realPad" } }
+end
+function storeAnchors() return { FarmCo = Vector3.new(-900, 140, -900) } end
+function spudSellRemote(ride, pad) remoteFired += 1 soldPad = pad return false end
+spudDropOff = "Fulfillment"
+tank, soldPad, remoteFired = 50, nil, 0
+hops, soldAt = {}, nil
+fulfills = 0
+local okWp = sellHarvester(ride, nil, fieldStub)
+check("waypoint: it hops to the warehouse marker, not to FarmCo",
+    hops[1] and math.abs(hops[1].X + 367) < 0.01,
+    hops[1] and string.format("%.0f,%.0f", hops[1].X, hops[1].Z) or "no hop")
+check("waypoint: the pad is re-read once the hop has streamed it", fulfills == 2,
+    fulfills .. " read(s)")
+check("waypoint: the real pad then takes the load",
+    okWp == true and soldAt ~= nil and soldAt.autoPad == true
+    and soldAt.what:find("CompanyArea") ~= nil,
+    soldAt and tostring(soldAt.what) or "no trip")
+check("waypoint: the trip back returns to the field",
+    hops[#hops].X == 10 and hops[#hops].Z == 10,
+    hops[#hops] and string.format("%.0f,%.0f", hops[#hops].X, hops[#hops].Z) or "no hop")
 
 -- 7. every sell spot carries the part the sell call fires at
 local gvNode = folder("GameplayVisuals", GRID)

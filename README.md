@@ -217,7 +217,13 @@ Everything merged into one paste-and-run file:
   and it held **0 children** both times), a single walk over the world's
   instances looks for the same names wherever the game has put them. A part is
   drive-onto-able *and* fire-able; a model only gives a place to park, which is
-  all a Fulfillment pad needs. The console prints
+  all a Fulfillment pad needs. **A navigation marker is never the pad** (v1.121,
+  live): the world-walk scored `Ugc.Markers.GotoLocations.Warehouse` as the pad,
+  the run hopped 838 studs onto it and parked there with a full tank forever,
+  because a marker is a place to *travel to* — the seed shop already uses
+  `Markers.GotoLocations.FarmCo` exactly that way. So a `Markers`/`GotoLocations`
+  match comes back as the **waypoint** to hop to, and the pad is re-read once
+  that hop has streamed the area around it. The console prints
   `fulfillment pad: Objects.Buildings.CompanyArea.Deposit_Warehouse at (…)`,
   `drop-off 1/1: …`, then
   `✅ sold at …` or an honest `still full — none of the pads took the load`,
@@ -225,9 +231,10 @@ Everything merged into one paste-and-run file:
   lands at the **higher** of the two heights and arcs above it, so the trip
   back from a lower pad drops down onto the field instead of flying under it.
   The store area only streams when you are near it, so a full tank out at the
-  farm that finds **no pad at all** first hops the harvester to the store's own
-  waypoint, waits for the pads to stream, and looks again (`no Sell pad is
-  streamed from here — arc hop to the store, then looking again`); the trip
+  farm that finds **no pad at all** first hops the harvester to the waypoint
+  the walk found (the warehouse marker ahead of FarmCo), waits for the pads to
+  stream, and looks again (`no Fulfillment pad is streamed from here — arc hop
+  to Ugc.Markers.GotoLocations.Warehouse, then looking again`); the trip
   back still returns to the field. When even the walk finds nothing, the refusal
   says so and **names what the world does hold** that sounds like a pad, with
   each one's class and path, so the next run answers the shape instead of

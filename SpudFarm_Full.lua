@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.120 · fluent gui"
+local VERSION    = "rebuild v1.121 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5388,6 +5388,20 @@ local okBuild, errBuild = pcall(function()
             end
         end
         local named, walked = {}, 0
+        local wpNode, wpWhere = nil, nil
+        -- ▸ A GOTO MARKER IS NOT A PAD (live 2026-11-02). The walk below scored
+        --   Ugc.Markers.GotoLocations.Warehouse as the Fulfillment pad, the run
+        --   hopped 838 studs onto it and parked — load 50, coins 14459 → 14459
+        --   after 16 s — then took the same trip again every 60 s, so 50
+        --   Harvestable cells were never picked. A marker is a place to TRAVEL
+        --   to (the seed trip hops to Markers.GotoLocations.FarmCo for exactly
+        --   that reason), so it comes back as the waypoint instead: the trip
+        --   goes there, the area streams in, and the pad is read again.
+        local function isWaypoint(where)
+            local w = where:lower()
+            return w:find("marker", 1, true) ~= nil
+                or w:find("gotolocation", 1, true) ~= nil
+        end
         if not best then
             local nodes = {}
             pcall(function() nodes = workspace:GetDescendants() end)
@@ -5406,7 +5420,11 @@ local okBuild, errBuild = pcall(function()
                     -- a place to park, which is all the Fulfillment pad needs
                     local okP, isPart = pcall(function() return k:IsA("BasePart") end)
                     local okM, isModel = pcall(function() return k:IsA("Model") end)
-                    if score >= 2 and ((okP and isPart) or (okM and isModel))
+                    if isWaypoint(where) then
+                        if not wpNode and ((okP and isPart) or (okM and isModel)) then
+                            wpNode, wpWhere = k, where
+                        end
+                    elseif score >= 2 and ((okP and isPart) or (okM and isModel))
                         and (not best or score > bestScore) then
                         best, bestScore, bestWhere = k, score, where
                     end
@@ -5414,10 +5432,20 @@ local okBuild, errBuild = pcall(function()
             end
         end
         if not best then
+            local wpPos
+            if wpNode then
+                local okW, isWPart = pcall(function() return wpNode:IsA("BasePart") end)
+                if okW and isWPart then
+                    wpPos = wpNode.Position
+                else
+                    local okB, cf = pcall(function() return wpNode:GetBoundingBox() end)
+                    if okB and cf then wpPos = cf.Position end
+                end
+            end
             log(string.format("fulfillment: no unload pad to drive onto — Stores.DropOffs %s and %d instance(s) read from the world name no deposit/warehouse pad%s",
                 drops and "holds no pad part" or "is not streamed", walked,
                 #named > 0 and (" (named like one: " .. table.concat(named, ", ") .. ")") or ""))
-            return out
+            return out, wpPos, wpWhere
         end
         local pos, size
         local okP2, isPart = pcall(function() return best:IsA("BasePart") end)
@@ -5455,18 +5483,28 @@ local okBuild, errBuild = pcall(function()
         -- market instead of the field.
         local back = ride:GetPivot().Position
         local movedForStore = false
-        local spots = sellMode and findSellSpots() or spudFulfillSpots()
+        local spots, waypoint, waypointWhere
+        if sellMode then
+            spots = findSellSpots()
+        else
+            spots, waypoint, waypointWhere = spudFulfillSpots()
+        end
         -- ▸ THE STORE STREAMS WITH DISTANCE (user: "the harvester's contents
         --   arent getting sold"). Both pad folders live at the market, so a
         --   full tank at the farm used to find an EMPTY list and skip the
         --   unload entirely. Hop the harvester to the store's own waypoint,
-        --   give the area a beat to stream, and look again.
+        --   give the area a beat to stream, and look again. With a Fulfillment
+        --   pick the warehouse's OWN marker is the better hop — it sits ~20
+        --   studs from the pad, while FarmCo is the seed shop on the other
+        --   side of town (live: an 838-stud field-to-town hop streamed nothing).
         if #spots == 0 then
-            local anchors = storeAnchors()
-            local order = { "FarmCo", "LumberStore", "LumberCo", "AnimalCo" }
-            local found = nil
-            for _, nm in ipairs(order) do
-                if anchors[nm] then found = anchors[nm] break end
+            local found, foundWhat = waypoint, waypointWhere
+            if not found then
+                local anchors = storeAnchors()
+                local order = { "FarmCo", "LumberStore", "LumberCo", "AnimalCo" }
+                for _, nm in ipairs(order) do
+                    if anchors[nm] then found, foundWhat = anchors[nm], "the store" break end
+                end
             end
             if not found then
                 -- a store whose marker is not one of the four known names
@@ -5477,16 +5515,23 @@ local okBuild, errBuild = pcall(function()
                         local n = g.Name:lower()
                         if n:find("fulfil", 1, true) or n:find("ship", 1, true)
                             or n:find("store", 1, true) or n:find("market", 1, true) then
-                            if g:IsA("BasePart") then found = g.Position return end
+                            if g:IsA("BasePart") then
+                                found, foundWhat = g.Position, "Markers.GotoLocations." .. g.Name
+                                return
+                            end
                             local p = g:IsA("Model") and g:GetPivot().Position or nil
-                            if p then found = p return end
+                            if p then
+                                found, foundWhat = p, "Markers.GotoLocations." .. g.Name
+                                return
+                            end
                         end
                     end
                 end)
             end
             if found then
                 movedForStore = true
-                log("no " .. dest .. " pad is streamed from here — arc hop to the store, then looking again")
+                log("no " .. dest .. " pad is streamed from here — arc hop to "
+                    .. (foundWhat or "the store") .. ", then looking again")
                 hopTo(ride, found, SELL_HOP_SPEED)
                 task.wait(1.2)
                 spots = sellMode and findSellSpots() or spudFulfillSpots()

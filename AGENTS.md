@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.120 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.121 ·
   fluent gui` (`VERSION`, line 15). ≈12.4k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 30/30 checks on v1.120
+python tools/run_all.py        # 30/30 checks on v1.121
 ```
 
-Last full run (v1.120): **30/30 checks passed** (27 harnesses + 3 gates).
+Last full run (v1.121): **30/30 checks passed** (27 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -171,7 +171,7 @@ Last full run (v1.120): **30/30 checks passed** (27 harnesses + 3 gates).
 | `equip_remote_test.py` | The equipment remotes: the seven captured calls resolve on `Modules.Larry`; spawn/store are proven by `InStorage` (or a >100-stud move for a rebuilt spawn) and fall back to the UI when ignored; enter is proven by the seat; hitch/unhitch use the captured `Components.Hitchable` + `Chassis.HitchableSocket` pair; carry/drop are proven by the hands; three misses switch one action off for the session. |
 | `row_steer_test.py` | The row decision in the wide band: `spudRowNeedsAlign` asks for ONE snap only past `spudRowAng` (15°) or `spudRowTol` (6 studs); `spudRowSteer` presses nothing inside the band; `spudRowEase` takes a step off the throttle after three steering flips (×0.7, floor 30 %) and gives one back per steady 3 s. |
 | `foreign_respawn_test.py` | `spudMayRespawn()` is false while a Farm owner is picked, and `ensureToolNearby` then never calls `respawnTool`: a stored or far-away tool is named and the pass is skipped, while `(mine)` still respawns. |
-| `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
+| `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
 | `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", the run's shop-trip cap is at least the seed pass's `refill N/3` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out — and a shelf price dearer than the balance blocks the **next** trip locally (unreadable price or balance blocks nothing; the gate must sit before the trip is counted). |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
 | `test_doctor.py` | The in-script 🩺 DOCTOR report runs on stubbed world objects and reports, not crashes. |
@@ -505,6 +505,13 @@ values, and the full tank always ends in a real trip:
   guess: it names the folder's state, how many instances were read, and up to
   eight world names that sound like a pad **with their class and full path**,
   because the class is what no build has ever printed.
+  **A goto marker is never a pad** (v1.121, live): that walk first matched
+  `Ugc.Markers.GotoLocations.Warehouse`, the run hopped 838 studs onto it and
+  parked — `load 50, coins 14459 → 14459` after 16 s — then took the same trip
+  every 60 s, so 50 `Harvestable` cells were never picked. Anything whose path
+  contains `Marker`/`GotoLocation` is now returned as the **waypoint** to hop to
+  instead of the place to park, and the pad is re-read once the hop has
+  streamed the area (the marker sits ~20 studs from the probed pad position).
 - **Sell** → the old `findSellSpots()` crop sell-board scan, unchanged.
 - **The call goes first, for both picks** (v1.87, owner: *"didnt you say we
   could just call the sell bro?"*). `sellHarvester` fires `EVTSellAtStore` from
@@ -2013,7 +2020,52 @@ measured 24. Suite **30/30**, headroom 10, name audit clean (344). **Harness
 green — neither half has been reloaded in game**, and the anti-AFK's real
 verdict is a session that survives the night.
 
-**Where it stands:** `rebuild v1.120 · fluent gui`, whole suite green (30/30),
+**"look rn all the crops are fully grown but it wont harvest" (v1.121).** The
+emulator console answered before any guess: the harvest **did** start — the
+field read `50 standing [Harvestable=50]`, the run spawned SRC6, mounted it and
+hopped to the field — and then the tank blocked it, because the unload could
+never happen:
+
+```
+remote harvest: the tank is full — 50 cell(s) still standing; the sell trip runs before the rest
+harvester is FULL (50/50, after the remote pass) — unloading
+fulfillment pad: Ugc.Markers.GotoLocations.Warehouse at (-367, 138, -108)
+sell: EVTSellAtStore fired at 838 studs from the harvester — watching the tank
+Fulfillment: the in-place call didn't move the tank at 838 studs — taking the pad trip
+arc hop: 837 studs, lifting 70 studs (Y 166 → 166)
+fulfillment pad Ugc.Markers.GotoLocations.Warehouse: parked — this pad unloads by itself, pressing nothing
+no unload at Ugc.Markers.GotoLocations.Warehouse after 16 s (load 50, coins 14459 → 14459) — the pad didn't take it while parked
+⚠ still full — none of the pads took the load
+no unload landed — backing off for 60 s instead of hammering the pad
+```
+
+**Root cause: the v1.119 world-walk accepted a navigation marker as the pad.**
+`scoreOf` gives `warehouse` +2, and `Ugc.Markers.GotoLocations.Warehouse` is a
+`BasePart`, so it passed the `score >= 2` gate — but a marker is a *travel*
+destination (the seed trip hops to `Markers.GotoLocations.FarmCo` for exactly
+that reason), and parking a harvester on a waypoint 20 studs off the real
+`Deposit_Warehouse` drains nothing. Because `#spots` was 1, the existing
+"nothing streamed → hop to the store and re-read" branch never ran, so the run
+repeated the 837-stud hop every 60 s while 50 ripe cells stood, and the growth
+wait kept logging `🌱 no cell reads as Seeded yet (50 cell(s), 50 grown)` — the
+field was never going to read Seeded again until it was harvested. Two changes:
+`spudFulfillSpots()` now rejects any candidate whose path contains
+`Marker`/`GotoLocation` and returns it as a **second value — the waypoint**, and
+`sellHarvester` hops there (instead of FarmCo, which is on the other side of
+town for a Fulfillment pick), waits for the stream and re-reads, so the pad is
+found where the game actually keeps it. `dropoff_test.py` grew 10 checks (a
+marker is never the pad, it comes back as the waypoint with its real path, the
+refusal still says no pad, a real `CompanyArea` pad beside the marker still
+wins, no waypoint when a pad is found; and on the trip side: the hop goes to
+-367 not -900, the pad is re-read after the hop, the real pad takes the load,
+the trip back returns to the field). Suite **30/30**, headroom 10, name audit
+clean (344). **Harness green — not yet reloaded in game.** If the re-read after
+the waypoint hop still finds no pad, the refusal line now names the pad-sounding
+world entries with class and path, and the honest options are the **Sell**
+boards (which `findSellSpots()` does return) or one hand-driven trip to name the
+pad for good.
+
+**Where it stands:** `rebuild v1.121 · fluent gui`, whole suite green (30/30),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
