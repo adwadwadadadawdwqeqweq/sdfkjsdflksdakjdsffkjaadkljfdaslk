@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.117 · fluent gui"
+local VERSION    = "rebuild v1.118 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5320,7 +5320,18 @@ local okBuild, errBuild = pcall(function()
             end
         end
         if not best then
-            log("fulfillment: Stores.DropOffs holds no pad part — nothing to drive onto")
+            -- ▸ NAME WHAT IS ACTUALLY THERE. "No pad part" and "no pad" are not
+            --   the same answer, and the difference is the whole bug: the folder
+            --   had children, they simply are not BaseParts, and every build
+            --   since has guessed at the shape instead of reading it out.
+            local kids = drops:GetChildren()
+            local seen = {}
+            for i = 1, math.min(#kids, 8) do
+                seen[#seen + 1] = string.format("%s [%s]",
+                    tostring(kids[i].Name), tostring(kids[i].ClassName))
+            end
+            log(string.format("fulfillment: Stores.DropOffs holds no pad part — nothing to drive onto (%d child(ren): %s%s)",
+                #kids, table.concat(seen, ", "), #kids > 8 and " …" or ""))
             return out
         end
         local top = best.Position + Vector3.new(0, best.Size.Y / 2, 0)
