@@ -55,20 +55,32 @@ function NODE:GetDescendants()
     return out
 end
 function NODE:IsA(cls) return cls == self._cls end
+function NODE:GetBoundingBox()
+    return { Position = self.Position }, self.Size or Vector3.new(10, 1, 10)
+end
 
-GRID = setmetatable({ kids = {}, list = {}, _cls = "Workspace" }, NODE)
+GRID = setmetatable({ Name = "Workspace", kids = {}, list = {}, _cls = "Workspace" }, NODE)
 workspace = GRID
 local logged = {}
 function log(s) logged[#logged + 1] = tostring(s) end
 function loggedText() return table.concat(logged, "\n") end
 
 local function folder(name, parent)
-    local n = setmetatable({ Name = name, kids = {}, list = {}, _cls = "Folder" }, NODE)
+    local n = setmetatable({ Name = name, kids = {}, list = {}, _cls = "Folder",
+        ClassName = "Folder", Parent = parent }, NODE)
     if parent then parent.kids[name] = n parent.list[#parent.list + 1] = n end
     return n
 end
 local function part(name, parent, x, y, z, sx, sy, sz)
     local n = setmetatable({ Name = name, kids = {}, list = {}, _cls = "BasePart",
+        ClassName = "Part", Parent = parent,
+        Position = Vector3.new(x, y, z), Size = Vector3.new(sx or 10, sy or 1, sz or 10) }, NODE)
+    if parent then parent.kids[name] = n parent.list[#parent.list + 1] = n end
+    return n
+end
+local function model(name, parent, x, y, z, sx, sy, sz)
+    local n = setmetatable({ Name = name, kids = {}, list = {}, _cls = "Model",
+        ClassName = "Model", Parent = parent,
         Position = Vector3.new(x, y, z), Size = Vector3.new(sx or 10, sy or 1, sz or 10) }, NODE)
     if parent then parent.kids[name] = n parent.list[#parent.list + 1] = n end
     return n
@@ -147,6 +159,62 @@ GRID.kids["Stores"] = nil
 GRID.list = {}
 local spots4 = spudFulfillSpots()
 check("no Stores at all: no crash, no pad", type(spots4) == "table" and #spots4 == 0, nil)
+
+-- 4b. THE FOLDER IS NOT WHERE THE PAD LIVES (v1.118, live): Stores.DropOffs
+--     exists with 0 children at the field AND 0 children again after the
+--     store hop — the same folder an older world dump called empty. So the
+--     pad is looked for BY NAME wherever the game actually has it.
+local storesB = folder("Stores", workspace)
+local dropsB = folder("DropOffs", storesB)      -- present and empty, like the live build
+local objectsB = folder("Objects", workspace)
+local buildingsB = folder("Buildings", objectsB)
+local companyB = folder("CompanyArea", buildingsB)
+local depositB = part("Deposit_Warehouse", companyB, -353, 138, -90, 30, 4, 30)
+local spots5 = spudFulfillSpots()
+check("empty folder: the pad is found by name", type(spots5) == "table" and #spots5 == 1,
+    type(spots5) == "table" and ("got " .. #spots5) or nil)
+local s5 = spots5 and spots5[1]
+check("empty folder: the path names where it really is",
+    s5 and s5.what and s5.what:find("CompanyArea") ~= nil, s5 and tostring(s5.what) or nil)
+check("empty folder: it still aims at the top surface",
+    s5 and s5.p and math.abs(s5.p.Y - 140) < 0.01,
+    s5 and s5.p and string.format("y=%.2f", s5.p.Y) or nil)
+check("empty folder: the part is the pad to fire at", s5 and s5.part == depositB)
+
+-- the documented folder still wins when it does hold the pad
+part("Deposit_Warehouse", dropsB, 10, 138, 20, 30, 4, 30)
+local spots6 = spudFulfillSpots()
+check("both places: the DropOffs folder is still first",
+    spots6[1] and spots6[1].what == "DropOffs.Deposit_Warehouse",
+    spots6[1] and tostring(spots6[1].what) or nil)
+
+-- a Model pad still gives a place to park — the CLASS is what no build has
+-- ever printed, and the pad may well be a model rather than a part
+local function detach(node, name)
+    node.kids[name] = nil
+    for i = #node.list, 1, -1 do
+        if node.list[i].Name == name then table.remove(node.list, i) end
+    end
+end
+detach(dropsB, "Deposit_Warehouse")
+detach(companyB, "Deposit_Warehouse")
+model("Deposit_Warehouse", companyB, -300, 138, -60, 30, 4, 30)
+local spots7 = spudFulfillSpots()
+check("model pad: a place to park comes back", #spots7 == 1, #spots7 .. " spot(s)")
+check("model pad: the park spot is the model's own top",
+    spots7[1] and math.abs(spots7[1].p.Y - 140) < 0.01,
+    spots7[1] and string.format("y=%.2f", spots7[1].p.Y) or nil)
+check("model pad: no part means no in-place call, only the park",
+    spots7[1] and spots7[1].part == nil)
+
+-- nothing anywhere: it says so instead of naming a pad that is not there
+GRID.kids["Stores"] = nil
+GRID.list = {}
+logged = {}
+local spots8 = spudFulfillSpots()
+check("no pad anywhere: no pad", type(spots8) == "table" and #spots8 == 0, nil)
+check("no pad anywhere: the line names the world read",
+    loggedText():find("no unload pad") ~= nil, loggedText())
 
 -- 5. the pad behaviour itself: Fulfillment presses nothing, Sell calls then
 --    falls back to Q/E, and the tank dropping is the only proof

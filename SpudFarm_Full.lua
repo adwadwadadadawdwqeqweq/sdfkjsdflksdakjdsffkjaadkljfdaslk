@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.118 · fluent gui"
+local VERSION    = "rebuild v1.119 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5299,46 +5299,104 @@ local okBuild, errBuild = pcall(function()
     -- Deposit_Warehouse is the drop pad; Withdraw_Warehouse is the opposite
     -- action, so it only wins when it is the only pad there. Aim at the TOP
     -- surface, like the sell pads do: a pad's centre can sit below the deck.
+    --
+    -- ▸ THE PAD IS NOT UNDER Stores.DropOffs ANY MORE (v1.118, live 2026-11-01:
+    --   the folder exists with **0 children** at the field and 0 children again
+    --   after the 1,133-stud hop to the store — and an older world dump had
+    --   already recorded the same folder as empty). So the folder is still read
+    --   first (cheap, and it is the documented shape), and when it holds nothing
+    --   the pad is looked for BY NAME wherever the game actually has it. Every
+    --   name that sounds like a pad is logged with its class and its path: the
+    --   class is the thing no build has ever printed, and guessing at it is what
+    --   left a full harvester with nowhere to unload. The walk is one read per
+    --   unload trip, never a per-frame one.
     function spudFulfillSpots()
         local out = {}
         local stores = workspace:FindFirstChild("Stores")
         local drops = stores and stores:FindFirstChild("DropOffs")
-        if not drops then
-            log("fulfillment: Stores.DropOffs is not streamed — no unload pad to go to")
-            return out
+        local best, bestScore, bestWhere = nil, nil, nil
+        local function scoreOf(n)
+            local score = 0
+            if n:find("deposit", 1, true) then score += 2 end
+            if n:find("warehouse", 1, true) then score += 2 end
+            if n:find("drop", 1, true) then score += 1 end
+            if n:find("withdraw", 1, true) then score -= 3 end
+            return score
         end
-        local best, bestScore = nil, nil
-        for _, d in ipairs(drops:GetChildren()) do
-            if d:IsA("BasePart") then
-                local n = tostring(d.Name):lower()
-                local score = 0
-                if n:find("deposit", 1, true) then score += 2 end
-                if n:find("warehouse", 1, true) then score += 2 end
-                if n:find("drop", 1, true) then score += 1 end
-                if n:find("withdraw", 1, true) then score -= 3 end
-                if not best or score > bestScore then best, bestScore = d, score end
+        -- where the pad really sits, so the log names a path instead of a guess
+        local function pathOf(d)
+            local up, n = {}, d
+            for _ = 1, 6 do
+                local ok, parent = pcall(function() return n.Parent end)
+                if not (ok and parent) then break end
+                local pn = tostring(parent.Name)
+                if pn ~= "Workspace" then up[#up + 1] = pn end
+                n = parent
+            end
+            local parts = {}
+            for i = #up, 1, -1 do parts[#parts + 1] = up[i] end
+            parts[#parts + 1] = tostring(d.Name)
+            return table.concat(parts, ".")
+        end
+        if drops then
+            for _, d in ipairs(drops:GetChildren()) do
+                if d:IsA("BasePart") then
+                    local score = scoreOf(tostring(d.Name):lower())
+                    if not best or score > bestScore then
+                        best, bestScore, bestWhere = d, score, "DropOffs." .. tostring(d.Name)
+                    end
+                end
+            end
+        end
+        local named, walked = {}, 0
+        if not best then
+            local nodes = {}
+            pcall(function() nodes = workspace:GetDescendants() end)
+            walked = #nodes
+            for _, k in ipairs(nodes) do
+                local n = tostring(k.Name):lower()
+                local score = scoreOf(n)
+                if n:find("fulfil", 1, true) or n:find("shipment", 1, true) then score += 1 end
+                if score > 0 then
+                    local where = pathOf(k)
+                    if #named < 8 then
+                        local okC, cls = pcall(function() return tostring(k.ClassName) end)
+                        named[#named + 1] = string.format("%s [%s]", where, okC and cls or "?")
+                    end
+                    -- a part is drive-onto-able and fire-able; a model only gives
+                    -- a place to park, which is all the Fulfillment pad needs
+                    local okP, isPart = pcall(function() return k:IsA("BasePart") end)
+                    local okM, isModel = pcall(function() return k:IsA("Model") end)
+                    if score >= 2 and ((okP and isPart) or (okM and isModel))
+                        and (not best or score > bestScore) then
+                        best, bestScore, bestWhere = k, score, where
+                    end
+                end
             end
         end
         if not best then
-            -- ▸ NAME WHAT IS ACTUALLY THERE. "No pad part" and "no pad" are not
-            --   the same answer, and the difference is the whole bug: the folder
-            --   had children, they simply are not BaseParts, and every build
-            --   since has guessed at the shape instead of reading it out.
-            local kids = drops:GetChildren()
-            local seen = {}
-            for i = 1, math.min(#kids, 8) do
-                seen[#seen + 1] = string.format("%s [%s]",
-                    tostring(kids[i].Name), tostring(kids[i].ClassName))
-            end
-            log(string.format("fulfillment: Stores.DropOffs holds no pad part — nothing to drive onto (%d child(ren): %s%s)",
-                #kids, table.concat(seen, ", "), #kids > 8 and " …" or ""))
+            log(string.format("fulfillment: no unload pad to drive onto — Stores.DropOffs %s and %d instance(s) read from the world name no deposit/warehouse pad%s",
+                drops and "holds no pad part" or "is not streamed", walked,
+                #named > 0 and (" (named like one: " .. table.concat(named, ", ") .. ")") or ""))
             return out
         end
-        local top = best.Position + Vector3.new(0, best.Size.Y / 2, 0)
+        local pos, size
+        local okP2, isPart = pcall(function() return best:IsA("BasePart") end)
+        if okP2 and isPart then
+            pos, size = best.Position, best.Size
+        else
+            local ok, cf, sz = pcall(function() return best:GetBoundingBox() end)
+            if ok and cf then pos, size = cf.Position, sz end
+        end
+        if not pos then
+            log("fulfillment: " .. tostring(bestWhere) .. " has no readable position — no unload pad to go to")
+            return out
+        end
+        local top = pos + Vector3.new(0, (size and size.Y or 0) / 2, 0)
         log(string.format("fulfillment pad: %s at (%.0f, %.0f, %.0f)",
-            best.Name, top.X, top.Y, top.Z))
-        out[1] = { p = top, what = "DropOffs." .. best.Name, store = "Fulfillment",
-            part = best }
+            bestWhere, top.X, top.Y, top.Z))
+        out[1] = { p = top, what = bestWhere, store = "Fulfillment",
+            part = isPart and best or nil }
         return out
     end
 

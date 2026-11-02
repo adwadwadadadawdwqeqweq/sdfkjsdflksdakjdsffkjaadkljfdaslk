@@ -196,10 +196,17 @@ Everything merged into one paste-and-run file:
   call is fired again at the pad (or Fulfillment parks and lets the pad drain
   it):
   Fulfillment is the warehouse pad
-  (`Stores.DropOffs.Deposit_Warehouse`, parked, pressing nothing while the pad
-  drains it) and Sell is the old crop sell board (call, then Q/E). The
-  tank dropping is the only proof a pad took the load — the console prints
-  `fulfillment pad: Deposit_Warehouse at (…)`, `drop-off 1/1: …`, then
+  (parked, pressing nothing while the pad drains it) and Sell is the old crop
+  sell board (call, then Q/E).
+  The pad is **read from the world, never assumed**: `Stores.DropOffs` is
+  scanned first, and because the live game now keeps that folder empty (v1.118
+  read it twice — at the field and again after a 1,133-stud hop to the store —
+  and it held **0 children** both times), a single walk over the world's
+  instances looks for the same names wherever the game has put them. A part is
+  drive-onto-able *and* fire-able; a model only gives a place to park, which is
+  all a Fulfillment pad needs. The console prints
+  `fulfillment pad: Objects.Buildings.CompanyArea.Deposit_Warehouse at (…)`,
+  `drop-off 1/1: …`, then
   `✅ sold at …` or an honest `still full — none of the pads took the load`,
   after which the trip backs off 60 s and the harvest carries on. Every hop
   lands at the **higher** of the two heights and arcs above it, so the trip
@@ -208,7 +215,10 @@ Everything merged into one paste-and-run file:
   farm that finds **no pad at all** first hops the harvester to the store's own
   waypoint, waits for the pads to stream, and looks again (`no Sell pad is
   streamed from here — arc hop to the store, then looking again`); the trip
-  back still returns to the field.
+  back still returns to the field. When even the walk finds nothing, the refusal
+  says so and **names what the world does hold** that sounds like a pad, with
+  each one's class and path, so the next run answers the shape instead of
+  guessing at it.
   A tank with **less free space than there are cells still standing** counts
   as full (`spudHarvestFull`): 49/50 against 46 standing crops used to fire the
   one slot's call — refused, because the field corner is out of reach — and
