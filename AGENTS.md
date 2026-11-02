@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.116 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.117 ·
   fluent gui` (`VERSION`, line 15). ≈12.4k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 30/30 checks on v1.116
+python tools/run_all.py        # 30/30 checks on v1.117
 ```
 
-Last full run (v1.116): **30/30 checks passed** (27 harnesses + 3 gates).
+Last full run (v1.117): **30/30 checks passed** (27 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -172,7 +172,7 @@ Last full run (v1.116): **30/30 checks passed** (27 harnesses + 3 gates).
 | `row_steer_test.py` | The row decision in the wide band: `spudRowNeedsAlign` asks for ONE snap only past `spudRowAng` (15°) or `spudRowTol` (6 studs); `spudRowSteer` presses nothing inside the band; `spudRowEase` takes a step off the throttle after three steering flips (×0.7, floor 30 %) and gives one back per steady 3 s. |
 | `foreign_respawn_test.py` | `spudMayRespawn()` is false while a Farm owner is picked, and `ensureToolNearby` then never calls `respawnTool`: a stored or far-away tool is named and the pass is skipped, while `(mine)` still respawns. |
 | `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and an unstreamed/empty folder returns no pad instead of a guess. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
-| `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", and the run's shop-trip cap is at least the seed pass's `refill N/3` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out. |
+| `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", the run's shop-trip cap is at least the seed pass's `refill N/3` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out — and a shelf price dearer than the balance blocks the **next** trip locally (unreadable price or balance blocks nothing; the gate must sit before the trip is counted). |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
 | `test_doctor.py` | The in-script 🩺 DOCTOR report runs on stubbed world objects and reports, not crashes. |
 
@@ -1832,7 +1832,43 @@ three refills — and the refusal line names the number it hit. New
 between the two counters, and asserts `seedShopTried` never comes back. Suite
 **30/30**.
 
-**Where it stands:** `rebuild v1.116 · fluent gui`, whole suite green (30/30),
+**A price read in town is not re-read by hopping back (v1.117).** The first live
+run of v1.116 (owner's emulator, 2026-11-01) never reached the half-crate case —
+the Farm tab was on **Cabbage** and the town till is expensive:
+
+```
+the seeder is empty — going to buy Cabbage (50 cell(s) need seed right now)
+seed shop: FarmCo at Markers.GotoLocations.FarmCo (1097 studs) — tp'ing there for Cabbage
+seed crate: the Cabbage crate (SeedBox) costs 57600 coins — balance 54159
+seed crate: that is more than the balance — not buying it (pick a cheaper seed or sell something first)
+✅ back in the tractor — the planting stage runs next
+no seed was bought this run (the shop lines above say why) — the planting stage can't run
+Field: 0 bare, 0 plowed, 50 cultivated, 0 seeded, 0 standing, 50 total cells
+check-back 1: still to do — plow:no cultivate:no seed:yes
+… the same 1,097-stud hop again …
+check-back 2: still to do — plow:no cultivate:no seed:yes
+```
+
+So the "fuckes the whole thing up" half of the report is a **repeat**: a 50-cell
+field stays Cultivated for ever while the run pays a 1,097-stud teleport, a
+dismount, a mount and a store trip to rediscover a number it had already read.
+The crate's own `CostBillboard` is the only price source and it is only readable
+in town, so the **first** hop is kept and its answer is cached in the global
+`spudSeedPrices` (keyed by the lowercased seed name); `seedCheck` then asks
+`spudSeedPriceBlocks(spudSeedPrices, seedChoice, coinBalance())` **before** it
+spends a trip, and says
+`the Cabbage crate was 57600 coins at the shelf and the balance is 54159 — not
+hopping to town for a price this run has already read`. The balance is re-read at
+every check, so the cache holds the price and never the verdict — sell a load and
+the same seed is buyable again — and an unreadable price or balance blocks
+nothing (rule 7). `seed_refill_test.py` grew 10 checks for that predicate (no
+cache / cheaper / exactly payable / dearer / unreadable balance / unreadable
+price / nil table / another seed / case-insensitive / nil name) plus two source
+ties: the shelf price must actually be stored, and the gate must sit **before**
+`spudSeedTripAllowed` so a refusal costs no trip. Local budget unchanged
+(headroom 10), name audit clean (341). Suite **30/30**.
+
+**Where it stands:** `rebuild v1.117 · fluent gui`, whole suite green (30/30),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

@@ -171,7 +171,15 @@ Everything merged into one paste-and-run file:
   empty is skipped as the empty box it is — a crate that cannot be read at all is
   still used. A run is allowed **four** shop trips rather than one, so the seed
   pass's own `refill 1/3` promise is reachable when the field is bigger than the
-  seeder. After a
+  seeder. The
+  crate's own price billboard is the only price read, and it is only readable
+  standing in town — so the first trip makes that hop, and a seed found dearer
+  than the balance is then refused **where the run stands** (`the Cabbage crate
+  was 57600 coins at the shelf and the balance is 54159 — not hopping to town for
+  a price this run has already read`) instead of paying another 1,000-stud hop to
+  rediscover it. The balance is re-read at every check, so the cache remembers
+  the price and never the verdict: sell a load and the same seed is buyable
+  again. After a
   seed is bought the **shop menu is closed** on the way out: the open menu is
   read from `GuiViews.Menus`, its own close control is clicked inside it, the
   result is re-read, and F is only the fallback — so the UI does not stay up

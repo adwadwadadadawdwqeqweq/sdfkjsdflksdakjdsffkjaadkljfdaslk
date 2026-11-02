@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.116 · fluent gui"
+local VERSION    = "rebuild v1.117 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -3240,6 +3240,21 @@ local okBuild, errBuild = pcall(function()
         return (tonumber(tries) or 0) < (tonumber(max) or 0)
     end
 
+    -- ▸ A PRICE LEARNED AT THE SHELF IS REUSED BEFORE THE NEXT HOP. The crate's
+    --   own billboard is the only price read, and it is only readable standing
+    --   in town — so the first trip has to make the hop, but a seed that was
+    --   dearer than the balance must not cost a second 1,000-stud teleport to
+    --   rediscover that (live v1.116: Cabbage 57,600 against a 54,159 balance,
+    --   and the run hopped there, read it, hopped back, and did it again).
+    --   The balance is re-read at every check, so this remembers the PRICE and
+    --   never the verdict — sell a load and the same seed is buyable again.
+    spudSeedPrices = {}
+    function spudSeedPriceBlocks(prices, name, balance)
+        local p = prices and name and prices[tostring(name):lower()]
+        if not (p and balance) then return false end
+        return p > balance
+    end
+
     -- how many cells across ALL my fields still need seeding (cells at
     -- "Cultivated"), and across how many fields — the yardstick for the
     -- user's re-seed rule: "if the seeder has seeds in it and the fields
@@ -3760,6 +3775,9 @@ local okBuild, errBuild = pcall(function()
             price = tonumber((tostring(pl.Text):gsub("[^%d]", "")))
         end
         local balNow = coinBalance()
+        if price then
+            spudSeedPrices[tostring(seedName):lower()] = price
+        end
         log(string.format("seed crate: the %s crate (%s) costs %s — balance %s",
             seedName, hit.m.Name,
             price and (price .. " coins") or "an unreadable price",
@@ -4287,6 +4305,12 @@ local okBuild, errBuild = pcall(function()
         local needCells = seedNeedLeft(tr:GetPivot().Position)
         if not seedChoice then
             log("the seeder is empty and nothing is picked in the Farm tab's Seed dropdown — pick a seed and the loop can buy it")
+            return false
+        end
+        if spudSeedPriceBlocks(spudSeedPrices, seedChoice, coinBalance()) then
+            log(string.format("the %s crate was %s coins at the shelf and the balance is %s — not hopping to town for a price this run has already read (sell a load or pick a cheaper seed)",
+                seedChoice, tostring(spudSeedPrices[tostring(seedChoice):lower()]),
+                tostring(coinBalance())))
             return false
         end
         if not spudSeedTripAllowed(seedShopTries, spudSeedTripsMax) then

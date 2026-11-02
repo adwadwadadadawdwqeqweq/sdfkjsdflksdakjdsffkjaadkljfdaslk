@@ -19,7 +19,11 @@ Two rules are pinned here:
     is still used (owner rule 7: unreadable is not empty);
   * the seed pass promises "refill 1/3", so a run must be able to make more
     than one shop trip. The old once-per-run boolean made refills 2 and 3
-    unreachable dead code.
+    unreachable dead code;
+  * a price learned standing at the shelf is remembered, so a seed that costs
+    more than the balance cannot cost a second 1,000-stud hop to town. The
+    balance is re-read every time, so the cache remembers the PRICE and never
+    the verdict.
 
     python tools/seed_refill_test.py [path-to-luau.exe]
 """
@@ -34,7 +38,8 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "SpudFarm_Full.lua"
 
-WANTED = ["spudCrateSeedCount", "spudCrateHasSeed", "spudSeedTripAllowed"]
+WANTED = ["spudCrateSeedCount", "spudCrateHasSeed", "spudSeedTripAllowed",
+          "spudSeedPriceBlocks"]
 
 
 def extract(text: str, name: str) -> str:
@@ -117,6 +122,28 @@ check("a runaway count is refused", spudSeedTripAllowed(9, 4) == false)
 check("no trips left at all is refused", spudSeedTripAllowed(0, 0) == false)
 check("a missing count still gets its trips", spudSeedTripAllowed(nil, 4) == true)
 
+-- ── 4. a price read in town is reused before the next hop ──────────────────
+local prices = { cabbage = 57600, wheat = 100 }
+check("a seed with no cached price is not blocked",
+    spudSeedPriceBlocks(prices, "Carrot", 54159) == false)
+check("a seed cheaper than the balance is not blocked",
+    spudSeedPriceBlocks(prices, "Wheat", 54159) == false)
+check("a seed costing exactly the balance is payable",
+    spudSeedPriceBlocks({ corn = 54159 }, "Corn", 54159) == false)
+check("a seed dearer than the balance is blocked",
+    spudSeedPriceBlocks(prices, "Cabbage", 54159) == true)
+check("an unreadable balance never blocks",
+    spudSeedPriceBlocks(prices, "Cabbage", nil) == false)
+check("an unreadable cached price never blocks",
+    spudSeedPriceBlocks({ cabbage = nil }, "Cabbage", 54159) == false)
+check("no price table at all never blocks",
+    spudSeedPriceBlocks(nil, "Cabbage", 54159) == false)
+check("another seed's price does not block this one",
+    spudSeedPriceBlocks(prices, "Cabbage", 90000) == false)
+check("the seed name is matched case-insensitively",
+    spudSeedPriceBlocks(prices, "cabbage", 54159) == true)
+check("a nil seed name never blocks", spudSeedPriceBlocks(prices, nil, 54159) == false)
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 """
 
@@ -156,6 +183,31 @@ def main() -> int:
         fails.append("seedShopTried is still there - the once-per-run latch is the bug")
     else:
         print(f"{'no once-per-run shop latch left':<56} PASS")
+
+    # the price has to be RECORDED where the shelf reads it, or the gate below
+    # never has anything to work from.
+    if re.search(r"spudSeedPrices\[", src):
+        print(f"{'the shelf price is remembered':<56} PASS")
+    else:
+        fails.append("the crate price is never cached - the gate has nothing to read")
+
+    # ... and consulted in seedCheck BEFORE the run commits a trip.
+    sc = re.search(r"^    local function seedCheck\(", src, re.M)
+    body = ""
+    if sc:
+        rest = src[sc.start():]
+        e = re.search(r"\n    (?:local function |function )", rest[10:])
+        body = rest[: e.start() + 10] if e else rest
+    if not body:
+        fails.append("seedCheck was not found - the price gate cannot be placed")
+    elif "spudSeedPriceBlocks" not in body:
+        fails.append("seedCheck does not consult spudSeedPriceBlocks - "
+                     "an unaffordable seed still hops to town every trip")
+    elif body.index("spudSeedPriceBlocks") > body.index("spudSeedTripAllowed"):
+        fails.append("the price gate runs after the trip is already counted - "
+                     "it costs a trip to be refused")
+    else:
+        print(f"{'the price is checked before the trip is spent':<56} PASS")
 
     with tempfile.NamedTemporaryFile("w", suffix=".lua", delete=False, encoding="utf-8") as fh:
         fh.write("\n\n".join(parts) + "\n" + POST)
