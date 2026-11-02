@@ -1868,8 +1868,52 @@ ties: the shelf price must actually be stored, and the gate must sit **before**
 `spudSeedTripAllowed` so a refusal costs no trip. Local budget unchanged
 (headroom 10), name audit clean (341). Suite **30/30**.
 
+**Both halves watched live (v1.117, owner's emulator, 2026-11-01).** The gate
+line appeared on every seed check after the first, and the whole run made
+**one** 1,097-stud hop — the one that had to read the price:
+
+```
+the Cabbage crate was 57600 coins at the shelf and the balance is 54159 — not hopping to town for a price this run has already read (sell a load or pick a cheaper seed)
+check-back 2: still to do — plow:no cultivate:no seed:yes
+the Cabbage crate was 57600 coins at the shelf and the balance is 54159 — not hopping to town for a price this run has already read (…)
+```
+
+With the Farm tab moved to **Wheat** (affordable) the rest of the chain closed
+the owner's original report end to end:
+
+```
+the seeder is empty — going to buy Wheat (50 cell(s) need seed right now)
+✅ KADL respawned — it moved into the world
+✅ Wheat bought via FNCRequestStorePurchase (balance 54159 → 54123)
+✅ seeder now holds 50/50 seeds (Wheat) — the planting pass takes it from here
+✅ hitched KADL (attempt 1)
+remote seed: fired 44 of 44 cell(s) from 7 stop(s), 9 per stop — 44 took, 0 left
+✅ seeding complete — no field is missing seed any more
+Field: 0 bare, 0 plowed, 0 cultivated, 50 seeded, 0 standing, 50 total cells  [Seeded=50]
+```
+
+**`0 left`** is the number the report was about — no tile was missed, and the
+later pass read the same field at `50 standing`, so the seeds took and grew.
+The v1.116 empty-crate skip did NOT get observed (the plot's half Wheat crate
+had already been poured out, so the scan found nothing to use and bought
+straight away). **What the same run exposed instead is the unload**: the harvest
+leg reached `harvester is FULL (1/50, after the remote pass)` — the v1.86
+"room cannot cover the cells" rule, working as designed — and then
+
+```
+fulfillment: Stores.DropOffs holds no pad part — nothing to drive onto
+no Fulfillment pad is streamed from here — arc hop to the store, then looking again
+arc hop: 1133 studs, lifting 70 studs (Y 166 → 166)
+⚠ no Fulfillment pad found (not even after a store hop) — unload skipped
+```
+
+so `Stores.DropOffs` is empty **even standing at the store**, while
+`findSellSpots()` still returns four FarmCo boards. Uninvestigated — it is the
+Drop-off area, not the seeding report.
+
 **Where it stands:** `rebuild v1.117 · fluent gui`, whole suite green (30/30),
-harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
+harness verified, **and v1.117 was reloaded and run in game** (the seed chain
+above). **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
 tool-width line (`tool KADL — 3-wide (…, 40 studs)`), the Farm owner picker
