@@ -84,6 +84,7 @@ function require(x) return x end
 
 grownStage = function(s) return s == "Grown" end
 spudFieldRemoteState = { kit = nil, off = {} }
+spudFieldReach = 24
 
 -- ▸ vectors/CFrames for the hop fixtures (cellsAtStage + spudHopCells)
 local V = {}
@@ -715,6 +716,70 @@ check("radial: the field is empty after the retry",
 check("radial: the retry is not dry", dryRY == false, tostring(dryRY))
 mode.seed = "all"
 
+-- 16. REACH: the corner pass spends no round trip on a cell the blade cannot
+--     reach. Live 2026-11-02 (owner: "before every tool use on the field it
+--     waits a bit like 10 seconds"): a 50-cell corner pass cost 11 s because
+--     seed/harvest are InvokeServer and EVERY call waits for the server, yet
+--     only 6 of those calls could land at all — the rest sit past the 2-tile
+--     band, and the blocks fire them from a stop with the blade on them.
+local function rowOfEight()
+    fieldState[field] = {}
+    for x = 1, 8 do
+        fieldState[field][x * 128 + 1] = { Stage = "Cultivated" }
+    end
+end
+local rCF = setmetatable({ base = true, Position = Vector3.new(0, 0, 0) }, CF)
+local rSize = Vector3.new(80, 1, 10) -- 8 columns along X, so -35..35
+mode.seed = "all"
+mode.atCell = false
+spudBatchRemotes = false
+capVal.Value = 50
+
+att.Position = Vector3.new(0, 170, 0)
+rowOfEight()
+resetState()
+local logN = #logs
+cj0 = seedRemote.invokeCalls
+done, left, dry = spudFieldRemotePass(seedJob, field, tool, rCF, rSize)
+local function justLogged()
+    local out = {}
+    for i = logN + 1, #logs do out[#out + 1] = logs[i] end
+    return table.concat(out, "|")
+end
+check("reach: only the cells inside the band are called",
+    seedRemote.invokeCalls - cj0 == 4, (seedRemote.invokeCalls - cj0) .. " call(s)")
+check("reach: the far cells are handed to the blocks, not dropped",
+    done == true and left == 4, tostring(done) .. "," .. tostring(left))
+check("reach: a reach bail is not dry", dry ~= true, tostring(dry))
+check("reach: the log says the blocks take the rest",
+    justLogged():find("the blocks take the last 4") ~= nil)
+check("reach: leftovers out of the band are not retried",
+    justLogged():find("retry") == nil, justLogged())
+
+att.Position = Vector3.new(200, 170, 0)
+rowOfEight()
+resetState()
+cj0 = seedRemote.invokeCalls
+done, left, dry = spudFieldRemotePass(seedJob, field, tool, rCF, rSize)
+check("reach: nothing in reach fires no call at all",
+    seedRemote.invokeCalls - cj0 == 0, (seedRemote.invokeCalls - cj0) .. " call(s)")
+check("reach: the whole field still goes to the blocks",
+    done == true and left == 8 and dry == false,
+    string.format("%s,%s,%s", tostring(done), tostring(left), tostring(dry)))
+check("reach: the refusal names the band",
+    loggedText():find("none is within 24 studs of the blade") ~= nil)
+check("reach: an out-of-reach bail does not switch the job off",
+    spudFieldRemoteState.off.seed ~= true)
+
+att.Position = Vector3.new(0, 170, 0)
+rowOfEight()
+resetState()
+cj0 = seedRemote.invokeCalls
+done, left = spudFieldRemotePass(seedJob, field, tool)
+check("reach: no field frame means no filter (unreadable is not a skip)",
+    seedRemote.invokeCalls - cj0 == 8 and done == true and left == 0,
+    (seedRemote.invokeCalls - cj0) .. " call(s), " .. tostring(done) .. "," .. tostring(left))
+
 resetCells()
 mode.atCell = false
 acceptR = 2
@@ -737,6 +802,10 @@ def main() -> int:
     base = pathlib.Path(os.environ.get("LOCALAPPDATA", ".")) / "Temp" / "opencode" / "luau"
     exe = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else base / "luau.exe"
     src = SRC.read_text(encoding="utf-8")
+    # the band this harness pins its checks to is the measured one in the script
+    if not re.search(r"^    spudFieldReach = 24\b", src, re.M):
+        print("spudFieldReach is no longer 24 — update this harness")
+        return 2
     parts = []
     for name in WANTED:
         code = extract(src, name)

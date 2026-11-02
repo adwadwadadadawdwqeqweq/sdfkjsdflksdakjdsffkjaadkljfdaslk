@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.119 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.120 ·
   fluent gui` (`VERSION`, line 15). ≈12.4k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 30/30 checks on v1.119
+python tools/run_all.py        # 30/30 checks on v1.120
 ```
 
-Last full run (v1.119): **30/30 checks passed** (27 harnesses + 3 gates).
+Last full run (v1.120): **30/30 checks passed** (27 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -167,7 +167,7 @@ Last full run (v1.119): **30/30 checks passed** (27 harnesses + 3 gates).
 | `farm_width_test.py` | Working width and row plan: studs→tiles rounding, oriented-box union width, rotated bars, 1/2/3-wide plans (step, headland, row half-extent) and an interval-coverage proof on 100/200-stud and narrow fields; owner match rules. |
 | `equip_owner_test.py` | Whose tractor/tool is picked: the farm being worked first, mine next, an unreadable owner after that, a stranger's never; stored machines are reported for spawning; the implement distance/basis stay honest. |
 | `field_soil_test.py` | Tree/wood field types and names are never crop-harvest targets; a successful cell read with 0 cells is empty (skipped), while a failed read stays unknown (never a skip reason). |
-| `field_remote_test.py` | The field remotes: ids come from the game's own `GetCells` dict (numeric keys only, sorted, failed read = unknown), the tool's RaycastPart attachment is the one sent, one call per remaining cell carries `(field, {id}, {attachment})`, a full batch reports done, a partial batch hands back the remainder, an ignored batch switches that job back to driving (and fires nothing again), and `FillSeeder` falls back to V on a refusal. The Tests-tab batch: one call carries every id, a full/partial/ignored id list is judged by the stage re-read, and an ignored list never switches the job off. The single-spot fire takes a whole field from one teleport when the blade reaches 60 studs, fires one call per cell, respects the seeder budget, and takes nothing when the reach is small. |
+| `field_remote_test.py` | The field remotes: ids come from the game's own `GetCells` dict (numeric keys only, sorted, failed read = unknown), the tool's RaycastPart attachment is the one sent, one call per remaining cell carries `(field, {id}, {attachment})`, a full batch reports done, a partial batch hands back the remainder, an ignored batch switches that job back to driving (and fires nothing again), and `FillSeeder` falls back to V on a refusal. The Tests-tab batch: one call carries every id, a full/partial/ignored id list is judged by the stage re-read, and an ignored list never switches the job off. The single-spot fire takes a whole field from one teleport when the blade reaches 60 studs, fires one call per cell, respects the seeder budget, and takes nothing when the reach is small (4 of 8 cells called, the far ones handed to the blocks, no call at all when nothing is in reach, no frame = no filter). |
 | `equip_remote_test.py` | The equipment remotes: the seven captured calls resolve on `Modules.Larry`; spawn/store are proven by `InStorage` (or a >100-stud move for a rebuilt spawn) and fall back to the UI when ignored; enter is proven by the seat; hitch/unhitch use the captured `Components.Hitchable` + `Chassis.HitchableSocket` pair; carry/drop are proven by the hands; three misses switch one action off for the session. |
 | `row_steer_test.py` | The row decision in the wide band: `spudRowNeedsAlign` asks for ONE snap only past `spudRowAng` (15°) or `spudRowTol` (6 studs); `spudRowSteer` presses nothing inside the band; `spudRowEase` takes a step off the throttle after three steering flips (×0.7, floor 30 %) and gives one back per steady 3 s. |
 | `foreign_respawn_test.py` | `spudMayRespawn()` is false while a Farm owner is picked, and `ensureToolNearby` then never calls `respawnTool`: a stored or far-away tool is named and the pass is skipped, while `(mine)` still respawns. |
@@ -592,12 +592,19 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   `RaycastPart` attachment (the captured shape), falls back to a Seed/Detect
   one, and returns nil otherwise — nil means "drive".
 - **The batch is verified, never trusted.** `spudFieldRemotePass(job, field,
-  impl)` fires one call per remaining id (40 ms apart), then re-reads the
+  impl, baseCF, baseSize)` fires one call per remaining id **that is within
+  `spudFieldReach = 24` studs of the tool's own attachment** (40 ms apart),
+  then re-reads the
   stages: 0 left = `✅ remote seed: 50 cell(s) in 2.4s — the field is done
   without driving` and the sweep is skipped; some left = the sweep drives the
   remainder; none taken = the job is switched off **for the session** and the
   sweep drives (`remote seed: the game ignored 50 call(s) … — driving for this
   session`). A missing remote or attachment also disables that job once.
+  **The reach filter is what killed the dead 10 s** (v1.120 — see §5): seed and
+  harvest are `InvokeServer`, so every call waits for the server, and firing at
+  the 44 cells a corner pose can never take cost 11 s per field for nothing. No
+  field frame, no readable cell position or no numeric id = **no filter** (rule
+  7); nothing in reach = no call at all, straight to the blocks.
 - **Stop-and-burst grid** (v1.71 single spot, **grid since v1.76**) — the band
   the lift probe measured (20 studs to the side at +8 taken, 30 refused; +80
   straight up taken) means the server takes a cell whose ground is within ~2
@@ -1960,7 +1967,53 @@ parking without a fire part, and a no-pad-anywhere refusal that names the world
 read). Suite **30/30**, headroom 10, name audit clean (341). **Harness green —
 not yet reloaded in game.**
 
-**Where it stands:** `rebuild v1.119 · fluent gui`, whole suite green (30/30),
+**"before every tool use on the field it waits a bit like 10 seconds" +
+"add a anti afk that is on be default" (v1.120).** Two asks, both from the
+emulator console the owner was watching. **(1) The dead 10 s.** Timestamped
+logcat pinned it exactly: the corner pass, not the travel.
+
+```
+03:04:17.957 batch test: 50 cell id(s) in ONE call — watching the field
+03:04:19.185 batch test: the server ignored the id list (50 still need it)
+03:04:30.051 remote seed: 44 cell(s) still need it — one retry of just those
+03:04:39.123 remote seed: 6 of 50 cell(s) took the call in 11.0s — the blocks take the last 44
+03:04:51.264 remote seed: fired 44 of 44 cell(s) from 8 stop(s), 9 per stop — 44 took, 0 left
+```
+
+Seed and harvest are **InvokeServer**, so every call waits for the server's
+answer: ~0.2 s each, and 50 of them from the field corner cost 11 s to learn
+what the measured band already says — only the cells within ~2 tiles of the
+blade can take a call at all (20 studs taken, 30 refused), so 44 of those 50
+could never land. The retry then spent another 9 s firing at the same
+out-of-reach tail from the same pose. `spudFieldRemotePass` now takes the
+field frame (`baseCF, baseSize`, supplied by `sweepField`) and fires only the
+ids `cellsAtStage` maps inside `spudFieldReach = 24` studs of the tool's own
+attachment (sideways only — height is free up to +80); the leftovers are not
+retried at the corner and go straight to the blocks, which put the blade over
+every one of them. A field with **nothing** in reach fires no call and says
+`remote <verb>: N cell(s) need it but none is within 24 studs of the blade —
+going straight to the blocks`, and no field frame, no readable cell position or
+no numeric id means **no filter** (rule 7 — unreadable is never a skip). The
+retry line now counts what it actually retried (`one retry of the N in reach`).
+**(2) The Anti-AFK** (Settings toggle, **on by default**, remembered in
+`spudSavedAntiAfk`): Roblox flags a client with no input for ~20 min and the
+server drops it, which is exactly what a 60-minute Cabbage growth wait does to
+a sleeping owner. `spudAfkNudge()` sends a **ScrollLock** press (no context
+action in this game uses it) plus a **1-pixel mouse move** — whichever of the
+two the client counts as activity restarts the idle timer, and neither can
+touch the farm: no key the game binds, no button clicked. One beat every
+40–50 s, silent (a startup line plus `anti-afk: the game flagged this session
+idle — input sent` from the `LocalPlayer.Idled` hook), stopped by the same
+`spudAlive()` generation guard and disconnected in `destroyUI` as
+`spudAfkConn`. `field_remote_test.py` grew 10 reach checks (4 of 8 cells
+called, the far ones handed over not dropped, no call when nothing is in
+reach, an out-of-reach bail neither dry nor a session switch-off, and no field
+frame firing all 8) plus a Python tie that `spudFieldReach` is still the
+measured 24. Suite **30/30**, headroom 10, name audit clean (344). **Harness
+green — neither half has been reloaded in game**, and the anti-AFK's real
+verdict is a session that survives the night.
+
+**Where it stands:** `rebuild v1.120 · fluent gui`, whole suite green (30/30),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner

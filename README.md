@@ -73,7 +73,20 @@ Everything merged into one paste-and-run file:
   its `Capacity` (empty = no call), the harvester at most its free tank space
   (`MaxCapacity − Capacity`, full = no call), and the planting stage buys and
   fills (up to 3 refills) or the harvest loop sells and comes back. A refused
-  tail gets one retry. After the call pass there is a
+  tail gets one retry — **but only of the cells the blade can actually reach**:
+  `FNCSeedFieldCell` / `FNCHarvestFieldCell` are `InvokeServer`, so every call
+  waits for the server's answer, and from the field corner that is a round trip
+  spent on cells that can never take it (live: 11 s for 50 calls, 6 of them in
+  reach, then another 9 s retrying the same 44 out-of-band cells from the same
+  pose). The corner pass now fires only the ids within `spudFieldReach = 24`
+  studs of the tool's own attachment — the measured band is 20 to the side taken,
+  30 refused — and hands the rest to the 3×3 blocks, which park the blade on
+  them. A field with nothing in reach says
+  `remote seed: 50 cell(s) need it but none is within 24 studs of the blade —
+  going straight to the blocks` and costs **no** call at all. That is what
+  removes the ~10 s pause before every tool pass. A field whose frame, cell
+  positions or ids cannot be read keeps the unfiltered pass — an unreadable
+  reach never skips a call. After the call pass there is a
   **3×3 block grid**: the remaining cells are grouped into rows, three rows at
   a time are cut into three-column blocks, and each block gets one stop at its
   own centre — the ride parks with the **blade** on it (the tool trails behind
@@ -90,8 +103,8 @@ Everything merged into one paste-and-run file:
   fires once the blade is actually on the block (re-parking once if it is
   still swinging) — the first call after a long ride is routinely refused while the
   server still holds the old pose — and only then ends
-  (`remote seed: fired 46 of 46 cell(s) from 8 stop(s) across the field
-  (reach 20) — 46 took, 0 left`). Whatever it misses is then **hopped**: one
+  (`remote seed: fired 46 of 46 cell(s) from 8 stop(s), 9 per stop — 46 took,
+  0 left`). Whatever it misses is then **hopped**: one
   teleport per remaining cell with the blade on it. Anything still standing
   after the hop is **retried**: grid → hop again, round after round, until the
   field reports none of that stage left (Stop ends it). Two rounds that take
@@ -136,8 +149,8 @@ Everything merged into one paste-and-run file:
   removed once they had their answer; their results are in the console history. The lift band is
   the one that matters to play: a field call was taken with the blade **20
   studs to the side at +8** (30 refused) and from **+80 straight up** on three
-  separate runs, and that is what the stop-and-burst grid's 20-stud reach is
-  built on. The packet is
+  separate runs, and that is what `spudFieldReach = 24` — the band every field
+  call is filtered by — is built on. The packet is
   server→client only: patching a real packet's stage byte sent nothing back and
   moved no cell. The wrong tool was answered live: cultivate fired from a
   plow's own attachment at a Plowed cell the blade was sitting over stayed
@@ -331,9 +344,20 @@ Everything merged into one paste-and-run file:
   loops in a safe order (farm → milk → delivery; delivery turns itself back off
   when no trailer/silo is picked), and **verbose logs** puts the per-cow
   prompt/button dump back on for every cow (off, it runs once per session — the
-  walk covers the whole PlayerGui and was a measurable FPS cost). Every
-  **Reload** keeps the three farm picks, the typed batch size, the seed choice
-  and the movement mode, and — more importantly — **stops every loop the old
+  walk covers the whole PlayerGui and was a measurable FPS cost). **Anti-AFK**
+  sits beside them and is **on by default**: Roblox marks a client away after
+  ~20 minutes of no input and the server drops it, and a Cabbage field grows for
+  an hour with nobody pressing anything, so a run left alone overnight died at
+  the growth wait. Every ~45 s it sends one press of **ScrollLock** and a
+  1-pixel mouse move — neither is bound to anything in this game, so the farm is
+  never touched — and the game's own `Idled` signal gets the same nudge if it
+  fires first. It logs once at load
+  (`anti-afk: on — a press every 45 s keeps this session awake`) and otherwise
+  only when the game itself flags the session idle, so an hour-long growth wait
+  does not fill the log. Turning it off is remembered across a reload. Every
+  **Reload** keeps the three farm picks, the typed batch size, the seed choice,
+  the movement mode, the drop-off pick and the anti-AFK choice, and — more
+  importantly — **stops every loop the old
   build started**. Before that, Unload
   only hid the window: the milk loop, delivery loop, webhook pump, 15-min field
   scan and FPS meter kept running, and each reload added another copy of each.
@@ -352,7 +376,9 @@ Everything merged into one paste-and-run file:
   `loadstring`, so a GitHub error page can never be executed. The Fluent library
   URL is built from `FLUENT_TAG` (top of the file) so it can be pinned to a
   release tag instead of following `latest`.
-- **Player tab** — walkspeed, jump power, infinite jump, noclip, anti-AFK, FPS boost
+- **Player tab** — the plot/cow read-out. The keeper that stops the game marking
+  this client away is the **Anti-AFK** toggle on the Settings tab (above), on by
+  default
 - **Teleport tab** — Ctrl+Click teleport + FarmCo / AnimalCo / TractorCo / LumberCo /
   Bulk Store / Warehouse / **My Farm** (resolves your plot by its "Your Farm"
   billboard) / Spawn buttons (2026 central-town map, part names from in-game dump)

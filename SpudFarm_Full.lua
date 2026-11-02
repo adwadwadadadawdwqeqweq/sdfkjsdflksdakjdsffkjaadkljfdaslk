@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.119 · fluent gui"
+local VERSION    = "rebuild v1.120 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -2561,6 +2561,10 @@ local okBuild, errBuild = pcall(function()
     --   by re-reading the stages and self-disables on a job the server
     --   ignores. The drive-over pass is always the fallback.
     spudFieldRemoteState = { kit = nil, off = {} }
+    -- ▸ HOW FAR DOES A FIELD CALL REACH? Measured live (2026-10-31, three
+    --   runs): the blade 20 studs to the side of a cell takes it, 30 refuses,
+    --   and any height up to +80 is free — so the band is ~2 tiles sideways.
+    spudFieldReach = 24
     -- ▸ TESTS · the captured shape is a LIST of one id ({1=129}), so the server
     --   may loop the list. With this on, a field job first fires ONE call
     --   carrying every remaining id; the stage re-read is the only proof, and
@@ -2746,7 +2750,7 @@ local okBuild, errBuild = pcall(function()
     --   true, 0  = every cell took the call (no block or hop needed)
     --   true, n  = n cells took it, the rest are the blocks' and the hop's
     --   false, n = the server ignored the batch (the grid and hop take over)
-    function spudFieldRemotePass(job, field, impl)
+    function spudFieldRemotePass(job, field, impl, baseCF, baseSize)
         local state = spudFieldRemoteState
         if state.off[job.verb] then return false, nil end
         local kit = spudFieldRemoteKit()
@@ -2859,7 +2863,41 @@ local okBuild, errBuild = pcall(function()
                 log("batch test: the call threw — one call per cell")
             end
         end
-        for _, id in ipairs(ids) do
+        -- ▸ ONLY THE CELLS THE BLADE CAN REACH (owner 2026-11-02: "before every
+        --   tool use on the field it waits a bit like 10 seconds"). Seed and
+        --   harvest are InvokeServer, so EVERY call waits for the server's
+        --   answer: live, a 50-cell corner pass cost 11 s and only 6 of those
+        --   calls could land at all — the rest sit past the ~2-tile band, and
+        --   the retry then spent another 9 s firing at them from the same pose.
+        --   Those cells are the blocks' job, so spend no round trip on them.
+        --   No field frame, or no readable cell position, is NO filter: an
+        --   unreadable reach must never skip a call (rule 7).
+        local function reachable(list)
+            if not (baseCF and baseSize and att) then return list, 0 end
+            local pts = cellsAtStage(field, stage, baseCF, baseSize)
+            if not pts then return list, 0 end
+            local bx, bz = att.Position.X, att.Position.Z
+            local r2 = spudFieldReach * spudFieldReach
+            local keep, dropped = {}, 0
+            for _, p in ipairs(pts) do
+                if not p.id then return list, 0 end
+                local dx, dz = p.X - bx, p.Z - bz
+                if dx * dx + dz * dz <= r2 then
+                    keep[#keep + 1] = p.id
+                else
+                    dropped += 1
+                end
+            end
+            table.sort(keep)
+            return keep, dropped
+        end
+        local near, far = reachable(ids)
+        if #near == 0 and far > 0 then
+            log(string.format("remote %s: %d cell(s) need it but none is within %d studs of the blade — going straight to the blocks",
+                job.verb, before, spudFieldReach))
+            return true, before, false
+        end
+        for _, id in ipairs(near) do
             if stopping() then break end
             if budget and (sent + threw) >= budget then
                 dry = true
@@ -2902,10 +2940,11 @@ local okBuild, errBuild = pcall(function()
         --   the point, so the remaining ids get one more honest attempt.
         if left and left > 0 and not dry then
             local again = spudFieldCellIds(field, stage)
-            if again and #again > 0 then
-                log(string.format("remote %s: %d cell(s) still need it — one retry of just those",
-                    job.verb, #again))
-                for _, id in ipairs(again) do
+            local nearAgain = again and reachable(again) or nil
+            if nearAgain and #nearAgain > 0 then
+                log(string.format("remote %s: %d cell(s) still need it — one retry of the %d in reach",
+                    job.verb, #again, #nearAgain))
+                for _, id in ipairs(nearAgain) do
                     if stopping() then break end
                     if spudFieldRemoteCall(job.verb, field, id, att) then
                         sent += 1
@@ -6415,7 +6454,7 @@ local okBuild, errBuild = pcall(function()
         --   any cell the server did not take is still driven by the sweep
         --   below, so this can only add speed, never skip work.
         if need0 and need0 > 0 then
-            local done, left, dry = spudFieldRemotePass(job, field, impl)
+            local done, left, dry = spudFieldRemotePass(job, field, impl, baseCF, baseSize)
             st0 = countStages(field) or st0
             need0 = st0 and whichNeed(job, st0) or need0
             if done and left == 0 then
@@ -12333,6 +12372,10 @@ local okBuild, errBuild = pcall(function()
             pcall(function() spudFpsConn:Disconnect() end)
             spudFpsConn = nil
         end
+        if spudAfkConn then
+            pcall(function() spudAfkConn:Disconnect() end)
+            spudAfkConn = nil
+        end
         pcall(function() Fluent:Destroy() end)
         pcall(function() -- fallback: Fluent's own ScreenGui, in case Destroy doesn't exist
             local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
@@ -12522,6 +12565,51 @@ local okBuild, errBuild = pcall(function()
             scanFieldsReport()
         end
     end)
+
+    -- ▸ ANTI-AFK (owner 2026-11-02: "add a anti afk that is on be default
+    --   please so we dont discornnedt while im sleeping"). Roblox marks a
+    --   client away after ~20 min of no input and the server drops it, and a
+    --   Cabbage field grows for an hour with nobody pressing anything — the run
+    --   dies at the growth wait. This sends an input the game has no binding
+    --   for, so the session stays awake without touching the farm.
+    --   ON by default and remembered. ScrollLock is the press (no context
+    --   action in this game uses it) and the 1-pixel mouse move is the belt:
+    --   whichever one the client counts as activity, the idle timer restarts.
+    spudAntiAfk = (spudSavedAntiAfk == nil) or (spudSavedAntiAfk == true)
+    function spudAfkNudge()
+        local VIM = game:GetService("VirtualInputManager")
+        pcall(function()
+            VIM:SendKeyEvent(true, Enum.KeyCode.ScrollLock, false, game)
+            VIM:SendKeyEvent(false, Enum.KeyCode.ScrollLock, false, game)
+        end)
+        pcall(function() VIM:SendMouseMoveEvent(1, 1, false) end)
+    end
+    Tabs.Settings:CreateToggle("antiAfk", {
+        Title = "Anti-AFK",
+        Default = spudAntiAfk,
+        Callback = function(on)
+            spudAntiAfk = on == true
+            spudSavedAntiAfk = spudAntiAfk -- survives a reload
+            log("anti-afk: " .. (spudAntiAfk and "on — a press every 45 s keeps this session awake" or "off"))
+        end,
+    })
+    task.spawn(function()
+        while spudAlive() do
+            task.wait(40 + math.random() * 10)
+            if not spudAlive() then break end
+            if spudAntiAfk then spudAfkNudge() end
+        end
+    end)
+    pcall(function()
+        spudAfkConn = LocalPlayer.Idled:Connect(function()
+            if not spudAntiAfk then return end
+            spudAfkNudge()
+            log("anti-afk: the game flagged this session idle — input sent")
+        end)
+    end)
+    if spudAntiAfk then
+        log("anti-afk: on — a press every 45 s keeps this session awake")
+    end
 
     -- ▸ FPS METER (user: "im still on 8-9 fps so something is eating my fps
     --   big time"). NOTHING in this script runs every frame except this one
