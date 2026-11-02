@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.114 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.115 ·
   fluent gui` (`VERSION`, line 15). ≈12.3k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 29/29 checks on v1.114
+python tools/run_all.py        # 29/29 checks on v1.115
 ```
 
-Last full run (v1.114): **29/29 checks passed** (26 harnesses + 3 gates).
+Last full run (v1.115): **29/29 checks passed** (26 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -1792,7 +1792,14 @@ same way — `FNCFillSeeder` first, V second, the seeder's count rising as the
 only proof. The crate stays **in hand** rather than being put down, because
 FillSeeder consumes the crate you are holding.
 
-**Where it stands:** `rebuild v1.114 · fluent gui`, whole suite green (29/29),
+**A crate you own on the plot is seed too (v1.115).** Owner: *"i also wnat it
+to see if i have that seed in my plot so it usees it"*. The hand check grew into
+a hands-and-owned scan in one pass over `Objects.DraggableObjects`: a crate whose
+`Configurations.Owner` is you and whose seed is the picked one counts as already
+bought, nearest first, and the trip teleports to it, drops whatever else is in
+hand, carries it and pours it into the seeder — no shop trip, no coins.
+
+**Where it stands:** `rebuild v1.115 · fluent gui`, whole suite green (29/29),
 harness verified. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the

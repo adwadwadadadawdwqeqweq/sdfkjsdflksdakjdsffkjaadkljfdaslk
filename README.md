@@ -161,10 +161,10 @@ Everything merged into one paste-and-run file:
   emptying, the tank dropping (sell) and the balance or crate count moving
   (buy). A call that does not land falls back to the old F/X/E/Q/UI path in the
   same step, and three misses switch that one call off for the session. **A seed
-  already in hand is never bought again**: a crate an interrupted trip left
-  carried is read from its own `Configurations.CurrentHolder`, and when it is the
-  picked seed the trip skips the shop entirely and pours that crate into the
-  seeder. After a
+  you already have is never bought again**: a crate an interrupted trip left
+  carried is read from its own `Configurations.CurrentHolder`, and a crate you
+  own (its `Configurations.Owner` is you) is read anywhere on the plot, nearest
+  first — either one skips the shop entirely and is poured into the seeder. After a
   seed is bought the **shop menu is closed** on the way out: the open menu is
   read from `GuiViews.Menus`, its own close control is clicked inside it, the
   result is re-read, and F is only the fallback — so the UI does not stay up

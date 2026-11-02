@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.114 · fluent gui"
+local VERSION    = "rebuild v1.115 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -3609,7 +3609,12 @@ local okBuild, errBuild = pcall(function()
         --   is already paid for, and buying again stacks a second crate. The
         --   hands are read from the crate's own Configurations.CurrentHolder, so
         --   a matching crate goes to the seeder with no shop trip at all.
-        local heldModel, heldSeed
+        -- ▸ AND YOUR OWN CRATE ON THE PLOT COUNTS TOO (owner 2026-11-01: "i
+        --   also want it to see if i have that seed in my plot so it uses it").
+        --   A crate whose Configurations.Owner is you is already bought — it is
+        --   read here, nearest first, so the trip uses it instead of spending
+        --   coins on a second one.
+        local heldModel, heldSeed, ownModel, ownSeed, ownPart, ownDist
         local objects = workspace:FindFirstChild("Objects")
         local dobjs = objects and objects:FindFirstChild("DraggableObjects")
         if dobjs then
@@ -3617,10 +3622,17 @@ local okBuild, errBuild = pcall(function()
                 local cfg = m:FindFirstChild("Configurations")
                 local chv = cfg and cfg:FindFirstChild("CurrentHolder")
                 local okh, who = pcall(function() return chv and chv.Value end)
+                local seedM = crateSeedType(m)
+                local p = m:FindFirstChildWhichIsA("BasePart", true)
                 if okh and who == LocalPlayer then
-                    heldModel = m
-                    heldSeed = crateSeedType(m)
-                    break
+                    heldModel, heldSeed = m, seedM
+                elseif seedM and p and seedM:lower() == seedName:lower() then
+                    local ov = cfg and cfg:FindFirstChild("Owner")
+                    local oko, ownerV = pcall(function() return ov and ov.Value end)
+                    local dist = (p.Position - root.Position).Magnitude
+                    if oko and ownerV == LocalPlayer and (not ownDist or dist < ownDist) then
+                        ownModel, ownSeed, ownPart, ownDist = m, seedM, p, dist
+                    end
                 end
             end
         end
@@ -3628,6 +3640,19 @@ local okBuild, errBuild = pcall(function()
             log(string.format("seed crate: already holding a %s crate from an earlier trip (%s) — not buying another, filling the seeder with it",
                 heldSeed, heldModel:GetFullName()))
             return seedCrateIntoSeeder(heldModel)
+        end
+        if ownModel then
+            log(string.format("seed crate: you already own a %s crate %.0f studs away (%s) — using it instead of buying one",
+                ownSeed, ownDist, ownModel:GetFullName()))
+            if carrying() then
+                log("seed crate: dropping what is in hand first")
+                spudDropRemote()
+                task.wait(0.8)
+            end
+            setStage("seed trip: tp to your own " .. tostring(seedName) .. " crate")
+            tpChar(ownPart.Position)
+            task.wait(1.0)
+            return seedCrateIntoSeeder(ownModel)
         end
         local pos, where = findSeedShop()
         if not pos then
