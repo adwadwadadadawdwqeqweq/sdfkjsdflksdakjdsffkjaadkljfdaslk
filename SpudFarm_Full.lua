@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.121 · fluent gui"
+local VERSION    = "rebuild v1.122 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5267,18 +5267,23 @@ local okBuild, errBuild = pcall(function()
     -- ▸ THE ARC HOP (user: "make the harvester use arch tween thing to go to and
     --   back from the sell"). A flat slide reads as a teleport glued to the
     --   ground; this lifts the ride on a sine arc — highest in the middle —
-    --   while it covers the distance. The landing is the HIGHER of the two
-    --   heights: user: "when the harvester is coming back … it should drop from
-    --   higher, because right now it is coming from under". It used to keep the
-    --   TAKEOFF height at both ends, so a return leg from the lower Fulfillment
-    --   pad flew the whole way under the field and only surfaced at the end.
-    --   A trip down (pad below the field) still lands at the takeoff height,
-    --   which is where the ride left the ground.
+    --   while it covers the distance.
+    --
+    --   ▸ IT LANDS AT THE TARGET'S OWN HEIGHT (v1.122). It used to land at
+    --   max(takeoff, target), which was the fix for the RETURN leg from the
+    --   lower pad (the ride flew the whole way under the field and only
+    --   surfaced on the last frame). The same max() silently broke the OUTBOUND
+    --   leg: the Fulfillment pad sits at Y 138 and the fields at 166-172, so a
+    --   "park on the pad" trip ended 28-34 studs ABOVE it (live: `arc hop: 837
+    --   studs … (Y 166 → 166)` next to a marker at Y 138, load 50 → 50) — the
+    --   harvester never touched the pad it was sent to park on. Landing is the
+    --   target's height, full stop; the lift below is always enough to clear
+    --   both ends, so the arrival is from above and never from under.
     local function hopTo(tr, target, speed)
         speed = speed or SELL_HOP_SPEED
         local cf = tr:GetPivot()
         local from = cf.Position
-        local toY = target.Y and math.max(from.Y, target.Y) or from.Y
+        local toY = target.Y or from.Y
         local to = Vector3.new(target.X, toY, target.Z)
         local rot = cf - cf.Position -- heading only, zero position
         local flat = Vector3.new(to.X - from.X, 0, to.Z - from.Z)
@@ -5332,6 +5337,14 @@ local okBuild, errBuild = pcall(function()
         if type(cur) ~= "number" or type(max) ~= "number" or max <= 0 then return false end
         if cur >= max then return true end
         return type(need) == "number" and need > 0 and (max - cur) < need
+    end
+
+    -- ▸ THE PAD'S COORDINATES, FROM THE OWNER'S OWN DUMP (2026-10-30):
+    --   Deposit_Warehouse at -353,138,-90. Not a guess — a measurement. Kept as
+    --   a function because that is the unit the harness slices, so the numbers
+    --   are pinned by dropoff_test.py instead of drifting into a stale comment.
+    function spudFulfillPadSpot()
+        return Vector3.new(-353, 138, -90)
     end
 
     -- the Fulfillment pad, read from the world — never a guessed position.
@@ -5536,6 +5549,23 @@ local okBuild, errBuild = pcall(function()
                 task.wait(1.2)
                 spots = sellMode and findSellSpots() or spudFulfillSpots()
             end
+        end
+        if #spots == 0 and not sellMode then
+            -- ▸ NO PAD INSTANCE IS NO REASON TO LEAVE THE CROP IN THE TANK. The
+            --   owner measured the Fulfillment pad in his own dump (see
+            --   spudFulfillPadSpot), and Fulfillment is a place to PARK: the pad
+            --   drains a parked harvester by itself, with no call and no key
+            --   (v1.41). So a position alone is enough, and the trip goes there
+            --   instead of skipping the unload and leaving 50 ripe cells
+            --   standing. Logged as the remembered spot, because a park that
+            --   fails here is a different fact from one that failed at an
+            --   instance the game actually handed us.
+            local pad = spudFulfillPadSpot()
+            spots = { { p = pad, store = "Fulfillment", part = nil,
+                what = string.format("remembered Fulfillment pad (%.0f, %.0f, %.0f)",
+                    pad.X, pad.Y, pad.Z) } }
+            log(string.format("fulfillment: no pad instance is readable — parking on the probed spot (%.0f, %.0f, %.0f) instead",
+                pad.X, pad.Y, pad.Z))
         end
         if #spots == 0 then
             log("⚠ no " .. dest .. " pad found (not even after a store hop) — unload skipped")

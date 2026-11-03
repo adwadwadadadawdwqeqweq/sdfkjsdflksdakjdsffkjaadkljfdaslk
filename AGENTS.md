@@ -8,8 +8,8 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.121 ·
-  fluent gui` (`VERSION`, line 15). ≈12.4k lines.
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.122 ·
+  fluent gui` (`VERSION`, line 15). ≈12.5k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
   `luau-analyze.exe`).
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 31/31 checks on v1.121
+python tools/run_all.py        # 31/31 checks on v1.122
 ```
 
-Last full run (v1.121): **31/31 checks passed** (28 harnesses + 3 gates).
+Last full run (v1.122): **31/31 checks passed** (28 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -162,7 +162,7 @@ Last full run (v1.121): **31/31 checks passed** (28 harnesses + 3 gates).
 | `herd_arm_test.py` | Arming a cow is fast when the menu is up, and the no-menu timeout is bounded. |
 | `herd_order_test.py` | Cows nearest the barn go first; a dirty free stall is skipped and an all-dirty barn arms nobody. |
 | `herd_send_test.py` | The wrong-barn regression: no fallback to a stranger's `AutoWoodenBarn`. |
-| `hop_test.py` | The arc hop's landing height: a return leg from the lower pad lands ON the field (never keeps the pad's height, which flew it under the ground), a trip down still lands at the takeoff height, the arc clears the landing by ~12 studs and arrives from above, a level hop stays level, a missing target Y keeps the takeoff height, a zero-length hop is one move, and stopping aborts without landing. |
+| `hop_test.py` | The arc hop's landing height: **the landing is the target's own height** (v1.122), so a return leg from the lower pad lands ON the field and a trip *down* to the pad lands ON the pad instead of hovering 28 studs above it; the arc clears the landing by ~12 studs and arrives from above in both directions, a level hop stays level, a target with no Y keeps the takeoff height, a zero-length hop is one move, and stopping aborts without landing. |
 | `milk_arrivals_test.py` | The arrival wait watches stall `Occupant` values and scans a handful of times, not five times a second. |
 | `farm_width_test.py` | Working width and row plan: studs→tiles rounding, oriented-box union width, rotated bars, 1/2/3-wide plans (step, headland, row half-extent) and an interval-coverage proof on 100/200-stud and narrow fields; owner match rules. |
 | `equip_owner_test.py` | Whose tractor/tool is picked: the farm being worked first, mine next, an unreadable owner after that, a stranger's never; stored machines are reported for spawning; the implement distance/basis stay honest. |
@@ -171,7 +171,7 @@ Last full run (v1.121): **31/31 checks passed** (28 harnesses + 3 gates).
 | `equip_remote_test.py` | The equipment remotes: the seven captured calls resolve on `Modules.Larry`; spawn/store are proven by `InStorage` (or a >100-stud move for a rebuilt spawn) and fall back to the UI when ignored; enter is proven by the seat; hitch/unhitch use the captured `Components.Hitchable` + `Chassis.HitchableSocket` pair; carry/drop are proven by the hands; three misses switch one action off for the session. |
 | `row_steer_test.py` | The row decision in the wide band: `spudRowNeedsAlign` asks for ONE snap only past `spudRowAng` (15°) or `spudRowTol` (6 studs); `spudRowSteer` presses nothing inside the band; `spudRowEase` takes a step off the throttle after three steering flips (×0.7, floor 30 %) and gives one back per steady 3 s. |
 | `foreign_respawn_test.py` | `spudMayRespawn()` is false while a Farm owner is picked, and `ensureToolNearby` then never calls `respawnTool`: a stored or far-away tool is named and the pass is skipped, while `(mine)` still respawns. |
-| `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
+| `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). **No pad instance and no waypoint still unloads** (v1.122): the trip parks at `spudFulfillPadSpot()` — the `-353, 138, -90` the owner measured in his own dump — fires no sell call it has no part for, presses nothing, and logs the spot as remembered rather than as a world part. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
 | `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", the run's shop-trip cap is at least the seed pass's `refill N/3` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out — and a shelf price dearer than the balance blocks the **next** trip locally (unreadable price or balance blocks nothing; the gate must sit before the trip is counted). |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
 | `fulfill_probe_test.py` | The fulfillment probe's **company-order** sections on a fake tree: every order-named instance with its value tree, the board's text read from **PlayerGui as well as workspace**, what `Stores` holds, each seed crate's `Configurations`, one field cell's full key list, and the honest grow-time verdict — a cell with only `PlantGrowth`/`GrowthMultiplier` must **not** be called a readable duration. Also pins the probe's read-only claim (no key press, no `FireServer`/`InvokeServer`, no `CFrame`/`PivotTo`, no metatable hook) and that the report reaches the panel, the multiline box and the clipboard. |
@@ -542,15 +542,29 @@ values, and the full tank always ends in a real trip:
     first, then falls back to Q (menu) / E (confirm) after a 3 s grace.
   **The tank dropping is the only proof** a pad took the load, in both cases. A
   failed trip backs off 60 s and the harvest carries on with the load it has.
-- **The hop lands from above** (v1.42, user: *"when the harvester is coming back
-  from somewhere it should drop from higher, because right now it is coming
-  from under"*). `hopTo` used to keep the **takeoff** height at both ends, so
-  the return leg from the Fulfillment pad (~140) flew the whole way under the
-  field (~172) and only surfaced on the last frame. It now lands at
-  `max(takeoff, target.Y)`, and the arc's lift is raised so the peak clears that
-  landing by ~12 studs — the ride climbs and comes **down** onto it. A trip to a
-  lower pad is unchanged (takeoff height, as before). The log names both heights:
+- **The hop lands on the target's own height, from above** (v1.42 → v1.122).
+  `hopTo` used to keep the **takeoff** height at both ends, so the return leg
+  from the Fulfillment pad (~140) flew the whole way **under** the field (~172)
+  and only surfaced on the last frame. v1.42's fix was
+  `max(takeoff, target.Y)`, which cured that leg and quietly broke the other
+  one: the outbound trip to a lower pad kept the field height, so the ride
+  parked **28–34 studs above** the pad (live: `arc hop: 837 studs … (Y 166 →
+  166)` next to a marker at Y 138, `load 50 … coins 14459 → 14459` after 16 s).
+  It now lands at **`target.Y`** (a target with no height keeps the takeoff),
+  and the lift is always enough to clear both ends by ~12 studs, so every
+  arrival is a descent. The log names both heights:
   `arc hop: 412 studs, lifting 70 studs (Y 172 → 140)`.
+- **A pad that is not in the world is still a place to park** (v1.122, owner:
+  *"didnt i tell you the coords to do the fufillement"*). `Stores.DropOffs` is
+  empty in the live build and the world-walk has only ever turned up a goto
+  marker, so `sellHarvester` ends with `spudFulfillPadSpot()` — the
+  `-353, 138, -90` measured in the owner's own Fulfillment dump — as a
+  **park-only** spot (`part = nil`, so no sell call is fired at an imaginary
+  part, and Fulfillment needs no key: the pad drains a parked harvester by
+  itself, v1.41 rule). A position alone is enough for a contact trigger, and
+  "no pad instance" was never a good reason to leave 50 ripe cells in the tank.
+  The line says so: `fulfillment: no pad instance is readable — parking on the
+  probed spot (-353, 138, -90)`.
 - `SpudFulfillProbe.lua` reads the game's **live** offer billboards
   (`PCGP_ContextActions.Billboards`, with key + adornee), what the character is
   standing on, everything within 30 studs, `DropOffs` by distance, and nearby
@@ -859,7 +873,7 @@ UI/key fallbacks and the three-miss switch-off.
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
 | Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job**; the A* planner was deleted in v1.81 and the row driver in v1.82, so a field pass never touches a movement key |
 | Dirt line | global `milkDirtLine = 24`; `milkDirtHigh(spot)` (the single "is this dirty?" answer) |
-| Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** room less than the cells still standing), `spudFulfillSpots()` (Deposit_Warehouse top), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
+| Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** room less than the cells still standing), `spudFulfillSpots()` (Deposit_Warehouse top), `spudFulfillPadSpot()` (the dumped `-353,138,-90`, park-only fallback), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
 | Clean pass | pre-pass offer watch (0.96 s) → clean watch (2.2 s); per-cow clean `≤2.25 s` |
 | Herd | `milkHerdBatch(stalls, cows)`, `milkHerdTargets`, `milkHerdSend`, ordering nearest-barn-first, `milkHerdArm` |
 | Farm choice | `milkFarmReadyCount(who)`, `milkFarmSwitch(want, owner, readyHere, parkedHere)` |
@@ -2108,7 +2122,36 @@ was not touched, so `VERSION` stays at v1.121. **Harness green — the probe has
 been run in game**, and until its report comes back the order feature has no
 reader.
 
-**Where it stands:** `rebuild v1.121 · fluent gui`, whole suite green (31/31),
+**"what but in a earlier dump didnt i tell you the coords to do the
+fufillement?" (v1.122).** Correct, and the probe ask was the wrong ask: the
+Fulfillment pad's position has been in the record since the owner's v1.32-era
+dump (`Deposit_Warehouse` at **-353, 138, -90**, `Withdraw_Warehouse` at
+-286,138,-217). Reading the trip against those numbers exposed the real reason
+the park never drained, on top of the v1.121 marker bug: `hopTo` lands at
+`max(takeoff, target.Y)` (the v1.42 rule), the fields sit at Y 166–172 and the
+pad at 138, so **every** outbound unload trip parked the harvester 28–34 studs
+*above* the pad it was sent to — the live line `arc hop: 837 studs … (Y 166 →
+166)` next to a target at 138, `load 50 → 50, coins 14459 → 14459`. Two changes:
+the hop now lands at the **target's own height** (the lift formula already
+clears both ends by ~12 studs, so the arrival is still a descent, and the return
+leg from a lower pad is unaffected — it lands at the field either way), and
+`sellHarvester` finishes with `spudFulfillPadSpot()` as a **park-only** fallback
+(`part = nil`, so no `EVTSellAtStore` is fired at an imaginary part and no key is
+pressed — a Fulfillment pad drains a parked harvester by itself, v1.41), logged
+as `fulfillment: no pad instance is readable — parking on the probed spot
+(-353, 138, -90)`. `hop_test.py`'s "a trip down still lands at the takeoff
+height" check was the defect written down, so it is inverted (and its nil-Y case
+now passes a bare table, because `Vector3.new` coerces a nil Y to 0 and could
+never exercise the guard); `dropoff_test.py` gained 7 checks (the constant is the
+dumped coordinate, the trip parks there instead of skipping, no call fires
+without a part, the park stays key-free, the log names it as remembered). Suite
+**31/31**, headroom **10** (the new `local` is inside a function, not the build
+closure), name audit clean **345** (`spudFulfillPadSpot`). **Harness green — not
+yet reloaded in game**, and the verdict is one log line: `✅` a tank that drops
+while parked, or the honest `the pad didn't take it while parked` at the probed
+spot, which would mean the pad needs something other than contact.
+
+**Where it stands:** `rebuild v1.122 · fluent gui`, whole suite green (31/31),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner

@@ -228,17 +228,25 @@ Everything merged into one paste-and-run file:
   `drop-off 1/1: …`, then
   `✅ sold at …` or an honest `still full — none of the pads took the load`,
   after which the trip backs off 60 s and the harvest carries on. Every hop
-  lands at the **higher** of the two heights and arcs above it, so the trip
-  back from a lower pad drops down onto the field instead of flying under it.
+  lands at the **target's own height** and arcs ~12 studs above it, so it always
+  arrives as a descent: up onto the field from a lower pad, and **down onto the
+  pad** on the way there (v1.122 — the old "land at the higher of the two" rule
+  parked the harvester 28–34 studs above the Fulfillment pad, which sits at Y 138
+  under fields at 166–172, and a pad that drains by contact cannot drain
+  something floating over it).
   The store area only streams when you are near it, so a full tank out at the
   farm that finds **no pad at all** first hops the harvester to the waypoint
   the walk found (the warehouse marker ahead of FarmCo), waits for the pads to
   stream, and looks again (`no Fulfillment pad is streamed from here — arc hop
   to Ugc.Markers.GotoLocations.Warehouse, then looking again`); the trip
-  back still returns to the field. When even the walk finds nothing, the refusal
-  says so and **names what the world does hold** that sounds like a pad, with
-  each one's class and path, so the next run answers the shape instead of
-  guessing at it.
+  back still returns to the field. If even then no pad instance is readable the
+  unload is **not** skipped — the trip parks on the coordinates measured in the
+  owner's own dump, `-353, 138, -90` (`fulfillment: no pad instance is readable —
+  parking on the probed spot (-353, 138, -90)`), because Fulfillment needs a
+  *place*, not an object: parked, the pad empties the tank by itself, with no
+  call to fire and no key to press. A refusal still **names what the world does
+  hold** that sounds like a pad, with each one's class and path, so the next run
+  answers the shape instead of guessing at it.
   A tank with **less free space than there are cells still standing** counts
   as full (`spudHarvestFull`): 49/50 against 46 standing crops used to fire the
   one slot's call — refused, because the field corner is out of reach — and

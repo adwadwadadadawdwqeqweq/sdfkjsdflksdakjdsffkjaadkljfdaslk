@@ -5,12 +5,16 @@ higher, because right now it is coming from under."
 
 The hop used to keep the TAKEOFF height at both ends, so a return leg from the
 lower Fulfillment pad (top ~140) to the field (~172) flew the whole way under
-the field and only surfaced on the last frame. The rule now:
+the field and only surfaced on the last frame. v1.121 then parked a full tank
+"on" a pad 28 studs ABOVE it, because the fix (`max(takeoff, target)`) also kept
+the takeoff height on the OUTBOUND leg. The rule now:
 
-  * the landing height is max(takeoff, target) — a trip up lands ON the higher
-    target, a trip down still lands at the takeoff height (unchanged);
+  * the landing height is the TARGET's own height — a trip up lands ON the
+    higher target and a trip down lands ON the lower one, which is what
+    "park on the pad" has to mean for a pad that drains by contact;
   * the arc always clears the landing height by ~12 studs, so the ride comes
     DOWN onto it instead of arriving flat or from below;
+  * a target with no height keeps the takeoff height;
   * the log names both heights, so a live pass can be checked.
 
     python tools/hop_test.py [path-to-luau.exe]
@@ -103,13 +107,18 @@ check("return: x/z reach the target", moves[#moves].X == 100 and moves[#moves].Z
 check("return: the log names both heights", loggedText():find("Y 140 → 172") ~= nil,
     loggedText())
 
--- 2. a trip down keeps the old behaviour: the takeoff height is the landing
+-- 2. a trip down lands ON the lower target — this is the v1.121 bug: the ride
+--    parked "on" a Fulfillment pad with its wheels 28 studs above it, so the
+--    pad never drained and the harvest never restarted
 place(0, 172, 0)
 hopTo(ride, Vector3.new(100, 140, 0), 140)
-check("outbound: a lower target still lands at the takeoff height",
-    moves[#moves].Y == 172, tostring(moves[#moves].Y))
-check("outbound: the arc still clears the field", peak() >= 184,
+check("outbound: a lower target is the landing height",
+    moves[#moves].Y == 140, tostring(moves[#moves].Y))
+check("outbound: the arc still lifts off the field it leaves", peak() > 172,
     string.format("peak %.1f", peak()))
+check("outbound: it arrives at the pad from ABOVE",
+    moves[#moves - 2].Y > moves[#moves].Y,
+    string.format("%.1f -> %.1f", moves[#moves - 2].Y, moves[#moves].Y))
 
 -- 3. level ground stays level, and the arc still jumps
 place(0, 160, 0)
@@ -117,9 +126,10 @@ hopTo(ride, Vector3.new(200, 160, 0), 140)
 check("level: it lands level", moves[#moves].Y == 160)
 check("level: it still jumps", peak() > 180, string.format("peak %.1f", peak()))
 
--- 4. no height on the target keeps the takeoff height
+-- 4. no height on the target keeps the takeoff height (a bare table, because
+--    Vector3.new can only ever make a Y — a nil Y has to be passed as-is)
 place(0, 150, 0)
-hopTo(ride, Vector3.new(50, nil, 0), 140)
+hopTo(ride, { X = 50, Y = nil, Z = 0 }, 140)
 check("nil target Y: the takeoff height is kept", moves[#moves].Y == 150)
 
 -- 5. a zero-length hop is one move, no arc

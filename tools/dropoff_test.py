@@ -11,7 +11,12 @@ sell-board scan). Two things must hold:
     returns nothing (with a log line) when the folder is not streamed;
   * trySellAt presses NO key on the Fulfillment pad (the pad unloads a parked
     harvester by itself), while the Sell pads still try the captured call and
-    then Q/E, and the tank dropping is the only proof of either.
+    then Q/E, and the tank dropping is the only proof of either;
+  * when the world hands back NO pad instance and no waypoint, the trip still
+    parks at the coordinates the owner measured in his own dump
+    (spudFulfillPadSpot = -353,138,-90), because a position alone is enough for
+    a pad that drains by contact — and it never fires a sell call it has no part
+    for. A skipped unload is what leaves 50 ripe cells standing.
 
     python tools/dropoff_test.py [path-to-luau.exe]
 """
@@ -25,7 +30,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "SpudFarm_Full.lua"
-WANTED = ["spudSellNow", "spudHarvestFull", "spudFulfillSpots", "findSellSpots", "trySellAt", "sellHarvester"]
+WANTED = ["spudSellNow", "spudHarvestFull", "spudFulfillSpots", "findSellSpots", "trySellAt", "sellHarvester", "spudFulfillPadSpot"]
 
 PRE = r"""
 local V = {}
@@ -437,6 +442,35 @@ check("waypoint: the real pad then takes the load",
 check("waypoint: the trip back returns to the field",
     hops[#hops].X == 10 and hops[#hops].Z == 10,
     hops[#hops] and string.format("%.0f,%.0f", hops[#hops].X, hops[#hops].Z) or "no hop")
+
+-- 6h. no pad instance ANYWHERE and no waypoint either: the trip still goes to
+--     the probed coordinates (owner 2026-11-02: "didnt i tell you the coords to
+--     do the fufillement") — Fulfillment drains a parked harvester with no call
+--     and no key, so a position alone is enough, and skipping the unload is what
+--     leaves 50 ripe cells standing
+local padSpot = spudFulfillPadSpot()
+check("the remembered pad is the dumped coordinate",
+    padSpot.X == -353 and padSpot.Y == 138 and padSpot.Z == -90,
+    string.format("%.0f,%.0f,%.0f", padSpot.X, padSpot.Y, padSpot.Z))
+function spudFulfillSpots() return {} end
+function storeAnchors() return {} end
+tank, soldPad, remoteFired = 50, nil, 0
+hops, soldAt = {}, nil
+local okRemembered = sellHarvester(ride, nil, nil)
+check("remembered spot: the unload is not skipped", okRemembered == true)
+check("remembered spot: the hop goes to the probed coords, not to FarmCo",
+    hops[1] and hops[1].X == -353 and hops[1].Z == -90,
+    hops[1] and string.format("%.0f,%.0f", hops[1].X, hops[1].Z) or "no hop")
+check("remembered spot: it parks and fires NO sell call (no part to fire at)",
+    remoteFired == 0 and soldAt ~= nil and soldAt.pad == nil)
+check("remembered spot: the park is the auto pad (no key pressed)",
+    soldAt ~= nil and soldAt.autoPad == true)
+check("remembered spot: the log says the pad instance was unreadable",
+    loggedText():find("no pad instance is readable") ~= nil
+    and loggedText():find("probed spot") ~= nil)
+check("remembered spot: the trip names it as remembered, not as a world part",
+    soldAt ~= nil and soldAt.what:find("remembered Fulfillment pad") ~= nil,
+    soldAt and tostring(soldAt.what) or "no trip")
 
 -- 7. every sell spot carries the part the sell call fires at
 local gvNode = folder("GameplayVisuals", GRID)
