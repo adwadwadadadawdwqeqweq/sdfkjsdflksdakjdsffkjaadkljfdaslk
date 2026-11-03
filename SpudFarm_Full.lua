@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.125 · fluent gui"
+local VERSION    = "rebuild v1.126 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5335,8 +5335,8 @@ local okBuild, errBuild = pcall(function()
 
     -- ▸ WHERE A FULL HARVESTER UNLOADS (user: "make a option in the farm to
     --   either furfull or sell"). Farm tab → Drop-off picks the destination:
-    --   FULFILLMENT is the probed pad (Stores.DropOffs.Deposit_Warehouse at
-    --   -353,138,-90), SELL keeps the old crop sell-board scan. Both go
+    --   FULFILLMENT is the warehouse drop pad (the owner's own reading,
+    --   -353, 141, -92), SELL is the crop board (125, 142, -150). Both go
     --   through the same trip and the same judge — the tank dropping is the
     --   only proof a pad accepted the load.
     spudDropOff = spudSavedDropOff or "Fulfillment"
@@ -5358,12 +5358,28 @@ local okBuild, errBuild = pcall(function()
         return type(need) == "number" and need > 0 and (max - cur) < need
     end
 
-    -- ▸ THE PAD'S COORDINATES, FROM THE OWNER'S OWN DUMP (2026-10-30):
-    --   Deposit_Warehouse at -353,138,-90. Not a guess — a measurement. Kept as
-    --   a function because that is the unit the harness slices, so the numbers
-    --   are pinned by dropoff_test.py instead of drifting into a stale comment.
+    -- ▸ THE SPOTS THE OWNER STOOD ON AND MEASURED — 📍 Get coords, 2026-11-02.
+    --   These are the four unload/sell places in town, read by a character
+    --   standing on each one, so the Y is the deck a vehicle parks ON rather
+    --   than a part's centre. Kept as functions because that is the unit the
+    --   harness slices: the numbers are pinned by dropoff_test.py instead of
+    --   drifting into a stale comment.
+    --
+    --   Fulfillment was -353,138,-90 from the 2026-10-30 world dump (the
+    --   Deposit_Warehouse PART centre). The owner's standing reading agrees on
+    --   X exactly and is 3 studs higher / 2 further along Z — the same pad,
+    --   measured from the deck rather than from the block under it. The hop
+    --   lands at the target's own Y (v1.122), so the newer number is the one a
+    --   parked harvester wants.
     function spudFulfillPadSpot()
-        return Vector3.new(-353, 138, -90)
+        return Vector3.new(-353, 141, -92)
+    end
+
+    -- The crop sell board (FarmCo). The Sell drop-off normally reads the
+    -- boards out of the world; this is the same park-only insurance the
+    -- Fulfillment pad has, for a build that streams no board part.
+    function spudCropSellSpot()
+        return Vector3.new(125, 142, -150)
     end
 
     -- the Fulfillment pad, read from the world — never a guessed position.
@@ -5569,26 +5585,24 @@ local okBuild, errBuild = pcall(function()
                 spots = sellMode and findSellSpots() or spudFulfillSpots()
             end
         end
-        if #spots == 0 and not sellMode then
-            -- ▸ NO PAD INSTANCE IS NO REASON TO LEAVE THE CROP IN THE TANK. The
-            --   owner measured the Fulfillment pad in his own dump (see
-            --   spudFulfillPadSpot), and Fulfillment is a place to PARK: the pad
-            --   drains a parked harvester by itself, with no call and no key
-            --   (v1.41). So a position alone is enough, and the trip goes there
-            --   instead of skipping the unload and leaving 50 ripe cells
-            --   standing. Logged as the remembered spot, because a park that
-            --   fails here is a different fact from one that failed at an
-            --   instance the game actually handed us.
-            local pad = spudFulfillPadSpot()
-            spots = { { p = pad, store = "Fulfillment", part = nil,
-                what = string.format("remembered Fulfillment pad (%.0f, %.0f, %.0f)",
-                    pad.X, pad.Y, pad.Z) } }
-            log(string.format("fulfillment: no pad instance is readable — parking on the probed spot (%.0f, %.0f, %.0f) instead",
-                pad.X, pad.Y, pad.Z))
-        end
         if #spots == 0 then
-            log("⚠ no " .. dest .. " pad found (not even after a store hop) — unload skipped")
-            return false
+            -- ▸ NO PAD INSTANCE IS NO REASON TO LEAVE THE CROP IN THE TANK. The
+            --   owner stood on each spot and pressed 📍 Get coords (2026-11-02),
+            --   so both destinations have a measured address even when the world
+            --   streams no part to fire at. Fulfillment is a place to PARK: the
+            --   pad drains a parked harvester by itself, with no call and no key
+            --   (v1.41), so a position alone is enough there. The crop board is
+            --   the opposite — with no part there is nothing for
+            --   EVTSellAtStore, so the trip parks at the measured board and
+            --   trySellAt falls through to its Q/E menu path. Logged as the
+            --   remembered spot, because a park that fails here is a different
+            --   fact from one that failed at an instance the game handed us.
+            local pad = sellMode and spudCropSellSpot() or spudFulfillPadSpot()
+            spots = { { p = pad, store = dest, part = nil,
+                what = string.format("remembered %s spot (%.0f, %.0f, %.0f)",
+                    dest, pad.X, pad.Y, pad.Z) } }
+            log(string.format("%s: no pad instance is readable — parking on the measured spot (%.0f, %.0f, %.0f) instead",
+                dest:lower(), pad.X, pad.Y, pad.Z))
         end
         -- the 1-second watch is muted for the whole trip: the tank is STILL
         -- full while driving to the pad, and it must not abort that drive
@@ -13053,8 +13067,9 @@ local okBuild, errBuild = pcall(function()
         --   gives me coords and i can give them to you to put to sertant things
         --   like the furfill or sell"). Stand where the pad is, press it, and the
         --   number is on the clipboard and in the console — a spot the script
-        --   cannot read becomes a spot the owner measured, which is how the
-        --   Fulfillment pad got its -353, 138, -90 in the first place.
+        --   cannot read becomes a spot the owner measured. Its first use was the
+        --   four town spots in spudFulfillPadSpot / spudCropSellSpot, which
+        --   corrected the Fulfillment pad's Y off a part-centre dump.
         Title = "📍 Get coords",
         Callback = function()
             local ch = LocalPlayer.Character

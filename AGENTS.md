@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.125 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.126 ·
   fluent gui` (`VERSION`, line 15). ≈13k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 32/32 checks on v1.125
+python tools/run_all.py        # 32/32 checks on v1.126
 ```
 
-Last full run (v1.125): **32/32 checks passed** (29 harnesses + 3 gates).
+Last full run (v1.126): **32/32 checks passed** (29 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment the script contained a string with those three
@@ -178,7 +178,7 @@ exiting 0 is exactly what that scan exists to catch.
 | `equip_remote_test.py` | The equipment remotes: the seven captured calls resolve on `Modules.Larry`; spawn/store are proven by `InStorage` (or a >100-stud move for a rebuilt spawn) and fall back to the UI when ignored; enter is proven by the seat; hitch/unhitch use the captured `Components.Hitchable` + `Chassis.HitchableSocket` pair; carry/drop are proven by the hands; three misses switch one action off for the session. |
 | `row_steer_test.py` | The row decision in the wide band: `spudRowNeedsAlign` asks for ONE snap only past `spudRowAng` (15°) or `spudRowTol` (6 studs); `spudRowSteer` presses nothing inside the band; `spudRowEase` takes a step off the throttle after three steering flips (×0.7, floor 30 %) and gives one back per steady 3 s. |
 | `foreign_respawn_test.py` | `spudMayRespawn()` is false while a Farm owner is picked, and `ensureToolNearby` then never calls `respawnTool`: a stored or far-away tool is named and the pass is skipped, while `(mine)` still respawns. |
-| `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). **No pad instance and no waypoint still unloads** (v1.122): the trip parks at `spudFulfillPadSpot()` — the `-353, 138, -90` the owner measured in his own dump — fires no sell call it has no part for, presses nothing, and logs the spot as remembered rather than as a world part. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
+| `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). **No pad instance and no waypoint still unloads** (v1.122, both picks since v1.126): the trip parks at the owner's 📍 Get coords readings — `spudFulfillPadSpot()` = `-353, 141, -92` and `spudCropSellSpot()` = `125, 142, -150` — fires no sell call it has no part for, and logs the spot as remembered rather than as a world part. Fulfillment presses **nothing** (auto pad); the remembered **Sell** board must keep `autoPad` false so `trySellAt`'s Q/E menu path still runs there, which is pinned. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
 | `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", the run's shop-trip cap is at least the seed pass's `refill N/3` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out — and a shelf price dearer than the balance blocks the **next** trip locally (unreadable price or balance blocks nothing; the gate must sit before the trip is counted). |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
 | `fulfill_probe_test.py` | The fulfillment probe's **company-order** sections on a fake tree: every order-named instance with its value tree, the board's text read from **PlayerGui as well as workspace**, what `Stores` holds, each seed crate's `Configurations`, one field cell's full key list, and the honest grow-time verdict — a cell with only `PlantGrowth`/`GrowthMultiplier` must **not** be called a readable duration. Also pins the probe's read-only claim (no key press, no `FireServer`/`InvokeServer`, no `CFrame`/`PivotTo`, no metatable hook) and that the report reaches the panel, the multiline box and the clipboard. |
@@ -499,8 +499,9 @@ values, and the full tank always ends in a real trip:
   `remote harvest: the tank has N free slot(s) …` instead of reusing the
   seeder's wording.
 - **Fulfillment** → `spudFulfillSpots()` reads `Stores.DropOffs` and prefers
-  `Deposit_Warehouse` (the probed pad at -353,138,-90) over `Withdraw_Warehouse`
-  and the plain `DropOff`s, aiming at the pad's **top surface**.
+  `Deposit_Warehouse` (the owner's standing reading: `-353, 141, -92`) over
+  `Withdraw_Warehouse` and the plain `DropOff`s, aiming at the pad's **top
+  surface**.
   **That folder is empty in the live game** (v1.118, 2026-11-01: 0 children at
   the field and 0 children again after the 1,133-stud hop to the store — the
   same folder an older world dump called empty), so when it holds nothing one
@@ -564,14 +565,34 @@ values, and the full tank always ends in a real trip:
 - **A pad that is not in the world is still a place to park** (v1.122, owner:
   *"didnt i tell you the coords to do the fufillement"*). `Stores.DropOffs` is
   empty in the live build and the world-walk has only ever turned up a goto
-  marker, so `sellHarvester` ends with `spudFulfillPadSpot()` — the
-  `-353, 138, -90` measured in the owner's own Fulfillment dump — as a
+  marker, so `sellHarvester` ends with `spudFulfillPadSpot()` — a
   **park-only** spot (`part = nil`, so no sell call is fired at an imaginary
   part, and Fulfillment needs no key: the pad drains a parked harvester by
   itself, v1.41 rule). A position alone is enough for a contact trigger, and
   "no pad instance" was never a good reason to leave 50 ripe cells in the tank.
-  The line says so: `fulfillment: no pad instance is readable — parking on the
-  probed spot (-353, 138, -90)`.
+  **Both picks have one now** (v1.126): the numbers are the owner's 📍 Get
+  coords readings of 2026-11-02 — standing **on** each spot, so the Y is the
+  deck a vehicle parks on rather than a part's centre — and a Sell trip with no
+  board streamed anywhere no longer skips the unload, it parks at the crop
+  board and lets `trySellAt` use its Q/E menu path (a sell board is **not** an
+  auto pad, so `autoPad` stays false there). The line says which spot it used:
+  `fulfillment: no pad instance is readable — parking on the measured spot
+  (-353, 141, -92)`.
+- **The four town spots the owner measured (2026-11-02, 📍 Get coords).** These
+  are in-world positions read by standing on them, and they are the fallback
+  addresses for anything the script cannot stream:
+
+  | Spot | Position | What uses it |
+  |---|---|---|
+  | Fulfillment (warehouse drop pad) | `-353, 141, -92` | `spudFulfillPadSpot()` — the park-only Fulfillment fallback |
+  | Sell crops (FarmCo board) | `125, 142, -150` | `spudCropSellSpot()` — the park-only Sell fallback |
+  | Sell liquid | `86, 141, -288` | **no consumer yet** — the milk loop fills a carrier and only reports `store: <carrier> is FULL (n/m) — empty it or pick another`; a drain trip to this spot is the unbuilt half of that |
+  | Sell logs and planks (LumberCo) | `232, 141, -232` | **no consumer yet** — the script harvests no wood (§3.8 refuses tree soil outright) |
+
+  The old `-353, 138, -90` came from the `Deposit_Warehouse` **part centre** in
+  the owner's 2026-10-30 dump; the standing reading agrees on X exactly, so it
+  is the same pad, 3 studs higher and 2 along Z. The hop lands at the target's
+  own Y (§3.10), so the deck number is the one a parked harvester wants.
 - `SpudFulfillProbe.lua` reads the game's **live** offer billboards
   (`PCGP_ContextActions.Billboards`, with key + adornee), what the character is
   standing on, everything within 30 studs, `DropOffs` by distance, and nearby
@@ -980,7 +1001,9 @@ It reads `HumanoidRootPart.Position`, logs `(x, y, z)` rounded to whole studs an
 puts the same text on the clipboard (`coords: (…) — copied, paste it in the
 chat`, or the honest `the copy was refused, read it above`). Stand on a pad, press
 it, paste it here: that is how a spot the script cannot stream becomes a spot it
-can drive to.
+can drive to. Its first four readings (2026-11-02) are the table in §3.10 — and
+because a standing reading is the **deck**, not the part centre, it corrected the
+Fulfillment pad's Y from the dump's 138 to 141.
 
 ---
 
@@ -998,7 +1021,7 @@ can drive to.
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
 | Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job**; the A* planner was deleted in v1.81 and the row driver in v1.82, so a field pass never touches a movement key |
 | Dirt line | global `milkDirtLine = 24`; `milkDirtHigh(spot)` (the single "is this dirty?" answer) |
-| Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** room less than the cells still standing), `spudFulfillSpots()` (Deposit_Warehouse top), `spudFulfillPadSpot()` (the dumped `-353,138,-90`, park-only fallback), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
+| Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** room less than the cells still standing), `spudFulfillSpots()` (Deposit_Warehouse top), `spudFulfillPadSpot()` (the measured `-353,141,-92`, park-only fallback), `spudCropSellSpot()` (the measured `125, 142, -150` crop board, park-only fallback for the Sell pick), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
 | Early harvest | globals `spudEarlyCut` (**on**, remembered in `spudSavedEarlyCut`) and `spudCutWatch` (the wait's spin guard); the one predicate `grownStage(s)` (v1.125, §3.14) read by `whichNeed`/`whichCells`/`spudFieldCellIds`/the census and by `waitForGrowth`, Settings toggle **Early harvest** |
 | Coordinates | Settings **📍 Get coords** (v1.125) — logs `(x, y, z)` from `HumanoidRootPart.Position` and copies the same text, so a pad the script cannot stream can still be named by the owner |
 | Clean pass | pre-pass offer watch (0.96 s) → clean watch (2.2 s); per-cow clean `≤2.25 s` |
@@ -2399,16 +2422,39 @@ the exit code and stderr now; every harness row still reads its stdout, because 
 harness printing `FAIL` and exiting 0 is exactly what that scan exists for. Also
 **📍 Get coords** (Settings), at the owner's ask: it logs and copies
 `(x, y, z)` from the character, so a pad the script cannot stream can still be
-named by somebody standing on it — which is how `-353, 138, -90` got into this
-file in the first place. Suite **32/32** (the new harness is auto-discovered),
-headroom **10** (no build-closure local: the pick and the spin guard are globals),
-name audit clean **347**. **Harness green — not reloaded in game**, and the first
-live run of the pick is the verdict: a field planted and cut inside one cycle, or
-the honest `early cut: N cell(s) still read cuttable after 2 restart(s) that took
-nothing`, which would mean the single cell the probe cut does not generalize to a
-whole field.
+named by somebody standing on it. Suite **32/32** (the new harness is
+auto-discovered), headroom **10** (no build-closure local: the pick and the spin
+guard are globals), name audit clean **347**. **Harness green — not reloaded in
+game**, and the first live run of the pick is the verdict: a field planted and cut
+inside one cycle, or the honest `early cut: N cell(s) still read cuttable after 2
+restart(s) that took nothing`, which would mean the single cell the probe cut does
+not generalize to a whole field.
 
-**Where it stands:** `rebuild v1.125 · fluent gui`, whole suite green (32/32),
+**The button's first four readings (v1.126).** The owner pressed **📍 Get coords**
+standing on each town spot and pasted all four:
+`furfullement=(-353, 141, -92)`, `sell crops=(125, 142, -150)`,
+`sell liquid=(86, 141, -288)`, `sell logs and planks=(232, 141, -232)`. Two of
+them are the addresses the unload trips have been missing: `spudFulfillPadSpot()`
+is now the standing reading (X agrees with the old part-centre dump exactly, so
+it is the same pad — 3 studs higher because a character stands *on* the deck, and
+the hop lands at the target's own Y), and a **Sell** pick with no board streamed
+anywhere no longer skips the unload — it parks at `spudCropSellSpot()` and lets
+`trySellAt` run its Q/E menu path there, because a sell board is **not** the
+auto-draining Fulfillment pad. That difference is pinned (`autoPad` must stay
+false on the remembered Sell spot), and the old check asserting
+`sell: no pad and no marker -> no sale, no hop` was the defect written down, so it
+is replaced by the trip. The other two readings have **no consumer**: the milk
+loop fills a liquid carrier and only reports `store: <carrier> is FULL — empty it
+or pick another` (a drain trip to `86, 141, -288` is the unbuilt half of that
+line), and the script harvests no wood at all (§3.8 refuses tree soil), so
+`232, 141, -232` is recorded in §3.10 rather than wired. Suite **32/32**, headroom
+**10**, name audit clean **348** (`spudCropSellSpot`). **Harness green — not
+reloaded in game**, and the verdict is one of the two `✅` lines: a tank that drops
+at the measured Fulfillment deck, or the honest
+`still full — none of the pads took the load`, which would mean the Y needs a few
+studs of tuning and only a live park can say how many.
+
+**Where it stands:** `rebuild v1.126 · fluent gui`, whole suite green (32/32),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
@@ -2441,7 +2487,9 @@ waiting`, then a harvest pass that takes them), or the honest
 which would mean the single tile **Grow now** cut does not generalize to a whole
 field. **📍 Get coords** is the other new line: press it standing on a pad and
 paste the `(x, y, z)` here, and a spot the script cannot stream becomes one it
-can drive to.
+can drive to — the owner did exactly that (v1.126), so both drop-off picks now
+have a measured park address and the Fulfillment deck is at the standing height
+rather than the part centre.
 
 ---
 

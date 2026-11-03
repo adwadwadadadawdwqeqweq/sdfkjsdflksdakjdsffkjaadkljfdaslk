@@ -264,7 +264,8 @@ Everything merged into one paste-and-run file:
   arrives as a descent: up onto the field from a lower pad, and **down onto the
   pad** on the way there (v1.122 — the old "land at the higher of the two" rule
   parked the harvester 28–34 studs above the Fulfillment pad, which sits at Y 138
-  under fields at 166–172, and a pad that drains by contact cannot drain
+  (part centre) / 141 (the deck you stand on) under fields at 166–172, and a pad
+  that drains by contact cannot drain
   something floating over it).
   The store area only streams when you are near it, so a full tank out at the
   farm that finds **no pad at all** first hops the harvester to the waypoint
@@ -272,11 +273,15 @@ Everything merged into one paste-and-run file:
   stream, and looks again (`no Fulfillment pad is streamed from here — arc hop
   to Ugc.Markers.GotoLocations.Warehouse, then looking again`); the trip
   back still returns to the field. If even then no pad instance is readable the
-  unload is **not** skipped — the trip parks on the coordinates measured in the
-  owner's own dump, `-353, 138, -90` (`fulfillment: no pad instance is readable —
-  parking on the probed spot (-353, 138, -90)`), because Fulfillment needs a
-  *place*, not an object: parked, the pad empties the tank by itself, with no
-  call to fire and no key to press. A refusal still **names what the world does
+  unload is **not** skipped — the trip parks on the coordinates the owner stood
+  on and read with **📍 Get coords** (`-353, 141, -92` for Fulfillment,
+  `125, 142, -150` for the crop board — `sell: no pad instance is readable —
+  parking on the measured spot (…)`), because Fulfillment needs a *place*, not an
+  object: parked, the pad empties the tank by itself, with no call to fire and no
+  key to press. A Sell pick behaves the same way about the *place* but not about
+  the rest: a crop board is not an auto pad, so once it is parked there the
+  script still opens the sell menu (Q) and confirms it (E). A refusal still
+  **names what the world does
   hold** that sounds like a pad, with each one's class and path, so the next run
   answers the shape instead of guessing at it.
   A tank with **less free space than there are cells still standing** counts
