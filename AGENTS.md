@@ -8,13 +8,13 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.126 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.127 ·
   fluent gui` (`VERSION`, line 15). ≈13k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
   `luau-analyze.exe`).
 - Nothing here is a library or a build system. There is no bundler, no package
-  manager, no CI. Validation is a compile check plus twenty-nine harness scripts in
+  manager, no CI. Validation is a compile check plus thirty harness scripts in
   `tools/` (`python tools/run_all.py` runs the whole gate).
 
 ---
@@ -134,17 +134,17 @@ done
 PYTHONIOENCODING=utf-8 python tools/test_doctor.py
 ```
 
-All of these must exit 0 (27 `*_test.py` harnesses + `test_doctor.py`, which
+All of these must exit 0 (29 `*_test.py` harnesses + `test_doctor.py`, which
 does not match `*_test.py`). A plain `for` loop is **not** enough on its own:
 most harnesses print `FAIL` but still exit 0, so the output has to be read.
 The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 32/32 checks on v1.126
+python tools/run_all.py        # 33/33 checks on v1.127
 ```
 
-Last full run (v1.126): **32/32 checks passed** (29 harnesses + 3 gates).
+Last full run (v1.127): **33/33 checks passed** (30 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment the script contained a string with those three
@@ -181,6 +181,7 @@ exiting 0 is exactly what that scan exists to catch.
 | `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). **No pad instance and no waypoint still unloads** (v1.122, both picks since v1.126): the trip parks at the owner's 📍 Get coords readings — `spudFulfillPadSpot()` = `-353, 141, -92` and `spudCropSellSpot()` = `125, 142, -150` — fires no sell call it has no part for, and logs the spot as remembered rather than as a world part. Fulfillment presses **nothing** (auto pad); the remembered **Sell** board must keep `autoPad` false so `trySellAt`'s Q/E menu path still runs there, which is pinned. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
 | `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", the run's shop-trip cap is at least the seed pass's `refill N/3` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out — and a shelf price dearer than the balance blocks the **next** trip locally (unreadable price or balance blocks nothing; the gate must sit before the trip is counted). |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
+| `stall_stream_test.py` | The stall scan after a milk teleport, on a virtual clock: a pass that did **not** hop reads once and sleeps zero (the old behaviour), a pass that hopped re-reads until the game actually has stalls and hands those back, each try costs 0.25 s, the wait is **bounded** at 12 tries (3 s), Stop ends it between tries, the skipped count and the same plot/owner are carried through every re-read, and a barn that never streams is logged as **not streamed** (naming the farm, saying the plot reads, saying this is not "no barn") rather than as an empty answer. Plus the ties: `milkCycle` scans through `spudStallScan`, its two plot teleports each report whether they moved, and the timing stamp is taken after the scan. |
 | `fulfill_probe_test.py` | The fulfillment probe's **company-order** sections on a fake tree: every order-named instance with its value tree, the board's text read from **PlayerGui as well as workspace**, what `Stores` holds, each seed crate's `Configurations`, one field cell's full key list, and the honest grow-time verdict — a cell with only `PlantGrowth`/`GrowthMultiplier` must **not** be called a readable duration. Also pins the probe's read-only claim (no key press, no `FireServer`/`InvokeServer`, no `CFrame`/`PivotTo`, no metatable hook) and that the report reaches the panel, the multiline box and the clipboard. |
 | `test_doctor.py` | The in-script 🩺 DOCTOR report runs on stubbed world objects and reports, not crashes. |
 
@@ -313,6 +314,19 @@ billboard.
   (`store: leaving N non-free-range jug(s)`); the rest are left for selling.
 - 12 stalls per barn, herd batch typed 1–12, per-farm teleport to a remembered
   plot centre (plots stream out when far away).
+- **A plot is not its barn** (v1.127). `Workspace.Plots` is a folder of
+  lightweight models that stays in the world at any distance, so the milk pass
+  can read `desbiens1235 is 868 studs away - teleported to its plot` and 17 ms
+  later `no stall found for desbiens1235` — while the same pass counts 32 cows.
+  A barn is a full 3D building and streams with the camera, and `milkTp`'s 0.2 s
+  settle is the ~50 ms a CFrame needs to reach the **server**, not the seconds a
+  distant building takes to arrive. So `spudStallScan(owner, cf, size, hopped)`
+  re-reads until the game has stalls (0.25 s a try, **12 tries** = 3 s), and the
+  hop is what licenses the wait: a pass that did not teleport reads once and
+  sleeps zero, exactly as before. An answer that never comes is logged as
+  `still no stall after 3.0 s - <farm>'s plot reads but its barn has not
+  streamed in; this pass reads nothing here, which is not "no barn"` — rule 7,
+  never an empty list dressed up as an empty barn.
 - Arrival detection watches the plot's stall `Occupant` values (~30 reads over
   12 stall parts) and only scans when an un-milked cow turns up parked.
 
@@ -1028,6 +1042,7 @@ Fulfillment pad's Y from the dump's 138 to 141.
 | Herd | `milkHerdBatch(stalls, cows)`, `milkHerdTargets`, `milkHerdSend`, ordering nearest-barn-first, `milkHerdArm` |
 | Farm choice | `milkFarmReadyCount(who)`, `milkFarmSwitch(want, owner, readyHere, parkedHere)` |
 | Barn lock | name + position, resolved by spot — see `milkBarnLive` / `milkBarnFor` |
+| Stall scan | `milkStalls` (narrow walk + whole-map fallback), global `spudStallScan(owner, cf, size, hopped)` (the re-read that waits for a just-hopped barn to stream — §3.4); `milkFarmReadyCount` reads `milkStalls` directly, no wait, since it is looking at a farm it is NOT standing on |
 | Cow reads | `milkCows`, `milkOwnerOf`, `milkPercentOf`, `milkStateOf`, `milkDrops` |
 | Store | `milkStoreAmount`, `milkStoreDeposit`, `milkPollFor`, `milkFrame`; remotes `EVTRequestToCarry`, `EVTFillLiquidCarrier` (key path is the fallback) |
 | GUI | Fluent shell, RIGHT SHIFT, 📡 webhook, 🥔 overlay; `spud-gui-preview.html` is a browser mock |
@@ -2454,7 +2469,56 @@ at the measured Fulfillment deck, or the honest
 `still full — none of the pads took the load`, which would mean the Y needs a few
 studs of tuning and only a live park can say how many.
 
-**Where it stands:** `rebuild v1.126 · fluent gui`, whole suite green (32/32),
+**"i found a small bug, when the barns and cows are too far from where the player
+tps' it just stalls there" (v1.127).** The v1.125 console the owner pasted named
+the failure in two adjacent lines:
+
+```
+milk: desbiens1235 is 868 studs away - teleported to its plot
+milk: no stall found for desbiens1235 in 17 ms (0 skipped)
+0 stall(s) - 32 cow(s), 0 in a barn
+herd: 31 ready cow(s) LEFT in the field - the next cycle takes them
+milk: no dirty stall seen - next barn check in 60 s
+```
+
+**Root cause, from the code rather than a guess:** the plot branch of
+`milkCycle` teleports and then reads the stalls *once*. `Workspace.Plots` is a
+folder of lightweight models that stays replicated at any distance — that is why
+the plot was readable from 868 studs away at all — while a barn is a full 3D
+building inside `Objects.Buildings` that has to stream in around the camera. The
+only settle between the two reads was `milkTp`'s 0.2 s, which exists for the
+~50 ms a CFrame needs to reach the server (§11), not for area streaming, and the
+branch that *does* wait for streaming (the plot-not-found one, up to 4 s) never
+runs when the plot is the part that answered. So one pass concluded "no stalls",
+herded nothing because there was no stall to send cows into, milked nothing, and
+the loop rested 60 s — every 60 s repeating the same 17 ms read. The 32 cows in
+the same line are the proof the farm was full: **animals stay networked when
+buildings do not.**
+
+The fix is `spudStallScan(owner, cf, size, hopped)` (§3.4): the scan is asked
+again until the game answers with stalls, 0.25 s a try, **12 tries** — the scan
+is the signal, not a guessed sleep (§8), and the bound keeps a genuinely
+barn-less farm from costing more than 3 s a pass. The wait is licensed by the
+hop: `milkCycle` now keeps the teleport's own answer (`hopped = milkTp(…)`, both
+branches) and a pass that did not move reads once and sleeps zero, byte for byte
+the old behaviour. When the answer never comes the line says what it is —
+`still no stall after 3.0 s - desbiens1235's plot reads but its barn has not
+streamed in; this pass reads nothing here, which is not "no barn"` — rather than
+letting an empty list pose as an empty barn (§7). Stop ends the wait between
+tries, the skipped count and the same plot/owner are carried through every
+re-read, and the timing stamp moved to *after* the scan so the status line's
+`clean` is the clean and not the streaming wait. New
+`tools/stall_stream_test.py` (29 checks + 5 source ties) runs the real helper on
+a virtual clock. Suite **33/33**, headroom **10** (`local stallAt` is inside
+`milkCycle`, not the build closure; the helper is a global), name audit clean
+**349**. **Harness green — not reloaded in game**, and the verdict is one line in
+the next far-farm pass: `the barn streamed in 0.5 s after the hop - 12 stall(s)`
+followed by real clean/herd/milk work, or the honest not-streamed line, which
+would mean 3 s is not enough for that plot and the wait — not the diagnosis — is
+what needs changing. The Trailer / Equipment-Manager lines in the same dump were
+a test and are deliberately untouched.
+
+**Where it stands:** `rebuild v1.127 · fluent gui`, whole suite green (33/33),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
@@ -2489,7 +2553,10 @@ field. **📍 Get coords** is the other new line: press it standing on a pad and
 paste the `(x, y, z)` here, and a spot the script cannot stream becomes one it
 can drive to — the owner did exactly that (v1.126), so both drop-off picks now
 have a measured park address and the Fulfillment deck is at the standing height
-rather than the part centre.
+rather than the part centre. **v1.127's** milk verdict is the far-farm pass: after
+`teleported to its plot` the next line should be
+`the barn streamed in N s after the hop - K stall(s)` and then real clean / herd /
+milk work — not `no stall found … in 17 ms` with 32 cows standing.
 
 ---
 

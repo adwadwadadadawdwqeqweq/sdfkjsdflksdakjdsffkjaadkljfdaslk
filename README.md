@@ -627,6 +627,20 @@ the plot to stream back in, and when the plot is visible but we are more than 20
 studs away the pass jumps to it before reading anything (every other step already
 teleports to its own target, so the walk was the only slow part of a farm change).
 
+**A plot arriving does not mean the barn arrived.** The plot folder stays in the
+world at any distance (which is how a farm 868 studs away is readable at all), but
+a barn is a full 3D building and has to stream in around the camera, so the first
+stall scan after a hop used to answer `no stall found for <farm> in 17 ms` while
+the same pass counted 32 cows - and the loop then rested a minute doing nothing,
+because "no stalls" means nowhere to send the herd. After a teleport the scan is
+now asked again until the game actually has stalls (a quarter-second a try, up to
+3 s), because the scan itself is the signal rather than a guessed sleep. A pass
+that did not teleport still reads once and waits zero, exactly as before, and a
+barn that never shows is reported as **not streamed** - `this pass reads nothing
+here, which is not "no barn"` - instead of an unreadable farm being dressed up as
+an empty one. Measured with
+[tools/stall_stream_test.py](tools/stall_stream_test.py).
+
 Economy (per seed box = 50 crops, average prices): Wheat ≈3,000/hr … **Tomatoes
 ≈7,686/hr** (best field crop), Potatoes ≈7,500/hr, Cabbage ≈6,500/hr; Cocoa raw ≈5,625/hr
 but is meant for chocolate milk (S-tier); Pine logs ≈19,500/hr; Cypress logs ≈63,000/hr.

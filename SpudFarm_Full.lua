@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.126 · fluent gui"
+local VERSION    = "rebuild v1.127 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -9834,6 +9834,43 @@ local okBuild, errBuild = pcall(function()
         return kept, skipped + (tonumber(dropped) or 0)
     end
 
+    -- ▸ THE STALL SCAN, WITH THE WAIT A TELEPORT ACTUALLY NEEDS (owner
+    --   2026-11-02: "when the barns and cows are too far from where the player
+    --   tps' it just stalls there"). The live run named the whole failure in two
+    --   lines: `milk: desbiens1235 is 868 studs away - teleported to its plot`,
+    --   then 17 ms later `milk: no stall found for desbiens1235` while the SAME
+    --   pass counted 32 cows. `Workspace.Plots` is a folder of lightweight models
+    --   that stays in the world at any distance, so "the plot reads" never proves
+    --   that the BARN replicated — a barn is a full 3D building and streams with
+    --   the camera — and milkTp's 0.2 s settle is the ~50 ms a CFrame needs to
+    --   reach the server, not the seconds a distant building takes to arrive. So
+    --   after a teleport the scan is asked again until the game really has stalls
+    --   (the scan is the signal; no guessed sleep), bounded to 12 × 0.25 s, and an
+    --   answer that never comes is logged as NOT STREAMED rather than as "no
+    --   stalls", because 0 stalls after an 868-stud hop is a different fact from
+    --   a barn with none in it.
+    function spudStallScan(owner, cf, size, hopped)
+        local stallAt = os.clock()
+        local stalls, skipped = milkStalls(owner, cf, size)
+        if #stalls == 0 and hopped then
+            for _ = 1, 12 do
+                if milkStopping() then break end
+                task.wait(0.25)
+                stalls, skipped = milkStalls(owner, cf, size)
+                if #stalls > 0 then break end
+            end
+            local waited = os.clock() - stallAt
+            if #stalls > 0 then
+                log(string.format("milk: the barn streamed in %.1f s after the hop - %d stall(s)",
+                    waited, #stalls))
+            else
+                log(string.format("milk: still no stall after %.1f s - %s's plot reads but its barn has not streamed in; this pass reads nothing here, which is not \"no barn\"",
+                    waited, tostring(owner)))
+            end
+        end
+        return stalls, skipped, (os.clock() - stallAt) * 1000
+    end
+
     local function milkCows(wantOwner, cf, size, stalls)
         local objects = workspace:FindFirstChild("Objects")
         local folder = objects and objects:FindFirstChild("Animals")
@@ -12547,7 +12584,7 @@ local okBuild, errBuild = pcall(function()
             pcall(milkStoreRefresh, true)
         end
         local plot, plotsSeen = milkPlotOf(owner)
-        local cf, size
+        local cf, size, hopped
         if plot then cf, size = plot:GetBoundingBox() end
         -- ▸ REMEMBER WHERE EACH FARM IS, AND GO THERE (user: "i think it does
         --   not reach the farms by distance maybe make the character teleport
@@ -12571,12 +12608,12 @@ local okBuild, errBuild = pcall(function()
             if here and (cf.Position - here).Magnitude > 200 then
                 log(string.format("milk: %s is %d studs away - teleported to its plot",
                     tostring(owner), math.floor((cf.Position - here).Magnitude)))
-                milkTp(cf.Position + Vector3.new(0, 12, 0))
+                hopped = milkTp(cf.Position + Vector3.new(0, 12, 0))
             end
         else
             local spot = milkFarmSpot[spotKey]
             if spot then
-                milkTp(spot + Vector3.new(0, 12, 0))
+                hopped = milkTp(spot + Vector3.new(0, 12, 0))
                 log(string.format("milk: %s is not streamed in - teleported to its plot (%d, %d, %d) and waiting",
                     tostring(owner), math.floor(spot.X), math.floor(spot.Y), math.floor(spot.Z)))
                 for _ = 1, 8 do -- up to 4 s for the plot to come back
@@ -12594,10 +12631,13 @@ local okBuild, errBuild = pcall(function()
             end
         end
         -- the scan is logged with its own time: the narrow walk reads a dozen
-        -- parts, so a millisecond here and a hundred there is the whole story
+        -- parts, so a millisecond here and a hundred there is the whole story.
+        -- It goes through spudStallScan because a just-teleported pass reads an
+        -- area that has not streamed yet — see the comment on that function.
+        local stalls, skipped, stallMs = spudStallScan(owner, cf, size, hopped)
+        -- where the scan stopped, so the timing line's "clean" is the clean and
+        -- not the streaming wait that came before it
         local stallAt = os.clock()
-        local stalls, skipped = milkStalls(owner, cf, size)
-        local stallMs = (os.clock() - stallAt) * 1000
 
         -- ▸ 1. CLEAN FIRST. The user's rule is absolute: a dirty stall is
         --   cleaned before the loop does anything else at all.
