@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.129 · fluent gui"
+local VERSION    = "rebuild v1.130 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -636,23 +636,6 @@ local okBuild, errBuild = pcall(function()
         return ok and h ~= nil
     end
 
-    -- what the world actually holds, for an honest "none found" line: the next
-    -- run names the game's own type words instead of this build guessing them
-    function spudEquipHereText()
-        local folder = equipmentFolder()
-        local out, shown = {}, 0
-        for _, d in ipairs(folder and folder:GetChildren() or {}) do
-            if d:IsA("Model") and shown < 8 then
-                shown += 1
-                local t = equipTypeOf(d)
-                out[#out + 1] = d.Name .. "=" .. tostring(t ~= nil and t or "no type")
-                    .. (equipInStorage(d) and " (stored)" or "")
-            end
-        end
-        if #out == 0 then return "no machine readable in Objects.Equipment" end
-        return table.concat(out, ", ")
-    end
-
     -- ▸ WHOSE TOOL (user: "make it use the farm owners tools"): the probe
     --   proved every machine carries Configurations.Owner (ZM80/SRC6 =
     --   oksimba_1, LH150/MTS/UH = Miou2251). The farm being worked ranks
@@ -841,6 +824,27 @@ local okBuild, errBuild = pcall(function()
     local function equipmentFolder()
         local objects = workspace:FindFirstChild("Objects")
         return objects and objects:FindFirstChild("Equipment")
+    end
+
+    -- what the world actually holds, for an honest "none found" line: the next
+    -- run names the game's own type words instead of this build guessing them.
+    -- ▸ It is a GLOBAL so it costs no build-closure register, but that means it
+    --   only sees a `local` that is already declared above it — this sits here,
+    --   after equipmentFolder, precisely because the live v1.129 run died with
+    --   `642: attempt to call a nil value` when it was written 200 lines early.
+    function spudEquipHereText()
+        local folder = equipmentFolder()
+        local out, shown = {}, 0
+        for _, d in ipairs(folder and folder:GetChildren() or {}) do
+            if d:IsA("Model") and shown < 8 then
+                shown += 1
+                local t = equipTypeOf(d)
+                out[#out + 1] = d.Name .. "=" .. tostring(t ~= nil and t or "no type")
+                    .. (equipInStorage(d) and " (stored)" or "")
+            end
+        end
+        if #out == 0 then return "no machine readable in Objects.Equipment" end
+        return table.concat(out, ", ")
     end
 
     -- dump-confirmed: every equipment model carries an EquipmentType

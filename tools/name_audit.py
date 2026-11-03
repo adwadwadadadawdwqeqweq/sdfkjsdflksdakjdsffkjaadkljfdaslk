@@ -30,8 +30,43 @@ PATTERNS = [
 COUNTER = re.compile(r"^    [A-Za-z_]\w*\s*(\+=|-=|\*=|/=)")
 
 
+def later_local_calls(lines, seen):
+    """A global function that calls a `local` declared LATER in the file.
+
+    A 4-space `function NAME(...)` is a global assignment, so its body compiles
+    every identifier that is NOT already a visible local as a *global* lookup.
+    When that name only becomes a local further down, the global is nil at
+    runtime and the call is `attempt to call a nil value` - in the live v1.129
+    run, `spudEquipHereText` (line 641) calling `equipmentFolder` (line 841)
+    killed the farm loop at the seed check. The harness cannot see this: it
+    slices the function out and stubs the callee.
+    """
+    out = []
+    for n, line in enumerate(lines, 1):
+        m = re.match(r"^    function ([A-Za-z_]\w*)\s*\(", line)
+        if not m:
+            continue
+        j = n
+        while j < len(lines):
+            if re.match(r"^    (?:local )?function [A-Za-z_]", lines[j]) \
+                    or re.match(r"^    end\s*$", lines[j]):
+                break
+            j += 1
+        body = "\n".join(lines[n:j])
+        for call in sorted(set(re.findall(r"\b([A-Za-z_]\w*)\(", body))):
+            hits = seen.get(call, [])
+            # only a name whose top-level declarations are ALL locals, and whose
+            # earliest one comes after this global's own definition, is invisible
+            if not hits or any(not h[2] for h in hits):
+                continue
+            if min(h[0] for h in hits) > n:
+                out.append((m.group(1), n, call, min(h[0] for h in hits)))
+    return out
+
+
 def main() -> int:
-    lines = SRC.read_text(encoding="utf-8").splitlines()
+    src = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else SRC
+    lines = src.read_text(encoding="utf-8").splitlines()
     seen: dict[str, list[tuple[int, str, bool]]] = {}
     counters: dict[str, list[int]] = {}
 
@@ -61,6 +96,11 @@ def main() -> int:
     for name, where in sorted(counters.items()):
         if name not in seen:
             bad.append((name, [(w, "undeclared counter", False) for w in where]))
+
+    # a global that calls a local not yet in scope is a nil call at runtime
+    for gname, gline, lname, decl in later_local_calls(lines, seen):
+        bad.append((gname, [(gline, "calls local " + lname + " declared at line "
+                             + str(decl), False)]))
 
     if not bad:
         print(f"name audit: clean ({len(seen)} top-level names)")

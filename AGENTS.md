@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.129 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.130 ·
   fluent gui` (`VERSION`, line 15). ≈13k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -73,7 +73,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 
 13. **Luau's 200-local limit is real** (it was 2 away from the practical
     ceiling until the path engine was deleted in v1.81). Run
-    `python tools/local_budget.py`. As of v1.129:
+    `python tools/local_budget.py`. As of v1.130:
     `4-space locals before milkCycle: 179 (practical ceiling 185)`,
     whole body `186 / 200`, **headroom 6** (v1.129's four `*_STEMS` word tables
     are four build-closure locals — every other name the equipment rewrite
@@ -84,6 +84,12 @@ description — it is the long-form manual and it is kept in sync with behaviour
     `function milkDrops(...)` overwrote `milkDrops = {}` (the three farm
     dropdowns), so every later `milkDrops[slot]` indexed a function. Run
     `python tools/name_audit.py` before/after adding any global.
+    That gate now also reads **order**: a 4-space `function NAME(...)` is a
+    global, so its body sees only the `local`s declared **above** it, and the
+    live v1.129 run died with `642: attempt to call a nil value` when
+    `spudEquipHereText` (line 641) called `equipmentFolder` (line 841). No
+    harness can see that class of bug — it slices the function out and stubs the
+    callee — so the source tie in `name_audit.py` is the only guard.
 15. **The file must load first try.** A syntax error means the user sees a
     dead script; `SpudBoot.lua` exists so the error is at least visible.
 
@@ -143,10 +149,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 33/33 checks on v1.129
+python tools/run_all.py        # 33/33 checks on v1.130
 ```
 
-Last full run (v1.129): **33/33 checks passed** (30 harnesses + 3 gates).
+Last full run (v1.130): **33/33 checks passed** (30 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment the script contained a string with those three
@@ -191,7 +197,8 @@ Plus the two non-test gates:
 
 ```bash
 python tools/local_budget.py   # headroom must stay >= 1 (currently 6)
-python tools/name_audit.py     # no top-level name collisions (364 names)
+python tools/name_audit.py     # no top-level name collisions, and no global
+                               # that calls a `local` declared later (364 names)
 ```
 
 Measurement harnesses (run when you touch the thing they measure, quote the
@@ -2705,9 +2712,47 @@ in game**, and the verdicts are three lines: the harvester found by its
 `EquipmentType` word (not a name), a grid whose `took` is no longer gutted by a
 swinging plow, and a wide implement logging `6x6 per stop`.
 
-**Where it stands:** `rebuild v1.129 · fluent gui`, whole suite green (33/33),
+**"what did you do" — v1.129 killed the farm loop (v1.130).** The owner reloaded
+`83fcf93` in game and pasted the console twice; both runs died the same place,
+right after `— seed check —`, while the tractor spawned and stored cleanly
+around it:
+
+```
+✅ ZM80 respawned — it moved into the world
+equipment: Spawn ZM80 via spawn (no UI)
+— seed check —
+⚠ farming loop error: VLZaHJYekijBuWSfmfPhONRBw:642: attempt to call a nil value
+```
+
+**Root cause, read from the source rather than guessed:** the v1.129 helper
+`spudEquipHereText` is a 4-space `function NAME(...)`, which in Luau is a
+**global** assignment — so its body compiles every identifier that is not an
+already-visible `local` as a `_G` lookup. It called `equipmentFolder`, a
+`local function` declared 200 lines **below** it (line 841 vs 641), and at the
+moment of the call that name was not in the global table. Every other v1.129
+name was placed correctly, which is why the DOCTOR dump, the `EquipmentType`
+classification and the equipment remotes all worked while the seed check died.
+**No harness can see this class of bug:** the tests slice the function out of the
+file and stub the callee, so the upvalue order never exists.
+
+The fix is the relocation, not a new abstraction — `spudEquipHereText` now sits
+immediately after `local function equipmentFolder()` (824 → 835) with a comment
+naming this exact failure — plus a class-wide guard in `tools/name_audit.py`
+(`later_local_calls`): for every 4-space global function it collects the calls
+in its body and flags any name whose only declarations are `local`s that appear
+**later** in the file. Validated against the shipped build, where it prints
+`spudEquipHereText: line 641 calls local equipmentFolder declared at line 841`,
+and clean on the fixed file. Compile OK, suite **33/33**, headroom **6** (the
+move adds no build-closure local), name audit clean **364**. **Harness green —
+the fix itself is not yet reloaded in game**, and its verdict is one line: a run
+where `— seed check —` is followed by field work instead of
+`⚠ farming loop error`.
+
+**Where it stands:** `rebuild v1.130 · fluent gui`, whole suite green (33/33),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
-above). **Not yet reloaded in game** after v1.22–v1.46 — the next real
+above). **v1.129 was reloaded in game and crashed** (the ordering bug above), so
+every v1.129 behaviour verdict is still owed — the crash fix does not change
+behaviour, it only lets the loop reach the field. **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
 tool-width line (`tool KADL — 3-wide (…, 40 studs)`), the Farm owner picker
