@@ -250,6 +250,29 @@ Everything merged into one paste-and-run file:
   raised, the toast text and the visible buttons. It exists because the till
   answers *"You must place items on the counter to buy them"* and the buy has
   never landed.
+  **Company orders** is the evidence step for the auto-contract feature you asked
+  for, and it changes nothing. The design you approved picks the **easiest** order
+  by **seeding time and cost**, steers **only the next planting** (never rips out
+  what is growing) and unloads before replanting — but no run this script has ever
+  made has named a Company order in the world, and no run has ever printed a
+  crop's grow time, so writing the reader now would mean inventing both. One press
+  answers them instead: it walks the **whole map and your own PlayerGui** for any
+  name saying order / contract / request / company / cargo / shipment / goal / task
+  / reward, dumps each one it finds with its attributes and every value inside it
+  (crop, wanted count, how much is already in, the reward), prints the **words on
+  the order board** — which is a screen, so a workspace-only walk would never see
+  it — and lists every order-shaped remote in the game's own module with its class,
+  so a `RemoteFunction` and a `RemoteEvent` stop being the same question. It then
+  asks the game's config module whether a **grow time is readable at all**; if it
+  is not, the report says `NO client-side grow time is readable — the ranking would
+  have to run on cost alone`, which is a usable answer rather than a guessed
+  number. The one thing it does send over the network is a **getter**: only
+  `FNCGetOrderProgress` and `FNCGetAvailableBoxes`, only when the game actually has
+  them as a `RemoteFunction`, with your coin balance read **before and after** — if
+  a getter ever moves the wallet the report says so in the same lines, because then
+  no order call is a read. It presses no key, moves nothing and fires no event: no
+  `EVT…`, no `FNCAcceptOrder`. Zero results is reported as *"the board is
+  elsewhere from here"*, never as *"you have no orders"*.
   Every line is logged as `test:` and **Copy report** puts place id, build, player,
   the whole test run **and the last 60 farm-log lines** on the clipboard — so one
   press answers a farm question too. **Copy console** is the same clipboard

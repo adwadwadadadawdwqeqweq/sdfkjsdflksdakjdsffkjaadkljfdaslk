@@ -8,13 +8,13 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.137 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.138 ·
   fluent gui` (`VERSION`, line 15). ≈14k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
   `luau-analyze.exe`).
 - Nothing here is a library or a build system. There is no bundler, no package
-  manager, no CI. Validation is a compile check plus thirty-three harness scripts in
+  manager, no CI. Validation is a compile check plus thirty-four harness scripts in
   `tools/` (`python tools/run_all.py` runs the whole gate).
 
 ---
@@ -73,7 +73,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 
 13. **Luau's 200-local limit is real** (it was 2 away from the practical
     ceiling until the path engine was deleted in v1.81). Run
-    `python tools/local_budget.py`. As of v1.137:
+    `python tools/local_budget.py`. As of v1.138:
     `4-space locals before milkCycle: 180 (practical ceiling 185)`,
     whole body `187 / 200`, **headroom 5** (v1.129's four `*_STEMS` word tables
     are four build-closure locals — every name the equipment rewrite, the tow
@@ -88,7 +88,10 @@ description — it is the long-form manual and it is kept in sync with behaviour
     either: the liquid-deck trip is a global `function milkSellLiquidCarrier`
     (a 4-space assignment, so no register) beside two new globals
     (`spudLiquidSellSpot`, `spudLiquidDeckNear`), and its five helpers are
-    locals of its own prototype). Do **not**
+    locals of its own prototype. v1.138 spent **nothing** either: the order
+    probe is another `kind` **inside** the existing global `spudTestWork`, so
+    every one of its new names is a local of that function's own prototype and
+    the build closure never sees them). Do **not**
     add a `local` inside the main build closure. Reuse an existing local,
     convert the feature to a **global** (the established pattern), or
     restructure — and re-run the budget.
@@ -161,10 +164,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 36/36 checks on v1.137
+python tools/run_all.py        # 37/37 checks on v1.138
 ```
 
-Last full run (v1.137): **36/36 checks passed** (33 harnesses + 3 gates).
+Last full run (v1.138): **37/37 checks passed** (34 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment the script contained a string with those three
@@ -210,6 +213,7 @@ ghost build. |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
 | `stall_stream_test.py` | The stall scan after a milk teleport, on a virtual clock: a pass that did **not** hop reads once and sleeps zero (the old behaviour), a pass that hopped re-reads until the game actually has stalls and hands those back, each try costs 0.25 s, the wait is **bounded** at 12 tries (3 s), Stop ends it between tries, the skipped count and the same plot/owner are carried through every re-read, and a barn that never streams is logged as **not streamed** (naming the farm, saying the plot reads, saying this is not "no barn") rather than as an empty answer. Plus the ties: `milkCycle` scans through `spudStallScan`, its two plot teleports each report whether they moved, and the timing stamp is taken after the scan. |
 | `fulfill_probe_test.py` | The fulfillment probe's **company-order** sections on a fake tree: every order-named instance with its value tree, the board's text read from **PlayerGui as well as workspace**, what `Stores` holds, each seed crate's `Configurations`, one field cell's full key list, and the honest grow-time verdict — a cell with only `PlantGrowth`/`GrowthMultiplier` must **not** be called a readable duration. Also pins the probe's read-only claim (no key press, no `FireServer`/`InvokeServer`, no `CFrame`/`PivotTo`, no metatable hook) and that the report reaches the panel, the multiline box and the clipboard. |
+| `order_probe_test.py` | The **in-build** order probe (v1.138, §3.18) runs for real against three fake worlds, because the standalone probe needs a second executor script and that is how the v1.136 ghost build happened. Rich fixture: the order folder is found and its **full path printed with the `Workspace` root**, every attribute and descendant value dumped, the 16-descendant and 14-hit caps both say "N more … not shown" rather than silently stopping, a `ScreenGui` board label is read from PlayerGui, the `Modules.Larry` door list comes back, a grow-time module is found by **both** shapes (a table of tables and a `GetConfig()`), and the remembered shelf prices are printed. Bare fixture: nothing order-named is reported as **"the board is elsewhere"**, never as "no orders", and no grow time is answered as `NO client-side grow time is readable — the ranking would have to run on cost alone`. The ledger is the read-only claim: **zero** `FireServer`, **zero** key presses, **zero** `PivotTo`, and the two `InvokeServer` calls are exactly `FNCGetOrderProgress` and `FNCGetAvailableBoxes` — the allow-list is a literal in the source, so `FNCAcceptOrder` and `EVTRefreshOrders` are asserted present in the dump and **absent** from what is fired. A third fixture gives a getter that raises the coin balance and the run must say `the balance MOVED on a getter — treat every order call as a write, not a read`. Ties: the leg's own text mentions **no** `FireServer`, `pressKey`, `setkeypress`, `Mouse`, `PivotTo`, `CFrame`, `Teleport`, `HookFunction`, `getrawmetatable`, `hookmetamethod` or `SetPrimaryPartCFrame`; it folds names through the build's **`spudNameKey`** rather than a new rule; the allow-list is a literal of the two `FNCGet*` strings with **`FNCAcceptOrder` and `EVTRefreshOrders` absent from the leg entirely** (they live only in the fixture, so a future edit that widens the list trips the tie); and the walk records a hit **and still recurses** (`if why then` … `if depth < 8 then walk(c`). |
 | `test_doctor.py` | The in-script 🩺 DOCTOR report runs on stubbed world objects and reports, not crashes. Since v1.136 it also asserts the **session** line: the report carries the shared counter (`session 4`), an owning build is **not** called a ghost, a superseded one names itself `GHOST BUILD` while still printing the number it lost, and it stops claiming that when the token comes back (§3.16). |
 
 Plus the two non-test gates:
@@ -241,7 +245,13 @@ top-up** path have no harness (they need a fake carrier + dispenser); the
 `liquid_deck_test.py` since v1.137, but nothing in the suite proves the live deck
 drains a parked tanker, that the owner's `86, 141, -288` is still the sell-liquid
 spot, or which action that spot actually offers. The per-cow clean path is
-covered by `cow_in_stall_test.py`.
+covered by `cow_in_stall_test.py`. The **Company-order probe** (v1.138, §3.18)
+is covered on three fake worlds by `order_probe_test.py`, which proves the
+report shape and that nothing is written — but the whole point of the leg is to
+answer questions the fake worlds cannot answer: **where** an order instance
+actually lives, **what** it holds, whether `FNCGetOrderProgress` accepts no
+arguments here, and whether a grow time is client-readable at all. Those four
+are only knowable from one live press of **Tests → Company orders**.
 
 ### 2.4 Reading a live run from the emulator (no copy-paste)
 
@@ -1478,6 +1488,79 @@ still filling, no spawn-back of the carrier after the sale, and no drain attempt
 for a carrier that is only partly full (there is nothing to sell, and a
 half-empty tanker is still a valid destination for the next jug).
 
+### 3.18 The Company-order questions are asked from INSIDE the build
+
+The auto-contract feature is approved (owner 2026-11-03: *"you did say smth about
+making the auto contracs thigns, i want that tho"*) and its rules are on the
+record — **crops only**, pick the **easiest** order by **seeding time and cost**,
+*"if it dont got enough money to buy 1 single seed mox it skips and goes to a
+lower cost one"*, **only steer the next planting**, unload anything already in the
+tank **before** planting again, and *"try 5 more times then go to sell"*. What it
+cannot be written against is the data: **no dump has ever named the instance an
+order lives in**, and **no run has ever printed a per-crop grow time** (rule 4).
+`SpudFulfillProbe.lua` was written to answer that and has never been run — and
+running it means putting a **second script** in the executor, which is exactly how
+the v1.136 ghost build happened (two builds of one client driving one tractor).
+
+So the questions moved into the shipped build: **Tests → Company orders**
+(`spudTestWork("orders")`). Every line it prints goes through `spudTestSay` →
+`log()` → Roblox's CreatorOutput → **Android logcat**, so the report is readable
+with the single autostarted build running and no second executor tab. It answers,
+in order:
+
+1. **Where** anything order-shaped is, by name (`order / contract / request /
+   demand / company / cargo / freight / shipment / delivery / goal / task /
+   fulfill / reward / quota`, folded through `spudNameKey` so the game's own
+   spacing is not a special case). It walks `workspace` to depth 8 with a 20 000-node
+   budget, **recursing whether or not a node matched** — an order is normally the
+   *child* of an order-named folder, so stopping at the parent would hide the
+   shape the probe exists to report — and prints `CAP 20000 REACHED — this is not
+   the whole map` when it runs out (the v1.123 truncated-remote-list mistake, not
+   repeated). Zero matches is reported as *"that is not "no orders", it means the
+   board is elsewhere"* (rule 7), never as an empty game.
+2. **What** each hit holds: path, class, which word matched, its attributes, and
+   up to 16 descendants with their values (`ObjectValue`s print their target,
+   because an order that points at a field is a different reader than one that
+   points at nothing), plus the honest `more descendants on this one` and
+   `… N more order-named instance(s) not shown`.
+3. **The words the player can read** — `PlayerGui` is walked too, because a
+   `ScreenGui` board is invisible to a workspace-only walk. A label counts when it
+   says an order word **or** sits under an order-named instance; nothing found is
+   named as *"the board is not on screen from here"*.
+4. **The doors** — every `Modules.Larry` instance whose name says order / task /
+   goal / box / fulfill / contract, with its **class**, so `FNCGetOrderProgress
+   [RemoteFunction]` and `EVTRefreshOrders [RemoteEvent]` are never confused again.
+5. **A getter only.** The single deliberate exception to "a probe fires nothing",
+   and bounded by the repo's own precedent (`FNCEditField()` is invoked just to
+   read the shape it demands): an **allow-list** of two names —
+   `FNCGetOrderProgress` and `FNCGetAvailableBoxes` — and only when that name is
+   actually a `RemoteFunction` in this build. **No `EVT*`, no `FNCAccept*` is
+   ever called**, and the call is bracketed by `coinBalance()` before and after,
+   so a getter that moves the wallet prints `⚠ the balance MOVED on a getter —
+   treat every order call as a write` in the same report rather than being
+   discovered by the owner's balance. A refusal prints its **error text**, because
+   `attempt to index nil with 'Name'` names the argument the reader has to pass
+   (`FNCConvertRundownField` taught that trick); an empty table is called an
+   answer, not a failure.
+6. **The ranking key** — a grow time, asked of the game's own config module
+   (anything in `Modules` named grow / crop / config, required inside `pcall`),
+   reading both shapes: a per-crop table whose key says grow/time, and a `Get…`
+   function called with no arguments. If neither is there it says
+   `NO client-side grow time is readable — the ranking would have to run on cost
+   alone`, which is the answer that changes the feature's design rather than a
+   number invented to keep it comfortable. The remembered `spudSeedPrices` entries
+   come back too — the **cost** half of the ranking is already measurable from the
+   shop trips.
+
+`tools/order_probe_test.py` runs the **real** leg (sliced out of the file) under
+`luau.exe` against three fake worlds: one that has orders (folder tree + a
+`ScreenGui` board + the door set + a readable grow config), one that has nothing
+order-named anywhere, and one whose getter **takes money**. Every fixture instance
+carries a counting `FireServer` / `InvokeServer` / `PivotTo`, so "nothing was
+fired" is asserted as `fired=0 … keys=0 moved=0` rather than as a reading of the
+source, and the eight source ties pin the allow-list literally excludes
+`FNCAcceptOrder` and `EVTRefreshOrders`.
+
 ---
 
 ## 4. Code map (names, not line numbers — they move)
@@ -1493,7 +1576,7 @@ half-empty tanker is still a valid destination for the next jug).
 | Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (one EQUAL square per stop, sized by global `spudBlockSide(spudFieldTaken)` — the blade re-aims until it lands, fires that block's cells and skips a block it demonstrably missed, serpentine order), `spudHopCells` (one teleport per cell — the tween sweep was deleted in v1.95), `spudFillSeederRemote`; the tow gate `spudWaitTool(ride, att, who)` + `spudToolTrail` (constants `spudToolSwing = 3`, `spudToolFar = 90`) runs before **every** move, and the move itself is global `spudPivotRig(ride, cf, tool)` — pivot the ride, then translate the implement by the same delta (§3.12); the width helper `spudToolExtraTiles(impl)` scales **only** `spudFieldReach` (the block sizes off `spudFieldTaken = 20`, the band that was measured to take); state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, **default true** since v1.88); wired at the top of `sweepField` and in `buySeedAndFill` |
 | Tow anchor | **there is no weld** (v1.133 added one, v1.134 deleted it — §3.12). The anchor is global `spudPivotRig(ride, cf, tool)` alone: pivot the ride, translate the implement by the same delta, keep its own rotation. `spudAnchorTool` / `spudUnanchorTool` / `spudAnchor` must not come back, and the only `SetNetworkOwner` in the build is `claimOwnership(tr)` on the ride the player drives; `tools/tow_anchor_test.py` is the guard |
 | Seed fill | globals `spudCratesPerTrip` (**2** crates a town visit), `spudSeedsPerCrate` (**learned** from a real pour, nil until then), `spudCrateSeedCount(crate)`, `spudCrateHasSeed(n)`, and the pure arithmetic `spudSeedTripsNeeded(cap, have, perCrate, cratesPerTrip)` / `spudSeedTripCeiling(needed, floorMax)` / `spudSeederWantsMore(count, cap)` / `spudCratesInHand()` (`CarryLinks` children) — v1.133: the pour runs to the machine's own `MaxCapacity` and the trip budget scales to it instead of the constant 4; wired in `seedCheck`, the `seedCrateIntoSeeder` loop, the second-crate block and `seedPasses`' `refillsMax`. **The standing pick** (v1.135, §3.15) is remembered `spudSavedSeed` (only while the game still offers it) → **Tomato** by folded name against the game's own `FieldHelper.SEED_TYPE` → the game's **first crop** (lowest `SEED_TYPE` id) → `list[1]`, and `seed default: …` says which rule won. **A bounded round** (v1.135): `seedPasses` counts rounds that take nothing (`leftStuck >= 2` on `after >= leftWas`) and ends with `N cell(s) still need seed after 2 round(s) that took nothing — leaving them for the next pass`; a refill resets the count |
-| Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes` / `growth` / `shop`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`, test run + last 60 farm lines), `spudTestCopyConsole` (`setclipboard`, last 150 farm lines only), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Grow now** (v1.123), **Shop counter** (v1.103), **Run all**, **Copy report**, **Copy console** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
+| Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes` / `growth` / `shop` / **`orders`** — v1.138, §3.18), `spudTestRunAll`, `spudTestCopy` (`setclipboard`, test run + last 60 farm lines), `spudTestCopyConsole` (`setclipboard`, last 150 farm lines only), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Grow now** (v1.123), **Shop counter** (v1.103), **Company orders** (v1.138), **Run all**, **Copy report**, **Copy console** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof — v1.135: it looks the model up **by folded name**, and every way out **names itself** — no kit, no model in `Objects.Equipment` (with the child count read), already in that state, the action switched off after 3 ignored calls, the remote not in this build, the call threw), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill`. **`managerAction` card search** reads `GarageMenu.Background.Content.Cards` by **prefixed folded key**, and a miss clicks the game's own **`All` tab** (`Content.Tabs`, through its own handler, no mouse) and re-polls before declaring the card absent — the Cards list is filtered to the tab the game last showed (§3.13) |
 | Hitch line-up | global `hitchPoint(model, folder, child)` — the named attachment, else the game's own socket `Attachment.WorldCFrame`, else the best-ranked hitch `BasePart` from `findHitchPart`; `lineUpHitch(ride, plow, newPivot, airborne)` measures **both** the ride's `Components.Hitchable` and the tool's `Chassis.HitchableSocket` (the exact pair the captured `FNCAttemptHitch` takes) and, with nothing to measure, calls global `spudHitchMissText(model)` — the model name, how many descendants the client actually has and whether it is still in the world (rule 7). The pre-park line-up carries the tow through the pivot; the pre-hitch arc does not |
 | Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job**; the A* planner was deleted in v1.81 and the row driver in v1.82, so a field pass never touches a movement key |
@@ -3686,7 +3769,74 @@ would be `the spawn left … 412 studs from the deck`, which means the deck is
 right but the carrier will not travel by the Garage, and the fix then is the
 character pushing the machine — not this trip.
 
-**Where it stands:** `rebuild v1.137 · fluent gui`, whole suite green (36/36),
+**"you did say smth about making the auto contracs thigns, i want that tho"
+(v1.138).** The feature is approved in five rules (owner, 2026-11-02, recorded in
+§5's v1.121 entry): **crops only**; choose the **easiest** order by **seeding
+time and cost**; *"if it dont got enough money to buy 1 single seed mox it skips
+and goes to a lower cost one"*; **only steer the next planting** — never rip out
+what is already growing; and *"it should put the tihngs or sell them before
+planting again bro"*. None of it can be written yet, and the reason is the
+owner's own rule 4: **no dump this repo has ever read has named a Company order
+instance**, and **no run has ever printed a crop grow time**, so the reader would
+be a guess wearing a feature. The probe that answers those two questions existed
+already — `SpudFulfillProbe.lua`, 1,000 read-only lines, harness green since the
+v1.121 work — but running it means **a second script in the executor**, which is
+precisely how the v1.136 ghost build happened (two builds driving one tractor, §3.16).
+
+So v1.138 moves the questions **into the shipped build**: a sixth `kind` in
+`spudTestWork` and a **Company orders** button on the Tests tab (§3.18). That
+changes nothing about the farm and everything about how the answer gets here —
+every `spudTestSay` line ends in `log("test: " …)`, so the report is in Android's
+logcat and readable with the **one** autostarted build. Six sections, all of them
+read-only: the whole map walked for a name that says order / contract / request /
+company / cargo / shipment / goal / task / fulfill / reward / quota (depth 8,
+**CAP 20000 named when it trips**), each hit dumped with its attributes and up to
+16 descendants **with their values**, the same walk over `PlayerGui` (a ScreenGui
+board is invisible to a workspace-only walk — the mistake that made the standalone
+probe's first version report nothing), the `Modules.Larry` door list **with each
+door's class**, a grow-time read from the game's own config module, and the
+remembered `spudSeedPrices` (the cost half of the ranking is already measurable
+from the shop trips).
+
+**The one deliberate exception to "a probe fires nothing"** is step 5 of §3.18: an
+allow-list of exactly two names — `FNCGetOrderProgress` and
+`FNCGetAvailableBoxes` — invoked only when that name is really a `RemoteFunction`
+in this build. It is bounded by the repo's own precedent (`FNCEditField()` and
+`FNCConvertRundownField()` are already invoked with no arguments purely to read
+the shape they demand), it never touches an `EVT*` or `FNCAccept*`, and it is
+**bracketed by `coinBalance()` before and after**: a getter that moves the wallet
+prints `⚠ the balance MOVED on a getter — treat every order call as a write` in
+the same report rather than being discovered later on the owner's balance. A
+refusal prints its error text, because `attempt to index nil with 'Name'` names
+the argument the reader must pass (that is how `FNCConvertRundownField` was
+pinned); an empty table is reported as **an answer**, not a failure; and 0
+order-named instances is printed as "the board is elsewhere from here", never as
+"the game has no orders" (rule 7).
+
+New `tools/order_probe_test.py` (36 checks) runs the **real** leg — sliced out of
+the file, with the build's own `spudNameKey` — against three fake worlds: one
+with orders, one with nothing order-named, and one whose getter **takes money**.
+Every fixture instance carries a counting `FireServer` / `InvokeServer` /
+`PivotTo`, so the read-only claim is an asserted ledger (`fired=0`, `keys=0`,
+`invoked=[FNCGetOrderProgress, FNCGetAvailableBoxes]`) rather than a grep, and
+eight source ties pin that the allow-list literally excludes `FNCAcceptOrder` and
+`EVTRefreshOrders` and that the walk recurses whether or not a node matched.
+Writing it caught a real reporting defect on the first run: the world walk printed
+`Company.Orders.Order1` because it rooted at `""`, so paths did not match what
+`GetFullName()` would say — the root string is now `"Workspace"` and the harness
+check that failed is what pinned it.
+
+Compile OK, suite **37/37** (34 harnesses + 3 gates), headroom **5** (unchanged —
+the leg is another branch of the existing **global** `spudTestWork`, so its ~15
+new names are locals of that function's own prototype and the build closure never
+sees them), name audit clean **380** (no new top-level name). **Harness green —
+not reloaded in game**, and the whole point is the live report: the four answers
+this build ships without are what §6 now asks. Until **Tests → Company orders**
+has been pressed once, the auto-contract reader stays unbuilt on purpose — the
+alternative is a feature whose order-shape, reward field and grow time are all
+invented.
+
+**Where it stands:** `rebuild v1.138 · fluent gui`, whole suite green (37/37),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **v1.134 was reloaded and driven in MuMu by the assistant** (the
 `[spud]` logcat quoted through §5 is that session), and what it showed is *not*
@@ -3928,6 +4078,28 @@ versus the second crate left on the shelf. **(c)** A 600-slot seeder should read
    harvest pass that takes them, or the bounded
    `still read cuttable after 2 restart(s) that took nothing`, which means the
    server pays only for the cell it was shown, not for the field.
+7. **The auto-contract feature is blocked on four answers, and one button gets
+   them.** **Tests → Company orders** (v1.138, §3.18) is the evidence step for the
+   owner's approved design, and rule 4 forbids writing the reader before it has
+   been pressed once in game. The four: **(a)** where an order actually lives —
+   the report either prints `Workspace.<…>.<Order…> [ClassName]` lines with their
+   value trees, or says `nothing in the WORLD is named like an order — that is not
+   "no orders", it means the board is elsewhere`, which means the board has to be
+   opened before it can be read (and opening it is a UI action this probe
+   deliberately does not take); **(b)** what
+   one holds — the crop, the wanted count, how much is in, the reward, and whether
+   an order is a folder of values or one table on a `StringValue`; **(c)** whether
+   `FNCGetOrderProgress` answers with **no arguments** in this build — the refusal
+   text names the argument if it does not, and an empty table is a real answer
+   meaning no order is open right now; **(d)** whether a **grow time is client
+   readable at all** — `CropGrowthConfigClient`-style tables per crop, or the
+   honest `NO client-side grow time is readable — the ranking would have to run on
+   cost alone`, which is the answer that changes the design rather than confirming
+   it. With (a)–(d) in hand the reader is small: pick the cheapest-seed, shortest-
+   grow order the balance can actually afford (the owner's
+   *"if it dont got enough money to buy 1 single seed mox it skips and goes to a
+   lower cost one"*), steer **only the next planting**, and unload before
+   replanting. Without them it is a guess.
 
 ---
 

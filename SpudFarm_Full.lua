@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.137 · fluent gui"
+local VERSION    = "rebuild v1.138 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -7290,6 +7290,313 @@ local okBuild, errBuild = pcall(function()
             return
         end
 
+        -- ▸ COMPANY ORDERS — the read-only half of the auto-contract ask (owner:
+        --   "you did say smth about making the auto contracs thigns, i want that
+        --   tho"). Nothing here has ever been in a dump: no run has named the
+        --   instance the Company keeps its orders in, and no run has printed a
+        --   per-crop grow time, so the reader the owner approved — pick the
+        --   EASIEST order by seeding time and cost, skip one a single seed cannot
+        --   be bought for — has no shape to read yet. Rule 4 says probe first, so
+        --   this answers three things and changes nothing: WHERE an order lives
+        --   (world + PlayerGui, because a ScreenGui board is invisible to a
+        --   workspace-only walk), WHAT one holds (its value tree and attributes),
+        --   and WHETHER a grow time is readable anywhere. It presses no key,
+        --   moves nothing and fires no event; the only network call it will make
+        --   is a RemoteFunction whose OWN name says Get, with the coin balance
+        --   read before and after as the proof that a getter got nothing sold.
+        if kind == "orders" then
+            local ORDER_WORDS = { "order", "contract", "request", "demand",
+                "company", "cargo", "freight", "shipment", "delivery", "goal",
+                "task", "fulfill", "reward", "quota" }
+            local function orderish(name)
+                local key = spudNameKey(name)
+                if key == "" then return nil end
+                for _, w in ipairs(ORDER_WORDS) do
+                    if key:find(w, 1, true) then return w end
+                end
+            end
+            local function clip(s, n)
+                s = tostring(s or "")
+                if #s > n then return s:sub(1, n) .. "…" end
+                return s
+            end
+
+            -- ── 1. WHERE: the streamed world, name-first ────────────────────
+            local CAP, hits, seen, cut = 20000, {}, 0, false
+            pcall(function()
+                local function walk(node, depth, prefix)
+                    if depth > 8 or seen > CAP then
+                        if seen > CAP then cut = true end
+                        return
+                    end
+                    for _, c in ipairs(node:GetChildren()) do
+                        seen += 1
+                        if seen > CAP then cut = true return end
+                        local path = (prefix == "" and c.Name or (prefix .. "." .. c.Name))
+                        local why = orderish(c.Name)
+                        if why then
+                            hits[#hits + 1] = { inst = c, path = path, why = why }
+                        end
+                        -- recursed into WHETHER or not it matched: an order worth
+                        -- naming is usually the child of an order-named folder,
+                        -- and stopping at the parent would hide the shape
+                        if depth < 8 then walk(c, depth + 1, path) end
+                    end
+                end
+                walk(workspace, 0, "Workspace")
+            end)
+            spudTestSay(string.format(
+                "orders: %d instance(s) in the streamed world named like an order (%d node(s) walked%s)",
+                #hits, seen, cut and ", CAP 20000 REACHED — this is not the whole map" or ""))
+            if #hits == 0 then
+                -- rule 7: an empty list here is NOT "the game has no orders".
+                spudTestSay("orders: nothing in the WORLD is named like an order — that is not "
+                    .. "\"no orders\", it means the board is elsewhere (see the GUI lines below)")
+            end
+            -- the tree of each hit, shallow and capped, because the SHAPE is the
+            -- answer this probe exists to bring back
+            for i = 1, math.min(#hits, 14) do
+                local h = hits[i]
+                spudTestSay(string.format("orders: %s [%s] · matched \"%s\" · %s",
+                    h.path, h.inst.ClassName, h.why,
+                    (function()
+                        local a = {}
+                        pcall(function()
+                            for k, v in pairs(h.inst:GetAttributes()) do
+                                a[#a + 1] = tostring(k) .. "=" .. clip(tostring(v), 24)
+                            end
+                        end)
+                        return #a == 0 and "no attributes" or ("attrs: " .. table.concat(a, " · "))
+                    end)()))
+                local kids, shown = {}, 0
+                pcall(function()
+                    for _, d in ipairs(h.inst:GetDescendants()) do
+                        shown += 1
+                        if shown > 16 then return end
+                        local line = d:GetFullName():sub(#h.inst:GetFullName() + 2)
+                            .. " [" .. d.ClassName .. "]"
+                        local cls = d.ClassName
+                        if cls == "IntValue" or cls == "NumberValue" or cls == "StringValue"
+                            or cls == "BoolValue" then
+                            line = line .. " = " .. clip(d.Value, 24)
+                        elseif cls == "ObjectValue" then
+                            line = line .. " -> " .. (d.Value and tostring(d.Value:GetFullName()) or "nil")
+                        end
+                        kids[#kids + 1] = line
+                    end
+                end)
+                for j = 1, #kids, 4 do
+                    local chunk = {}
+                    for k = j, math.min(#kids, j + 3) do chunk[#chunk + 1] = kids[k] end
+                    spudTestSay("orders:   · " .. table.concat(chunk, " | "))
+                end
+                if shown > 16 then
+                    spudTestSay("orders:   · (more descendants on this one — not listed)")
+                end
+            end
+            if #hits > 14 then
+                spudTestSay(string.format("orders: … %d more order-named instance(s) not shown", #hits - 14))
+            end
+
+            -- ── 2. WHERE: the words the player can actually READ ────────────
+            --   A board drawn as a ScreenGui never appears in a workspace walk,
+            --   so PlayerGui is walked too, and a label is worth printing when it
+            --   says an order word OR sits under an instance that does.
+            local guiLines, guiHits = {}, 0
+            pcall(function()
+                local pg = LocalPlayer:FindFirstChild("PlayerGui")
+                if not pg then return end
+                for _, d in ipairs(pg:GetDescendants()) do
+                    if d:IsA("TextLabel") or d:IsA("TextButton") then
+                        local txt = clip(d.Text, 90)
+                        local under = false
+                        local p = d
+                        for _ = 1, 6 do
+                            p = p.Parent
+                            if not p then break end
+                            if orderish(p.Name) then under = true break end
+                        end
+                        if txt ~= "" and (orderish(txt) or under) then
+                            guiHits += 1
+                            if guiHits <= 20 then
+                                guiLines[#guiLines + 1] = txt .. " («"
+                                    .. d:GetFullName():sub(#pg:GetFullName() + 2) .. "»)"
+                            end
+                        end
+                    end
+                end
+            end)
+            spudTestSay(string.format("orders: %d readable label(s) in PlayerGui say order/company/cargo/…", guiHits))
+            for i = 1, #guiLines, 3 do
+                local chunk = {}
+                for j = i, math.min(#guiLines, i + 2) do chunk[#chunk + 1] = guiLines[j] end
+                spudTestSay("orders:   · " .. table.concat(chunk, " || "))
+            end
+            if guiHits == 0 then
+                spudTestSay("orders:   · no label anywhere says order/reward/coins — the board is "
+                    .. "not on screen from here")
+            end
+
+            -- ── 3. THE DOORS: what Modules.Larry exposes for them ───────────
+            local doors, fnDoors = {}, {}
+            pcall(function()
+                local mods = game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
+                local larry = mods and mods:FindFirstChild("Larry")
+                if not larry then return end
+                for _, c in ipairs(larry:GetDescendants()) do
+                    local nm = spudNameKey(c.Name)
+                    if nm ~= "" and (nm:find("order", 1, true) or nm:find("task", 1, true)
+                        or nm:find("goal", 1, true) or nm:find("box", 1, true)
+                        or nm:find("fulfill", 1, true) or nm:find("contract", 1, true)) then
+                        doors[#doors + 1] = c.Name .. " [" .. c.ClassName .. "]"
+                        if c.ClassName == "RemoteFunction" then fnDoors[#fnDoors + 1] = c end
+                    end
+                end
+            end)
+            table.sort(doors)
+            spudTestSay(string.format("orders: Modules.Larry carries %d order/task/goal/box door(s)", #doors))
+            for i = 1, #doors, 5 do
+                local chunk = {}
+                for j = i, math.min(#doors, i + 4) do chunk[#chunk + 1] = doors[j] end
+                spudTestSay("orders:   · " .. table.concat(chunk, " · "))
+            end
+
+            -- ── 4. A GETTER ONLY, and the balance proves it got nothing ─────
+            --   An EVT* is an event (fire it and the client asked for something),
+            --   and FNCAccept*/EVTRefresh* change the world. The only thing this
+            --   touches is a RemoteFunction the game itself named Get…, and even
+            --   that is bracketed by a balance read so a surprise is visible in
+            --   the same line instead of being discovered by the owner's wallet.
+            for _, want in ipairs({ "FNCGetOrderProgress", "FNCGetAvailableBoxes" }) do
+                local door
+                for _, c in ipairs(fnDoors) do
+                    if c.Name == want then door = c break end
+                end
+                if not door then
+                    spudTestSay("orders: " .. want .. " is not a RemoteFunction in this build — not read")
+                else
+                    local before = coinBalance()
+                    local ok, res = pcall(function() return door:InvokeServer() end)
+                    local after = coinBalance()
+                    spudTestSay(string.format("orders: %s() %s%s — coins %s → %s",
+                        want, ok and "answered" or "refused",
+                        ok and "" or (": " .. clip(tostring(res), 120)),
+                        tostring(before), tostring(after)))
+                    if not ok then
+                        -- The error text IS the shape: "attempt to index nil with 'X'"
+                        -- names the argument this build's getter wants.
+                        spudTestSay("orders:   · the refusal names what it wants — that is the "
+                            .. "argument the reader must pass")
+                    else
+                        local lines, n = {}, 0
+                        local function dump(t, depth, prefix)
+                            if type(t) ~= "table" then
+                                if n < 40 then lines[#lines + 1] = prefix .. "=" .. clip(tostring(t), 40) end
+                                return
+                            end
+                            for k, v in pairs(t) do
+                                n += 1
+                                if n > 40 then return end
+                                if type(v) == "table" then
+                                    if depth < 2 then dump(v, depth + 1, prefix .. "." .. tostring(k))
+                                    else lines[#lines + 1] = prefix .. "." .. tostring(k) .. "={table}" end
+                                else
+                                    lines[#lines + 1] = prefix .. "." .. tostring(k) .. "=" .. clip(tostring(v), 40)
+                                end
+                            end
+                        end
+                        dump(res, 1, "")
+                        if n == 0 then
+                            spudTestSay("orders:   · it answered an EMPTY table — no order is open "
+                                .. "from here, which is an answer, not a failure")
+                        end
+                        for i = 1, #lines, 4 do
+                            local chunk = {}
+                            for j = i, math.min(#lines, i + 3) do chunk[#chunk + 1] = lines[j] end
+                            spudTestSay("orders:   · " .. table.concat(chunk, " | "))
+                        end
+                        if after ~= before then
+                            spudTestSay("orders: ⚠ the balance MOVED on a getter — treat every "
+                                .. "order call as a write, not a read")
+                        end
+                    end
+                end
+            end
+
+            -- ── 5. THE RANKING KEY: is a crop's grow time readable? ─────────
+            --   The owner's rule is "the easyest one by seeding time and cost",
+            --   so a grow time is only useful if the CLIENT can read it before
+            --   planting. This asks the game's own config module, never a guess.
+            local growNames = {}
+            pcall(function()
+                local mods = game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
+                if not mods then return end
+                for _, m in ipairs(mods:GetChildren()) do
+                    if m:IsA("ModuleScript") then
+                        local key = spudNameKey(m.Name)
+                        if key:find("grow", 1, true) or key:find("crop", 1, true)
+                            or key:find("config", 1, true) then
+                            local okT, cfg = pcall(require, m)
+                            if okT and type(cfg) == "table" then
+                                local getter
+                                for k, v in pairs(cfg) do
+                                    if type(v) == "function" then
+                                        local lk = spudNameKey(k)
+                                        if lk:find("getconfig", 1, true) or lk:find("get", 1, true) then
+                                            getter = getter or k
+                                        end
+                                    elseif type(v) == "table" then
+                                        for sk, sv in pairs(v) do
+                                            local lk = spudNameKey(tostring(k) .. tostring(sk))
+                                            if lk:find("grow", 1, true) or lk:find("time", 1, true) then
+                                                growNames[#growNames + 1] = m.Name .. "." .. tostring(k)
+                                                    .. "." .. tostring(sk) .. "=" .. clip(tostring(sv), 30)
+                                            end
+                                        end
+                                    end
+                                end
+                                if getter then
+                                    local okV, val = pcall(function() return cfg[getter]() end)
+                                    if okV and type(val) == "table" then
+                                        local n = 0
+                                        for k, v in pairs(val) do
+                                            n += 1
+                                            if n > 12 then break end
+                                            growNames[#growNames + 1] = m.Name .. "[" .. tostring(k) .. "] = "
+                                                .. (type(v) == "table" and "{table}" or clip(tostring(v), 30))
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+            table.sort(growNames)
+            if #growNames == 0 then
+                spudTestSay("orders: NO client-side grow time is readable — the ranking would have "
+                    .. "to run on cost alone")
+            end
+            for i = 1, #growNames, 3 do
+                local chunk = {}
+                for j = i, math.min(#growNames, i + 2) do chunk[#chunk + 1] = growNames[j] end
+                spudTestSay("orders:   · grow " .. table.concat(chunk, " | "))
+            end
+            local priced = 0
+            if type(spudSeedPrices) == "table" then
+                for k, v in pairs(spudSeedPrices) do
+                    priced += 1
+                    if priced <= 8 then
+                        spudTestSay("orders:   · shelf price remembered: " .. tostring(k) .. " = " .. tostring(v))
+                    end
+                end
+            end
+            if priced == 0 then
+                spudTestSay("orders:   · no shelf price read yet this build (a seed trip names them)")
+            end
+            return
+        end
+
         -- ▸ REMOTE LIST — read-only inventory of every remote the client can
         --   see. The field calls we know are the ones the game fired by hand;
         --   a bulk/field door that was never fired would only show up here.
@@ -9047,6 +9354,9 @@ local okBuild, errBuild = pcall(function()
     end })
     Tabs.Tests:CreateButton({ Title = "Shop counter", Callback = function()
         task.spawn(function() spudTestRun("shop") end)
+    end })
+    Tabs.Tests:CreateButton({ Title = "Company orders", Callback = function()
+        task.spawn(function() spudTestRun("orders") end)
     end })
     Tabs.Tests:CreateButton({ Title = "Run all", Callback = function()
         task.spawn(function() spudTestRunAll() end)
