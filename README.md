@@ -159,33 +159,32 @@ Everything merged into one paste-and-run file:
   must not spin the plow), at every grid stop, every per-cell hop and every frame
   of the arc; a job whose tool IS the ride (harvest) is moved once, not twice. The
   hitch stays the length of the tow-bar, so the settle wait reads settled instead
-  of far, and the whole field gets called at rather than refused. **And since
-  v1.133 the tow is welded, not towed** (owner: *"bro make it anchor te tool
-  permanantly behind the tractor while it's hitched"*): carrying the implement
-  through the jump still left it hanging on the **game's** constraint, so the pose
-  at arrival was whatever the solver managed in the frames available and every
-  grid stop had to re-aim from a fresh reading. `spudAnchorTool` puts a client
-  `WeldConstraint` between the ride's hitch **part** and the tool's — the same two
-  `BasePart`s `findHitchPart` already ranks for the physical line-up (`Hitch` >
-  `HitchRoot` > `HitchKnob` > `HitchTip`), which is **not** the
-  `Components.Hitchable` / `Chassis.HitchableSocket` pair the captured hitch call
-  takes, because a `WeldConstraint` joins parts and those are attachments. That
-  makes ride + implement **one assembly**: the tool is where the ride put it,
-  there is no swing to refuse, and nothing drags. Three rules keep it honest. It
-  is created only **after a hitch is proven** (the tug test in `hitchTool`), so a
-  weld is never the reason a failed hitch looked like a success; it is created
-  only on a **settled** read (`spudWaitTool` == `settled`), because this weld is
-  permanent for the whole hitch and freezing a mid-swing frame would hold the plow
-  at an angle the game never rests it at; and it is **destroyed before anything
-  asks the game to unhitch** — an X press against a welded tow is a tug-of-war the
-  script wins and the server loses, and "the tool stayed put" would be a lie about
-  the park. So `spudUnanchorTool` runs at the park, at every unhitch, at the
-  hitching attempt itself, at the wrong-tool removal, when the run ends or is
-  stopped, and when the script unloads. A refused weld (no hitch part, no
-  attachment to read, the build rejecting the instance) costs **the anchor and
-  nothing else** — the carry and the re-aim still work — and it says so
-  (`anchor: S4204 is swinging behind the ZM80 — nothing welded, the tow stays on
-  the game's own constraint`).
+  of far, and the whole field gets called at rather than refused. **The carry is
+  the anchor; there is no weld** (v1.133 added one, v1.134 removed it — owner:
+  *"bro make it anchor te tool permanantly behind the tractor while it's hitched"*,
+  then *"it's making the wheels glitch"*). The idea was reasonable: a carried tool
+  still hangs on the **game's** constraint, so the pose at arrival is whatever the
+  solver managed in the frames available and every grid stop has to re-aim from a
+  fresh reading — a client `WeldConstraint` between the ride's hitch part and the
+  tool's would make ride + implement **one assembly** and end the swing. The live
+  answer came from the emulator console and one screenshot: the server **does**
+  accept it (`anchor: JDShank welded to the ChallengerMT9's HitchRoot`, and the gap
+  really did drop to `hitch gap at arrival: 1.1 studs`) — and that is the problem.
+  The game's own hitch constraint **already** joins those two models into one
+  assembly, so the weld is a second joint between the same pair, and a loop is
+  over-constrained: the solver threw a **wheel onto the field** next to a tractor
+  reading `Speed 0`. The weld also handed the merged assembly's network ownership
+  to this client while the server kept simulating the implement, so the two
+  stopped agreeing where the blade is — the very next grid logged
+  `remote plow: fired 9 of 98 cell(s) from 12 stop(s), 3x3 per stop — 0 took, 98
+  left`, against 1793 taken on the same field without the weld. So
+  `spudAnchorTool`, `spudUnanchorTool` and the `spudAnchor` state are **deleted**,
+  every one of their eight call sites with them, and the only `SetNetworkOwner`
+  left is the pre-existing `claimOwnership` on the ride the player is actually
+  driving. `tools/tow_anchor_test.py` replaces the weld harness and refuses the
+  build if any weld symbol comes back; the source comment says why, so the next
+  reader does not re-invent it. The swing the weld was meant to remove is handled
+  the way that is known to work: the carry, plus v1.132's re-aim at each stop.
   Whatever it misses is then **hopped**: one
   teleport per remaining cell with the blade on it. Anything still standing
   after the hop is **retried**: grid → hop again, round after round, until the

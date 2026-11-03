@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.133 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.134 ·
   fluent gui` (`VERSION`, line 15). ≈13k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -73,12 +73,13 @@ description — it is the long-form manual and it is kept in sync with behaviour
 
 13. **Luau's 200-local limit is real** (it was 2 away from the practical
     ceiling until the path engine was deleted in v1.81). Run
-    `python tools/local_budget.py`. As of v1.133:
+    `python tools/local_budget.py`. As of v1.134:
     `4-space locals before milkCycle: 179 (practical ceiling 185)`,
     whole body `186 / 200`, **headroom 6** (v1.129's four `*_STEMS` word tables
     are four build-closure locals — every name the equipment rewrite, the tow
-    carry and the v1.133 weld and seed arithmetic needed is a global for exactly
-    this reason). Do **not**
+    carry and the v1.133 seed arithmetic needed is a global for exactly
+    this reason; v1.134's weld removal gave three of those names back and the
+    budget did not move, because they were globals). Do **not**
     add a `local` inside the main build closure. Reuse an existing local,
     convert the feature to a **global** (the established pattern), or
     restructure — and re-run the budget.
@@ -151,10 +152,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 34/34 checks on v1.133
+python tools/run_all.py        # 34/34 checks on v1.134
 ```
 
-Last full run (v1.133): **34/34 checks passed** (31 harnesses + 3 gates).
+Last full run (v1.134): **34/34 checks passed** (31 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment the script contained a string with those three
@@ -178,7 +179,7 @@ exiting 0 is exactly what that scan exists to catch.
 | `herd_arm_test.py` | Arming a cow is fast when the menu is up, and the no-menu timeout is bounded. |
 | `herd_order_test.py` | Cows nearest the barn go first; a dirty free stall is skipped and an all-dirty barn arms nobody. |
 | `herd_send_test.py` | The wrong-barn regression: no fallback to a stranger's `AutoWoodenBarn`. |
-| `hitch_anchor_test.py` | The tow weld (v1.133): `spudAnchorTool` makes **no** weld for a nil pair or a tool that IS the ride, refuses when either side has no hitch part, and refuses **every** non-settled verdict — `far` says "off the hitch", `swinging` / `gone` / `none` name the verdict and leave the tow on the game's own constraint — while `stop` logs nothing. On `settled` it makes exactly one `WeldConstraint` named `SpudTowAnchor` with `Part0` = the ride's hitch part and `Part1` = the tool's, parented to `Part0`, claims network ownership once, and a second call for the same pair is idempotent (no second weld, no second claim, no second wait). A new tool destroys the old weld first; `spudUnanchorTool` releases it, logs the reason, and is silent on the second call; a refused `Instance.new` leaves `spudAnchor` **empty** (no phantom anchor) and a later weld still works, and a refused `SetNetworkOwner` still welds. Ties pin the anchor **after** `hitchTool`'s gave-up branch, the seven game-facing `spudUnanchorTool("<reason>")` sites (the eighth is inside `spudAnchorTool` and makes way for a different tool), that the settle is read before the weld, that `if v ~= "settled" then` is in the source, that no classic `Instance.new("Weld")` was used, and that `spudAnchor =` is assigned in exactly two places (weld, release). |
+| `tow_anchor_test.py` | The tow has **one** join, not two (v1.134, replacing the harness that pinned v1.133's weld): **no** `WeldConstraint`, `SpudTowAnchor`, `spudAnchorTool`, `spudUnanchorTool`, a `spudAnchor` state or `Instance.new("Weld"` may appear anywhere in the build, and `SetNetworkOwner` exists exactly **once** — inside `claimOwnership`, on the ride the player drives, because claiming the implement is half of why the welded build disagreed with the server. `spudPivotRig` runs for real against a fake rig whose ride teleport does **not** move the tool: a ride teleport carries the implement by the same delta (gap stays the 20-stud tow-bar), the tool's own rotation is handed to its `PivotTo` (a turn must not spin the plow), a nil tool costs no carry, `tool == ride` moves the ride **once**, an unchanged pose carries nothing, a tool that refuses to move is swallowed, and 12 grid stops make 12 carries with the gap still 20. Ties: `hopTo`, `spudRadialFire` and `spudHopCells` each call `spudPivotRig(` and keep **no** bare `tr:PivotTo(`/`ride:PivotTo(`, `hitchTool` touches no anchor, and the source carries the *"Do not re-add a weld to the tow"* note so the reversal cannot be re-invented. |
 | `hop_test.py` | The arc hop's landing height: **the landing is the target's own height** (v1.122), so a return leg from the lower pad lands ON the field and a trip *down* to the pad lands ON the pad instead of hovering 28 studs above it; the arc clears the landing by ~12 studs and arrives from above in both directions, a level hop stays level, a target with no Y keeps the takeoff height, a zero-length hop is one move, and stopping aborts without landing. **The tow** (v1.131): the fake ride's `PivotTo` moves **only the ride**, so a hop handed an implement must carry it — 24 carries over 25 moves, the hitch still exactly 20 studs after the landing, no implement costs no carry, and the control (a bare `ride:PivotTo`) opens the 286-stud gap the live v1.130 run reported; a source tie refuses to run the harness if `hopTo` loses `spudPivotRig(tr,` or keeps a bare `tr:PivotTo(`. |
 | `milk_arrivals_test.py` | The arrival wait watches stall `Occupant` values and scans a handful of times, not five times a second. |
 | `farm_width_test.py` | Working width and row plan: studs→tiles rounding, oriented-box union width, rotated bars, 1/2/3-wide plans (step, headland, row half-extent) and an interval-coverage proof on 100/200-stud and narrow fields; owner match rules. |
@@ -857,45 +858,38 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   15 carries) plus ten tie checks that no bare `ride:PivotTo` survives in them;
   `hop_test.py` pins the arc (24 carries over 25 moves, the hitch still exactly
   20 studs, and a control that a ride-only hop opens a 286-stud gap).
-- **The tow is welded while it is hitched** (v1.133, owner: *"bro make it anchor
-  te tool permanantly behind the tractor while it's hitched"*). Carrying the
-  implement through the jump fixed the *gap* but not the *pose*: the tool still
-  hangs on the game's own constraint, so what arrives behind the ride is whatever
-  the solver managed in the frames available, and every grid stop has to re-aim
-  from a fresh reading. `spudAnchorTool(ride, impl)` puts a client
-  **`WeldConstraint`** (`SpudTowAnchor`, `Part0` = the ride's hitch **part**,
-  `Part1` = the tool's, parented to `Part0`) — the same two `BasePart`s
-  `findHitchPart` already ranks for the physical line-up (`Hitch` > `HitchRoot` >
-  `HitchKnob` > `HitchTip`), **not** the `Components.Hitchable` /
-  `Chassis.HitchableSocket` pair the captured `FNCAttemptHitch` takes, because a
-  `WeldConstraint` joins parts and those are attachments —
-  after claiming `SetNetworkOwner(LocalPlayer)` on the implement — a server-owned
-  part rubber-bands straight through a client weld. Ride + implement are then
-  **one assembly**: the tool is where the ride put it, there is no swing to
-  refuse, and nothing drags. Three rules, all pinned by
-  `tools/hitch_anchor_test.py`:
-  - **Only after a proven hitch.** The call sits at the bottom of `hitchTool`,
-    *below* the `if not didHitch then … return false` branch, so a weld is never
-    the reason a failed hitch looked like a success.
-  - **Only on a settled tow.** The weld is permanent for the whole hitch, so a
-    mid-swing frame would hold the plow at an angle the game never rests it at.
-    `spudWaitTool` is asked first and `far` ("off the hitch") / `swinging` /
-    `gone` / `none` each refuse with a line; `stop` is silent.
-  - **Released before anything unhitches.** `spudUnanchorTool(why)` runs at each of
-    the seven sites that face the game — the park, the unhitch path, the blind X at
-    attempt 3, the wrong-tool grab, loop end, loop stop, `destroyUI` — plus one
-    inside `spudAnchorTool` itself (a different tool on the ride makes the old weld
-    go first). An X press against a welded tow is a tug-of-war the script wins and
-    the server loses, and "the tool stayed put" would then be a lie about the park.
-  A refused weld (no hitch part, no readable attachment, the build rejecting the
-  instance) costs **the anchor and nothing else** — v1.131's carry and v1.132's
-  re-aim still work — so it cannot regress a field pass. `spudAnchor` is assigned
-  in exactly two places (the weld, the release) and a rejected `Instance.new`
-  leaves it **empty** rather than holding a phantom joint. Whether the live server
-  accepts a client-created weld at all is **not yet measured**; the verdict is
-  `anchor: <tool> welded to the <ride>'s <part> — the tool is part of the ride
-  while it is hitched` followed by grid stops that need no re-aim, versus the
-  honest `the tow stays on the game's own constraint`.
+- **The tow is carried, NEVER welded** (v1.133 welded it, **v1.134 deleted the
+  weld** — owner: *"bro make it anchor te tool permanantly behind the tractor
+  while it's hitched"*, then, from the same build live: *"it's making the wheels
+  glitch"*). The idea was that a carried tool still hangs on the game's own
+  constraint, so what arrives behind the ride is whatever the solver managed in
+  the frames available and every grid stop has to re-aim from a fresh reading; a
+  client **`WeldConstraint`** between the two hitch parts (`SpudTowAnchor`,
+  `Part0` = the ride's, `Part1` = the tool's, the pair `findHitchPart` ranks)
+  after `SetNetworkOwner(LocalPlayer)` on the implement would make ride +
+  implement one assembly and end the swing. **It was measured, and the measurement
+  refutes it.** The emulator console answered open question (a) of v1.133 — the
+  live server *does* accept a client-created weld — and that is the defect:
+  `anchor: JDShank welded to the ChallengerMT9's HitchRoot`, `hitch gap at
+  arrival: 1.1 studs` (the swing really did go away), **and then a wheel lying on
+  the field beside a tractor reading `Speed 0`** in the screenshot, while the very
+  next grid logged `remote plow: fired 9 of 98 cell(s) from 12 stop(s), 3x3 per
+  stop — 0 took, 98 left` (the same field without the weld took 1793 of 2388).
+  Root cause, from Roblox's own assembly rules rather than a guess: **the game's
+  hitch constraint already joins those two models into one assembly**, so a second
+  joint between the same pair is a loop, and a loop is over-constrained — the
+  solver throws a part off. And the ownership claim moved the merged assembly to
+  this client while the server keeps simulating the implement, so client and
+  server disagree about where the blade is, which is exactly what a field call is
+  judged on. So `spudAnchorTool` / `spudUnanchorTool` / `spudAnchor` are **deleted**
+  with all eight of their call sites (the park, the unhitch path, the blind X at
+  attempt 3, the wrong-tool grab, the bottom of `hitchTool`, loop end, loop stop,
+  `destroyUI`), and the only `SetNetworkOwner` left is the pre-existing
+  `claimOwnership` on the ride the player drives. The swing stays handled the way
+  that is proven to work: v1.131's carry plus v1.132's per-stop re-aim.
+  `tools/tow_anchor_test.py` replaces the weld harness and refuses the build if
+  any weld symbol comes back, and the note in the source says
+  *"Do not re-add a weld to the tow."*
 - **Teleports only** (v1.95, owner 2026-10-31: *"during the plowing it
   started doing the fast tp and then kinda strafing the ground"*). Between
   the grid and the hop there used to be a **serpentine tween sweep**
@@ -1250,7 +1244,7 @@ Fulfillment pad's Y from the dump's 138 to 141.
 | Whose machine | global `equipOwnerRank(m)` (farm being worked → mine → no readable owner → never another account), used by `findTractor` / `findImplement`; owner tag read by `milkStoreOwnerOf`. **What** it is: globals `spudEquipTypeKey(m)` (the game's `EquipmentType`, letters only), `spudEquipIs(m, STEMS)` (stem match), `spudEquipSeat(m)` (`VehicleSeat`/`Seat`), `spudEquipTows(m)` (`Components.Hitchable`), `spudEquipHereText()` (the world's `Name=Type (stored)` list); build-closure tables `HARVEST_STEMS` / `TRACTOR_STEMS` / `HAULER_STEMS` / `TOOL_STEMS` / `TYPE_STEMS` / `TYPE_MODEL` |
 | Tree soil | global `spudTreeField(typeName, modelName)` (wood/tree/log/forest/timber/lumber/sawmill/stump → no crop harvest) and `spudNoCells(st)` (successful 0-cell read is empty, `nil` read is unknown); used in `probeWork`, `runPass`, `needLeft`, `grownLeft`, growth wait |
 | Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (one EQUAL square per stop, sized by global `spudBlockSide(spudFieldTaken)` — the blade re-aims until it lands, fires that block's cells and skips a block it demonstrably missed, serpentine order), `spudHopCells` (one teleport per cell — the tween sweep was deleted in v1.95), `spudFillSeederRemote`; the tow gate `spudWaitTool(ride, att, who)` + `spudToolTrail` (constants `spudToolSwing = 3`, `spudToolFar = 90`) runs before **every** move, and the move itself is global `spudPivotRig(ride, cf, tool)` — pivot the ride, then translate the implement by the same delta (§3.12); the width helper `spudToolExtraTiles(impl)` scales **only** `spudFieldReach` (the block sizes off `spudFieldTaken = 20`, the band that was measured to take); state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, **default true** since v1.88); wired at the top of `sweepField` and in `buySeedAndFill` |
-| Tow anchor | globals `spudAnchorTool(ride, impl)` / `spudUnanchorTool(why)` and the state `spudAnchor` (v1.133, §3.12) — a client `WeldConstraint` (`SpudTowAnchor`) joining the two hitch **parts** `findHitchPart` ranks (`Hitch` > `HitchRoot` > `HitchKnob` > `HitchTip`) — **not** the `Components.Hitchable` / `Chassis.HitchableSocket` attachments the captured hitch call takes — after `SetNetworkOwner` on the implement; welded **only** after the tug test and **only** on a `settled` read, released before any unhitch (7 sites) at the two loop exits and in `destroyUI`; call sits at the bottom of `hitchTool` |
+| Tow anchor | **there is no weld** (v1.133 added one, v1.134 deleted it — §3.12). The anchor is global `spudPivotRig(ride, cf, tool)` alone: pivot the ride, translate the implement by the same delta, keep its own rotation. `spudAnchorTool` / `spudUnanchorTool` / `spudAnchor` must not come back, and the only `SetNetworkOwner` in the build is `claimOwnership(tr)` on the ride the player drives; `tools/tow_anchor_test.py` is the guard |
 | Seed fill | globals `spudCratesPerTrip` (**2** crates a town visit), `spudSeedsPerCrate` (**learned** from a real pour, nil until then), `spudCrateSeedCount(crate)`, `spudCrateHasSeed(n)`, and the pure arithmetic `spudSeedTripsNeeded(cap, have, perCrate, cratesPerTrip)` / `spudSeedTripCeiling(needed, floorMax)` / `spudSeederWantsMore(count, cap)` / `spudCratesInHand()` (`CarryLinks` children) — v1.133: the pour runs to the machine's own `MaxCapacity` and the trip budget scales to it instead of the constant 4; wired in `seedCheck`, the `seedCrateIntoSeeder` loop, the second-crate block and `seedPasses`' `refillsMax` |
 | Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes` / `growth` / `shop`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`, test run + last 60 farm lines), `spudTestCopyConsole` (`setclipboard`, last 150 farm lines only), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Grow now** (v1.123), **Shop counter** (v1.103), **Run all**, **Copy report**, **Copy console** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
@@ -3103,7 +3097,71 @@ re-aim, a seed pass that logs `refill N/6`-style arithmetic rather than the dead
 `refill 1/3`, and a 600-slot machine that reads `50/600 → 600/600` instead of
 stopping at the first crate.
 
-**Where it stands:** `rebuild v1.133 · fluent gui`, whole suite green (34/34),
+**"it's making the wheels glitch, use mumuplayer and controll it i wont be home,
+patch the bugs and keep it bug free" (v1.134).** The owner reloaded v1.133 and the
+weld broke the vehicle, so this build was debugged **from the emulator directly** —
+`adb -s 127.0.0.1:16416 logcat -d -v time | grep -F "[spud]"` for the console and
+`exec-out screencap -p` for the rig — with no paste from the owner, who was away.
+The console was unambiguous:
+
+```
+anchor: JDShank welded to the ChallengerMT9's HitchRoot — the tool is part of the
+  ride while it is hitched
+hitch gap at arrival: 1.1 studs
+remote plow: fired 9 of 98 cell(s) from 12 stop(s), 3x3 per stop — 0 took, 98 left
+```
+
+and the screenshot showed a **wheel lying on the field** next to a tractor reading
+`Speed 0`. So v1.133's open question (a) is answered — **the live server does accept
+a client-created `WeldConstraint`** — and the answer is that it must not be used.
+**Root cause, from Roblox's own assembly rules, not a guess:** the game's hitch
+constraint already joins the ride and the implement into **one assembly**, so the
+weld is a *second* joint between the same two parts, and a constraint loop is
+over-constrained — the solver resolves it by throwing a part off. The
+`SetNetworkOwner(LocalPlayer)` the weld needed then handed the merged assembly to
+this client while the server keeps simulating the implement, so the two disagree
+about where the blade is — which is precisely what a field call is judged on, hence
+`0 took` on the very next grid against **1793 of 2388** taken on the same field
+without the weld. The gap number the weld produced (`1.1 studs`) is the tell that
+the swing was never the problem: v1.131's carry already gets the gap to a few studs
+**without** adding a joint.
+
+**The fix is a deletion.** `spudAnchorTool`, `spudUnanchorTool` and the `spudAnchor`
+state are gone, with all eight call sites: the park, the unhitch path, the blind X at
+attempt 3, the wrong-tool grab, the bottom of `hitchTool`, loop end, loop stop and
+`destroyUI`. The only `SetNetworkOwner` left in the build is the pre-existing
+`claimOwnership(tr)` — on the **ride the player is driving**, which is what Roblox
+documents and which predates this feature. The swing stays handled by the two things
+proven in game: v1.131's carry and v1.132's per-stop re-aim. A note in the source
+where the weld used to be says *"Do not re-add a weld to the tow"* with the console
+lines as the reason.
+`tools/hitch_anchor_test.py` was the weld's own guard, i.e. **the defect frozen
+green**, so it is deleted and replaced by `tools/tow_anchor_test.py`: six absent-symbol
+checks, one `SetNetworkOwner` (inside `claimOwnership`), the carry run for real
+against a rig whose ride teleport does *not* move the tool (same-delta carry, the
+tool's own rotation preserved, nil tool = no carry, `tool == ride` = **one** move,
+zero delta carries nothing, a refused tool pivot swallowed, 12 stops = 12 carries
+with the gap still 20), and ties that `hopTo` / `spudRadialFire` / `spudHopCells`
+still call `spudPivotRig(` with **no** bare `ride:PivotTo(`/`tr:PivotTo(` left in
+them and that `hitchTool` touches no anchor.
+
+**A second defect the same live run exposed, and it is a lying log line, not a
+glitch:** the status label read `still working (waiting for JDShank to be usable)`
+while the plow grid was firing stop after stop. `ensureToolNearby` set that stage
+before the respawn poll and **never set it again**, so the owner's only view of a
+long pass claimed the script was still waiting for a tool it had already hitched —
+rule 7's cousin: a status line may not assert something the code has stopped doing.
+It now says `looking for the <verb> after the respawn` while polling and
+`hitching the <tool>` as soon as the tool is found.
+
+Compile OK, suite **34/34** (the weld harness out, the tow harness in), headroom
+**6** (unchanged — the three deleted names were globals, so the register budget never
+moved), name audit clean **373** (was 375). **Harness green — the in-game verdict is
+the next reload**, and it is the one this build was made for: no wheel on the ground,
+a plow grid whose `took` climbs towards `fired`, and a status line that names the
+stage actually running.
+
+**Where it stands:** `rebuild v1.134 · fluent gui`, whole suite green (34/34),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **v1.129 was reloaded in game and crashed** (the ordering bug above);
 **v1.130 fixed that and was run in game** — the owner's console opens
@@ -3116,14 +3174,16 @@ the same emulator now reads `hitch gap at arrival: 5.0 studs` (then `1.0`) and n
 pass says `not on the hitch any more`, and a 2 399-cell cultivate grid took 2 374.
 What that confirmed run then exposed is the grid's own shape — a 4×4 plow leaving
 `595 left` in crosses and a seed grid whose first stop sits `32 studs off stop 1`
-and fires `0 took` — which is what v1.132 answers. **v1.132 and v1.133 are
-harness-green only: neither has been reloaded in game.** v1.133's four verdicts are
-`anchor: <tool> welded to the <ride>'s <hitch part> — the tool is part of the ride
-while it is hitched` (or the honest `nothing welded, the tow stays on the game's
-own constraint`, which means the weld was refused and the field pass is unchanged),
-grid stops that log no `the blade is N studs off stop` line at all, a seed trip that
-refills to the machine's own `MaxCapacity` (`refill 1/6`-shaped arithmetic, not the
-dead `refill 1/3`), and two crates carried per town visit.
+and fires `0 took` — which is what v1.132 answers. **v1.132 and v1.133 were both
+reloaded, and v1.133's weld was refuted by it.** v1.132's two verdicts are still
+open (a seed grid whose `took` climbs towards `fired`, and a plow field with no
+cross of leftovers); v1.133's weld verdict came back **live and negative** —
+`anchor: JDShank welded to the ChallengerMT9's HitchRoot` plus
+`hitch gap at arrival: 1.1 studs` plus a wheel on the field and
+`fired 9 of 98 … 0 took` — so v1.134 deleted it (§5). What v1.133 keeps, if the
+next console says so, is the seed half: a trip that refills to the machine's own
+`MaxCapacity` (`refill 1/6`-shaped arithmetic, not the dead `refill 1/3`) and two
+crates carried per town visit.
 **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
@@ -3174,15 +3234,17 @@ behind the ride …`, or no such line at all), and — with a wide implement hit
 — a `3x3` that became `NxN per stop`. If a tool is ever logged
 `not on the hitch any more`, that pass stopped on purpose: the implement had been
 flung off, and dragging it the rest of the way is what the owner reported.
-**v1.132's and v1.133's verdicts are both still open — neither was reloaded.**
+**v1.133's weld verdict came back and closed (v1.134 deleted the feature — §5);
+v1.132's two verdicts and v1.133's seed verdicts are still open.**
 v1.132: a seed grid whose `took` climbs towards `fired` (not `0 took` next to
-`firing anyway`) and a plow field with no cross of leftovers. v1.133 has **two
-things the harness genuinely cannot know**, so say which of these the console shows:
-**(a)** whether the live server accepts a **client-created `WeldConstraint`** on a
-part it may not hand over — `anchor: … welded to …` and then grid stops that need no
-re-aim, versus `the tow stays on the game's own constraint` (refused: the field pass
-is then exactly v1.132's behaviour, which is the point of making every refusal
-cost only the anchor); and **(b)** whether a **second** `FNCRequestStorePurchase`
+`firing anyway`) and a plow field with no cross of leftovers. v1.133's
+**(a)** is **answered**: the live server *does* accept a client-created
+`WeldConstraint` (`anchor: JDShank welded to the ChallengerMT9's HitchRoot`), and
+accepting it is the defect — the second joint joins two assemblies the game's own
+hitch already joined, the loop is over-constrained, and the rig threw a wheel while
+the next grid took `0 of 98`. Two things still **the harness cannot know**, so say
+which of these the console shows: **(b)** whether a **second**
+`FNCRequestStorePurchase`
 while the first crate is still in hand buys the second box or answers the till's
 "place items on the counter" toast — `✅ <seed> bought …` twice in one town visit
 versus the second crate left on the shelf. **(c)** A 600-slot seeder should read a

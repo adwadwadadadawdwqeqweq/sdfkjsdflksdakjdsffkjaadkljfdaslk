@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.133 · fluent gui"
+local VERSION    = "rebuild v1.134 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -1467,10 +1467,14 @@ local okBuild, errBuild = pcall(function()
             log(string.format("respawn didn't bring the %s back — skipping this pass", verb))
             return nil
         end
-        setStage("waiting for " .. impl.Name .. " to be usable")
+        setStage("looking for the " .. verb .. " after the respawn")
         local impl2, dist2, basis2 =
             findImplement(typeName, tr:GetPivot().Position, tr)
         if impl2 then
+            -- the stage line is the owner's only view of a long pass: leaving it
+            -- on the respawn label made a plow grid read as "waiting for the tool
+            -- to be usable" (live 2026-11-03), which is a lie about what runs.
+            setStage("hitching the " .. impl2.Name)
             log(string.format("✅ %s is out — %.0f studs away now", impl2.Name, dist2 or 0))
             if dist2 and dist2 > RESPAWN_RANGE then
                 log(string.format("⚠ it spawned %.0f studs from the tractor (>%d) — hitching may still fail from here",
@@ -1881,10 +1885,6 @@ local okBuild, errBuild = pcall(function()
             if stopping() then return 0 end
             return (impl:GetPivot().Position - before).Magnitude
         end
-        -- ▸ the anchor comes OFF first: the proof that the tool is parked is
-        --   the tug ("it stayed put"), and a welded tow would answer that no
-        --   matter what the game's own hitch did.
-        spudUnanchorTool("the tool is being parked")
         for attempt = 1, 3 do
             local lined = lineUpHitch(tr, impl)
             if not lined then log("park: hitch line-up parts missing — pressing the fallback anyway") end
@@ -2012,7 +2012,6 @@ local okBuild, errBuild = pcall(function()
         -- gated, so if it stays, only the user can free the hitch
         if attached and attached ~= impl.Name then
             log("a different tool is hitched (" .. attached .. ") — unhitching it first")
-            spudUnanchorTool("the hitch has to be freed")
             pressKey(Enum.KeyCode.X)
             task.wait(0.8)
             if stopping() then return false end
@@ -2078,7 +2077,6 @@ local okBuild, errBuild = pcall(function()
                         --   unhitch here; with nothing attached it does
                         --   nothing.
                         log("hitch: no prompt after 3 tries — pressing X in case another tool is still on")
-                        spudUnanchorTool("an X press is going to the hitch")
                         pressKey(Enum.KeyCode.X)
                         task.wait(0.8)
                         if stopping() then return false end
@@ -2108,7 +2106,6 @@ local okBuild, errBuild = pcall(function()
                     if got and got ~= impl.Name then
                         log(string.format("⚠ X grabbed the wrong tool (HUD: %s, wanted %s) — unhitching",
                             got, impl.Name))
-                        spudUnanchorTool("the wrong tool came off the hitch")
                         pressKey(Enum.KeyCode.X)
                         task.wait(0.8)
                     else
@@ -2123,9 +2120,6 @@ local okBuild, errBuild = pcall(function()
                 return false --- killed (toggle off) or out of attempts
             end
         end
-        -- ▸ the hitch is proven (a passed tug, or this attempt's tug) — NOW the
-        --   tow may be made rigid. A failure above never reaches this line.
-        spudAnchorTool(tr, impl)
         return true
     end
 
@@ -3010,86 +3004,16 @@ local okBuild, errBuild = pcall(function()
         end)
     end
 
-    -- ▸ ANCHOR THE TOW (owner 2026-11-03: "make it anchor the tool permanently
-    --   behind the tractor while it's hitched"). v1.131 carries the implement
-    --   through a teleport and v1.129 refuses a jump while it swings, but the
-    --   tow is still the GAME's constraint: the tool hangs on a slack line, so
-    --   the pose at arrival is whatever the solver managed in the frames
-    --   available, and every grid stop has to re-aim from a fresh reading.
-    --   A WeldConstraint between the two hitch parts makes ride + implement ONE
-    --   assembly: the tool is where the ride put it, the settle wait has no
-    --   swing to refuse, and nothing drags.
-    --   It is created only after a hitch is PROVEN (the tug test in hitchTool)
-    --   and destroyed before anything asks the game to unhitch — an X press
-    --   against a welded tow is a tug-of-war the script wins and the server
-    --   loses, and "the tool stayed put" would be a lie about the park.
-    --   Globals, for the 200-local ceiling and because the callers are scattered.
-    function spudAnchorTool(ride, impl)
-        if not (ride and impl) or ride == impl then return false end
-        if spudAnchor and spudAnchor.weld
-            and spudAnchor.impl == impl and spudAnchor.ride == ride then
-            return true
-        end
-        spudUnanchorTool("a tool is going on the hitch")
-        local p0, p1 = findHitchPart(ride), findHitchPart(impl)
-        if not (p0 and p1) then
-            log(string.format("anchor: %s or %s has no hitch part to weld — the tow stays on the game's own constraint",
-                tostring(ride and ride.Name), tostring(impl and impl.Name)))
-            return false
-        end
-        -- weld the SETTLED pose. The tug that proved the hitch leaves the tool
-        -- swinging, and freezing a mid-swing frame would hold the tow at an
-        -- angle the game never rests it at.
-        local v = spudWaitTool(ride, spudToolAttachment(impl), "anchor")
-        if v == "stop" then return false end
-        if v == "far" then
-            log(string.format("anchor: %s is off the hitch — nothing welded", tostring(impl.Name)))
-            return false
-        end
-        -- and only on `settled`: this weld is PERMANENT for the whole hitch, so
-        -- freezing a frame the tow was passing through would hold the implement
-        -- at an angle the game never rests it at. `swinging` / `gone` / `none`
-        -- cost the anchor and nothing else — the carry and the re-aim still work.
-        if v ~= "settled" then
-            log(string.format("anchor: %s reads %s behind the %s — nothing welded, the tow stays on the game's own constraint",
-                tostring(impl.Name), tostring(v), tostring(ride.Name)))
-            return false
-        end
-        -- the weld only holds if this client SIMULATES the assembly it joins —
-        -- a server-owned tool rubber-bands straight through it
-        pcall(function()
-            local pp = impl.PrimaryPart or impl:FindFirstChildWhichIsA("BasePart", true)
-            if pp then pp:SetNetworkOwner(LocalPlayer) end
-        end)
-        local ok, weld = pcall(function()
-            local w = Instance.new("WeldConstraint")
-            w.Name = "SpudTowAnchor"
-            w.Part0 = p0
-            w.Part1 = p1
-            w.Parent = p0
-            return w
-        end)
-        if not ok or not weld then
-            log(string.format("anchor: a WeldConstraint on %s was refused — the tow stays on the game's own constraint",
-                tostring(impl.Name)))
-            return false
-        end
-        spudAnchor = { weld = weld, ride = ride, impl = impl, p0 = p0, p1 = p1 }
-        log(string.format("anchor: %s welded to the %s's %s — the tool is part of the ride while it is hitched",
-            impl.Name, ride.Name, p0.Name))
-        return true
-    end
-
-    -- let the tow go back to the game's own constraint. Silent when nothing is
-    -- anchored, so every unhitch path can call it without judging first.
-    function spudUnanchorTool(why)
-        local a = spudAnchor
-        if not a then return false end
-        spudAnchor = nil
-        if a.weld then pcall(function() a.weld:Destroy() end) end
-        log(string.format("anchor: released (%s)", tostring(why)))
-        return true
-    end
+    -- ▸ THE TOW IS CARRIED, NEVER WELDED (owner 2026-11-03: "it's making the
+    --   wheels glitch"). A client weld between the ride's hitch part and the
+    --   implement's joins the two assemblies the game ALREADY joins with its own
+    --   hitch constraint, and the loop that makes tears the vehicle: live it
+    --   logged `anchor: JDShank welded to the ChallengerMT9's HitchRoot`, threw a
+    --   wheel onto the field, and the same plow grid then took 0 of 98 cells —
+    --   client and server no longer agree where the blade is. The carry above
+    --   (v1.131) is the anchor that survives: every teleport moves the implement
+    --   by the ride's own delta, so the gap is the bar length (1.1 studs live)
+    --   and no joint is added. Do not re-add a weld to the tow.
 
     -- fire the game's own call for every cell still needing `job`, then
     -- re-read the field. Returns done, left:
@@ -9151,7 +9075,6 @@ local okBuild, errBuild = pcall(function()
                         -- ended on its own (success or honest failure)
                         loopThread = nil
                         log("farming loop: ended")
-                        spudUnanchorTool("the farming loop ended")
                         pcall(function()
                             (Fluent.Options and Fluent.Options.farmingLoop
                                 or farmingToggle):SetValue(false)
@@ -9163,7 +9086,6 @@ local okBuild, errBuild = pcall(function()
                 if not loopThread then return end -- already off (echo-safe)
                 loopThread = nil
                 log("farming loop: off — stopped")
-                spudUnanchorTool("the farming loop was stopped")
             end
         end,
     })
@@ -13647,7 +13569,6 @@ local okBuild, errBuild = pcall(function()
         --   copy of each (the FPS that kept getting worse). Bumping the
         --   session generation stops every loop this build started.
         spudGen = (spudGen or 0) + 1
-        spudUnanchorTool("the script unloaded")
         milkThread = nil
         milkStoreAuto = false
         milkStoreThread = nil
