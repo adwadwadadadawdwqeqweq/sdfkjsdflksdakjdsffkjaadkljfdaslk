@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.134 · fluent gui"
+local VERSION    = "rebuild v1.135 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -594,6 +594,40 @@ local okBuild, errBuild = pcall(function()
         return ok and v == true
     end
 
+    -- ▸ THE GAME SPACES NAMES THE MODELS DO NOT (live 2026-11-03): the planter
+    --   model is TempoL16, and both its Equipment Manager card and its HUD slot
+    --   read "Tempo L16". Every comparison this build makes between a model name
+    --   and something the game wrote therefore goes through one key — a serial
+    --   suffix (#9) out, every non-letter-and-digit out, lowercased. Before this
+    --   the mismatch cost three things at once: the manager refused the card
+    --   ("no card for TempoL16" next to a card list that says Tempo L16), the
+    --   stale-label check looked up a model that does not exist, and the
+    --   wrong-tool guard unhitched the very implement it had just hitched.
+    --   The strip is %W (not alphanumeric), NOT %A (not a letter): the digits
+    --   ARE the machine — %A folds TempoL16 and TempoL20 into one key.
+    function spudNameKey(s)
+        return tostring(s or ""):gsub("#%d+", ""):gsub("%W", ""):lower()
+    end
+
+    function spudSameEquipName(a, b)
+        local ka = spudNameKey(a)
+        return ka ~= "" and ka == spudNameKey(b)
+    end
+
+    -- the line a hitch line-up prints when it has no point to aim at: WHICH
+    -- model, how much of it the client actually has, and whether that instance
+    -- is still in the world — because a respawn rebuilds a model and a stale
+    -- reference reads zero descendants, which is a different bug from a machine
+    -- that names its hitch differently (rule 7: name it, do not guess it).
+    function spudHitchMissText(model, who)
+        if not model then return who .. " is gone" end
+        local n = 0
+        pcall(function() n = #model:GetDescendants() end)
+        return string.format("%s %s has no hitch point (%d instance(s) read%s)",
+            who, model.Name, n,
+            model:IsDescendantOf(workspace) and "" or ", and it is NOT in the world")
+    end
+
     -- the game's own type word for a machine, lowercased and with everything that
     -- is not a letter out, so "Forage Harvester" and "Harvester" are one key.
     -- nil means this build put no EquipmentType on the model at all.
@@ -952,11 +986,21 @@ local okBuild, errBuild = pcall(function()
         if not (lbl and lbl:IsA("TextLabel")) then return nil end
         local t = tostring(lbl.Text):gsub("^%s+", ""):gsub("%s+$", "")
         if t == "" then return nil end
-        -- a stored implement can't be physically attached (stale label)
+        -- a stored implement can't be physically attached (stale label). The
+        -- label is the game's display name, which can carry a space the model
+        -- name has no ("Tempo L16" on the TempoL16), so this walks for the key
+        -- rather than FindFirstChild'ing the label.
         local folder = equipmentFolder()
-        local model = folder and folder:FindFirstChild(t)
-        if model and model:GetAttribute("InStorage") then
-            return nil
+        if folder then
+            local key = spudNameKey(t)
+            for _, m in ipairs(folder:GetChildren()) do
+                if spudNameKey(m.Name) == key then
+                    if m:GetAttribute("InStorage") then
+                        return nil
+                    end
+                    break
+                end
+            end
         end
         return t
     end
@@ -1158,16 +1202,20 @@ local okBuild, errBuild = pcall(function()
             end
             -- this vehicle's card: an ImageButton whose EquipmentName text
             -- STARTS with the model name ("ZM80\n#9" → ZM80), so "Trailer"
-            -- can never match a card that merely mentions it. The video
-            -- showed the menu opens EMPTY and the cards land ~1-2 s
+            -- can never match a card that merely mentions it. The compare runs
+            -- on spudNameKey, because the card says "Tempo L16" and the model
+            -- says TempoL16 (live 2026-11-03: that space was the whole reason
+            -- the manager reported no card for a vehicle it was listing). The
+            -- video showed the menu opens EMPTY and the cards land ~1-2 s
             -- later — so poll for this card instead of searching once.
             local function findCard()
+                local key = spudNameKey(vehicleName)
                 for _, d in ipairs(cards:GetDescendants()) do
                     if d:IsA("ImageButton") then
                         local nm = d:FindFirstChild("EquipmentName")
                         if nm and nm:IsA("TextLabel") then
                             local t = nm.Text:gsub("^%s+", ""):gsub("%s+$", "")
-                            if t:sub(1, #vehicleName) == vehicleName then
+                            if key ~= "" and spudNameKey(t):sub(1, #key) == key then
                                 return d
                             end
                         end
@@ -1225,6 +1273,46 @@ local okBuild, errBuild = pcall(function()
                     "equipment manager: looking for '%s' — %d card(s) showing right now: %s",
                     vehicleName, #cn,
                     (#cn > 0 and table.concat(cn, " · ") or "none")))
+            end
+            if not card then
+                -- ▸ THE LIST IS FILTERED BY THE TAB THE GAME LAST SHOWED (live
+                --   2026-11-03, the run that could never get its ride back):
+                --   chasing ChallengerMT9 — a Tractor — the card list read
+                --   exactly TWO cards, `KADL · Tempo L16`, both Planters,
+                --   because the pass before it was working on the seeder, and
+                --   every attempt ended `no card for ChallengerMT9 — it is not
+                --   among the cards listed above`. The run ENDS by storing the
+                --   ride, so each next pass respawned a machine whose card it
+                --   could not reach: five attempts, `wouldn't drive for this
+                --   vehicle`, `run ended`. The tabs are the game's own words
+                --   (`All · Tractor · Harvester · Plow · Cultivator · Planter ·
+                --   Truck · Transport · Misc`), so a miss asks the game to show
+                --   everything — click its `All` tab through its own handler
+                --   (no mouse) and poll again before declaring the card absent.
+                local tabRow = content:FindFirstChild("Tabs")
+                local allTab
+                if tabRow then
+                    for _, t in ipairs(tabRow:GetChildren()) do
+                        if t:IsA("GuiButton") and spudNameKey(t.Name) == "all" then
+                            allTab = t
+                            break
+                        end
+                    end
+                end
+                if allTab then
+                    if clickEffect(allTab, function()
+                            local c = findCard()
+                            return c and onScreen(c)
+                        end) then
+                        card = findCard()
+                        log("equipment manager: the " .. vehicleName
+                            .. " card was under another tab — the game's All tab showed it")
+                    end
+                else
+                    log(string.format(
+                        "equipment manager: no All tab in this build (%s child(ren) under Tabs) — the card list stays on whatever tab the game last showed",
+                        tostring(tabRow and #tabRow:GetChildren() or "no Tabs folder")))
+                end
             end
             if not card then
                 log("equipment manager: no card for " .. vehicleName
@@ -1287,8 +1375,10 @@ local okBuild, errBuild = pcall(function()
             end
             local function expandedShows()
                 local t = expandedName()
-                return (t ~= nil and t ~= ""
-                    and t:sub(1, #vehicleName) == vehicleName)
+                local key = spudNameKey(vehicleName)
+                local tk = spudNameKey(t)
+                return (t ~= nil and t ~= "" and key ~= ""
+                    and tk:sub(1, #key) == key)
             end
             -- ▸ CLICK THE CARD UNTIL THE DETAIL VIEW OPENS (user: "it calls the
             --   card before they are even visible"). One click was the whole
@@ -1771,6 +1861,26 @@ local okBuild, errBuild = pcall(function()
         return best
     end
 
+    -- the world point a hitch is joined at: a BasePart whose name says hitch,
+    -- else the game's OWN socket — ride.Components.Hitchable and
+    -- tool.Chassis.HitchableSocket, the exact pair the captured FNCAttemptHitch
+    -- takes. A name-only walk answered tractor=none on a ride that had given
+    -- HitchRoot minutes earlier, and plow=none on a tool that had given Hitch
+    -- (live 2026-11-03), and a line-up with nothing to measure falls back to
+    -- the creep — which moves 20 studs a try and never brings the prompt up.
+    local function hitchPoint(model, folderName, childName)
+        if not model then return nil end
+        local p = findHitchPart(model)
+        if p then return p.Position, p.CFrame, p.Name end
+        local f = model:FindFirstChild(folderName)
+        local a = f and f:FindFirstChild(childName)
+        if a and a:IsA("Attachment") then
+            local cf = a.WorldCFrame
+            return cf.Position, cf, childName .. " (the game's socket)"
+        end
+        return nil
+    end
+
     -- park the tractor so its hitch part sits EXACTLY on the plow's hitch
     -- part, rotating with the plow — physical line-up, no stand-off guessing.
     -- airborne = the tractor tows NOTHING (pre-hitch): arc over everything
@@ -1778,21 +1888,23 @@ local okBuild, errBuild = pcall(function()
     -- ground — an implement at altitude smashes through whatever it passes.
     local function lineUpHitch(tr, plow, airborne)
         if stopping() then return false end
-        local tH = findHitchPart(tr)
-        local pH = findHitchPart(plow)
-        if not (tH and pH) then
-            log("hitch parts: tractor=" .. (tH and tH.Name or "none")
-                .. " plow=" .. (pH and pH.Name or "none") .. " — using creep alignment")
+        local tpos, tcf, tname = hitchPoint(tr, "Components", "Hitchable")
+        local ppos, pcf, pname = hitchPoint(plow, "Chassis", "HitchableSocket")
+        if not (tcf and pcf) then
+            local miss = {}
+            if not tcf then miss[#miss + 1] = spudHitchMissText(tr, "tractor") end
+            if not pcf then miss[#miss + 1] = spudHitchMissText(plow, "tool") end
+            log(table.concat(miss, " · ") .. " — using creep alignment")
             return false
         end
         local pp = plow:GetPivot()
         local cur = tr:GetPivot()
-        local rel = cur:ToObjectSpace(tH.CFrame)
+        local rel = cur:ToObjectSpace(tcf)
         -- match XZ + rotation to the plow but KEEP the tractor's height:
         -- dump §23 showed the hitchable pose has the tractor hitch ~1.6
         -- studs ABOVE the plow's — forcing exact Y would sink the tractor
         -- into the plow and get rubber-banded
-        local desired = CFrame.new(pH.Position.X, cur.Position.Y, pH.Position.Z)
+        local desired = CFrame.new(ppos.X, cur.Position.Y, ppos.Z)
             * (pp - pp.Position)
         local newPivot = desired * rel:Inverse()
         if airborne then
@@ -1811,10 +1923,19 @@ local okBuild, errBuild = pcall(function()
             end
         end
         if stopping() then return false end
-        tr:PivotTo(newPivot)
+        -- ▸ THE TOW COMES ALONG (same rule as every other move, v1.131): the
+        --   pre-park call is the non-airborne one, so a tool IS hitched here
+        --   and a bare ride pivot would leave it on the old ground under the
+        --   whole length of the move. Pre-hitch (airborne) the tool is NOT
+        --   attached, so it must stay exactly where it is — carrying it onto
+        --   the pose would teleport the implement before the game ever joined
+        --   it to the ride.
+        spudPivotRig(tr, newPivot, airborne and nil or plow)
         task.wait(0.2)
-        log(string.format("lined up %s ↔ %s (gap %.2f studs)",
-            tH.Name, pH.Name, (tH.Position - pH.Position).Magnitude))
+        local tNow = hitchPoint(tr, "Components", "Hitchable")
+        local pNow = hitchPoint(plow, "Chassis", "HitchableSocket")
+        log(string.format("lined up %s ↔ %s (gap %.2f studs)", tname, pname,
+            (tNow and pNow and (tNow - pNow).Magnitude) or 0))
         return true
     end
 
@@ -2009,14 +2130,17 @@ local okBuild, errBuild = pcall(function()
         local attached = hitchedImplementName()
         -- a DIFFERENT tool on the hitch (live bug: it hitched the
         -- KQF3000 seeder) — X it off first; unhitching is proximity-
-        -- gated, so if it stays, only the user can free the hitch
-        if attached and attached ~= impl.Name then
+        -- gated, so if it stays, only the user can free the hitch. The
+        -- compare is by key, not by the raw label: "Tempo L16" IS the
+        -- TempoL16 we came to hitch, and pressing X against it used to
+        -- unhitch the implement this very pass needed (live 2026-11-03).
+        if attached and not spudSameEquipName(attached, impl.Name) then
             log("a different tool is hitched (" .. attached .. ") — unhitching it first")
             pressKey(Enum.KeyCode.X)
             task.wait(0.8)
             if stopping() then return false end
             attached = hitchedImplementName()
-            if attached and attached ~= impl.Name then
+            if attached and not spudSameEquipName(attached, impl.Name) then
                 log("⚠ " .. attached .. " is still hitched — unhitch it manually (X next to it), then run again")
                 return false
             end
@@ -2103,7 +2227,7 @@ local okBuild, errBuild = pcall(function()
                     -- other tool, THAT one got grabbed — take it off
                     -- again before retrying
                     local got = hitchedImplementName()
-                    if got and got ~= impl.Name then
+                    if got and not spudSameEquipName(got, impl.Name) then
                         log(string.format("⚠ X grabbed the wrong tool (HUD: %s, wanted %s) — unhitching",
                             got, impl.Name))
                         pressKey(Enum.KeyCode.X)
@@ -3351,13 +3475,47 @@ local okBuild, errBuild = pcall(function()
     function spudEquipRemoteAct(vehicleName, action)
         local folder = equipmentFolder()
         local model = folder and folder:FindFirstChild(vehicleName)
-        if not model then return false end
+        -- ▸ the same fold the card lookup uses (v1.135): the folder can carry
+        --   the machine under the name the GAME draws while the pass holds the
+        --   model name. A miss here is silent, and silent is how a build ends up
+        --   driving the Equipment Manager for a machine the call could have
+        --   handled — so it is named below either way.
+        if not model and folder then
+            local nKey = spudNameKey(vehicleName)
+            if nKey ~= "" then
+                for _, m in ipairs(folder:GetChildren()) do
+                    if spudNameKey(m.Name) == nKey then
+                        model = m
+                        break
+                    end
+                end
+            end
+        end
+        if not model then
+            log(string.format(
+                "equipment: no %s model in Objects.Equipment (%d child(ren) read) — the %s runs through the Equipment Manager",
+                tostring(vehicleName), folder and #folder:GetChildren() or 0,
+                tostring(action):lower()))
+            return false
+        end
         local key = action == "Store" and "store" or "spawn"
         local want = key == "store"
         local before = model:GetAttribute("InStorage")
-        if before == want then return false end
+        if before == want then
+            log(string.format(
+                "equipment: the %s already reads InStorage=%s — nothing to %s by call, trying the Equipment Manager",
+                model.Name, tostring(before), key))
+            return false
+        end
         local p0 = model:GetPivot().Position
-        if not spudEquipRemoteCall(key, model) then return false end
+        if not spudEquipRemoteCall(key, model) then
+            local kit = spudEquipRemoteKit() or {}
+            log(string.format("equipment: no working %s call (%s) — the %s runs through the Equipment Manager",
+                key, spudEquipRemoteState.off[key] and "switched off this session after 3 ignored calls"
+                    or (kit[key] and "the call threw" or "the remote is not in this build"),
+                    tostring(action):lower()))
+            return false
+        end
         local deadline = os.clock() + 2
         while os.clock() < deadline do
             if stopping() then break end
@@ -7809,7 +7967,7 @@ local okBuild, errBuild = pcall(function()
                 log("store: stopped by hand — leaving the rest out")
                 return
             end
-            if hitched and hitched == m.Name then
+            if hitched and spudSameEquipName(hitched, m.Name) then
                 log("store: " .. m.Name .. " is still hitched — not storing it from under the hitch")
             else
                 storeOne(m) -- also refuses the seat, with its own line
@@ -8137,11 +8295,11 @@ local okBuild, errBuild = pcall(function()
                         -- honest end-state: did the tool come along? (only
                         -- meaningful when something is HITCHED to the ride)
                         if not job.selfPropelled then
-                            local tH, pH =
-                                findHitchPart(ride), findHitchPart(impl)
-                            if tH and pH then
+                            local gapA = hitchPoint(ride, "Components", "Hitchable")
+                            local gapB = hitchPoint(impl, "Chassis", "HitchableSocket")
+                            if gapA and gapB then
                                 log(string.format("hitch gap at arrival: %.1f studs",
-                                    (tH.Position - pH.Position).Magnitude))
+                                    (gapA - gapB).Magnitude))
                             end
                         end
                         -- the spiral sweep — the game stages cells over as
@@ -8344,10 +8502,19 @@ local okBuild, errBuild = pcall(function()
             --   if any field STILL has cells at Cultivated AND the seeder
             --   still holds seeds, hitch it again and go back to those
             --   fields. Stops when: nothing is left to seed · the seeder
-            --   ran empty (logged honestly — it needs a refill) · a pass
-            --   changed nothing (so it can never ping-pong) · 6 rounds.
+            --   ran empty (logged honestly — it needs a refill) · two rounds
+            --   in a row take nothing (so it can never spin for ever).
             local rounds = 0
             local refills = 0
+            -- ▸ A ROUND THAT TAKES NOTHING ENDS THE PASS (live 2026-11-03: the
+            --   hitch never landed, runPass returned false without firing a
+            --   call, and the count never moved — round 12 was still creeping
+            --   with the toggle ON). The owner's "infinitely keep retrying
+            --   until there is none of the last stage it was on" holds while a
+            --   round MAKES progress; two rounds that leave the same cells
+            --   standing are named and left for the next pass, exactly like the
+            --   field pass's own no-progress break.
+            local leftWas, leftStuck
             -- ▸ THE REFILL CEILING IS THE TANK'S ARITHMETIC, NOT A CONSTANT
             --   (owner: "fill to max, trips scales to fix"). Three refills were
             --   enough for a 50-seed seeder and half of what a 600-slot one
@@ -8397,12 +8564,24 @@ local okBuild, errBuild = pcall(function()
                         break
                     end
                     log(string.format("seeder refilled to %d seed(s) — carrying on with the field", filled))
+                    leftWas, leftStuck = nil, 0
                 else
                     -- ▸ RETRY UNTIL NONE IS LEFT (owner 2026-10-31: "infinitly
                     --   keep retrying untill there is none of the last stage it
-                    --   was on"). The old 6-round cap and the "didn't change"
-                    --   break are gone: the loop ends on an empty seeder that
-                    --   cannot be refilled, or on Stop.
+                    --   was on"). The old 6-round cap is gone — but a round that
+                    --   leaves the SAME cells standing is not progress, it is
+                    --   the hang the owner reported, so two of those in a row
+                    --   end the pass with the count named.
+                    if leftWas and after >= leftWas then
+                        leftStuck = (leftStuck or 0) + 1
+                        if leftStuck >= 2 then
+                            log(string.format("seeding: %d cell(s) still need seed after 2 round(s) that took nothing — leaving them for the next pass (the hitch and tool lines above say why)", after))
+                            break
+                        end
+                    else
+                        leftStuck = 0
+                    end
+                    leftWas = after
                     log(string.format("seeder still has %d seed(s) and %d cell(s) across %d field(s) still need seeding — going back to seed them (round %d)",
                         seeds, after, afields, rounds))
                     task.wait(1)
@@ -8678,6 +8857,20 @@ local okBuild, errBuild = pcall(function()
         end)
         local list = ok and names or nil
         if list and #list > 0 then
+            -- ▸ THE CROP THE OWNER IS PLANTING (2026-11-03: "btw we are
+            --   planting tomatoes so mke it plnt tht"). The word is the
+            --   game's own, not this build's guess: the live cell read
+            --   `Seeded ×50 [growth 2012, mult 1, watered false, seed Tomato]`
+            --   straight off a cell's `SeedType`, so the standing default looks
+            --   for that name in `SEED_TYPE` before anything else. A build
+            --   whose list has no Tomato falls through to the rules below.
+            local wantedName
+            for _, n2 in ipairs(list) do
+                if spudNameKey(n2) == "tomato" then
+                    wantedName = n2
+                    break
+                end
+            end
             -- ▸ DEFAULT (user: "it went to the store like before but not to a
             --   crate"): the alphabetically first name is an EVENT seed
             --   ("Alien Tentacle") that FarmCo doesn't sell, so the shop trip
@@ -8688,14 +8881,16 @@ local okBuild, errBuild = pcall(function()
             for name2, id2 in pairs(seedIdOf) do
                 if not bestId or id2 < bestId then bestName, bestId = name2, id2 end
             end
-            local defaultName = bestName or list[1]
+            local defaultName = wantedName or bestName or list[1]
             -- a pick from the last build wins, but only if the game still
             -- offers it (event seeds come and go)
             local savedSeed = spudSavedSeed
             if not (savedSeed and seedIdOf[savedSeed]) then savedSeed = nil end
             seedChoice = savedSeed or defaultName
             log("seed default: " .. seedChoice
-                .. (savedSeed and " (remembered from the last build)" or " (the game's first crop)")
+                .. (savedSeed and " (remembered from the last build)"
+                    or (wantedName and " (the crop you are planting)"
+                        or " (the game's first crop)"))
                 .. " — change it in the Farm tab's Seed dropdown")
             log("seed list: " .. #list .. " seed(s) read from the game — "
                 .. table.concat(list, ", "))

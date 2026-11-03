@@ -286,8 +286,19 @@ Everything merged into one paste-and-run file:
   `InStorage` flag (or a >100-stud move for a rebuilt spawn), hands filling or
   emptying, the tank dropping (sell) and the balance or crate count moving
   (buy). A call that does not land falls back to the old F/X/E/Q/UI path in the
-  same step, and three misses switch that one call off for the session. **A seed
-  you already have is never bought again**: a crate an interrupted trip left
+  same step, and three misses switch that one call off for the session. **The
+  default seed is the crop you are planting** (v1.135, owner: *"btw we are
+  planting tomatoes so mke it plnt tht"*): a live cell's own `SeedType` reads the
+  game's word — the `Grow now` census printed `Seeded ×50 [growth 2012, mult 1,
+  watered false, seed Tomato]` — so the Farm tab's default looks for `Tomato` in
+  `FieldHelper.SEED_TYPE` through the same folded name key, instead of defaulting
+  to a name this build picked. The order is: a pick remembered from the last
+  build (while the game still offers it) → **Tomato** → the game's first crop
+  (lowest `SEED_TYPE` id) → the first entry of its list, and the
+  `seed default: Tomato (the crop you are planting)` line says which one won. A
+  hand-picked seed in the dropdown always outranks the default, and a build whose
+  list has no Tomato behaves exactly as before. **A seed you already have is
+  never bought again**: a crate an interrupted trip left
   carried is read from its own `Configurations.CurrentHolder`, and a crate you
   own (its `Configurations.Owner` is you) is read anywhere on the plot, nearest
   first — either one skips the shop entirely and is poured into the seeder. What
@@ -330,7 +341,14 @@ Everything merged into one paste-and-run file:
   over the field. The
   **Fulfillment** pad needs no key: parked on it, the pad unloads the harvester
   by itself, so that trip only waits for the tank (its own order call was never
-  captured, and it is not needed).
+  captured, and it is not needed). A seed **round** that takes nothing is now
+  bounded too (v1.135): the field pass repeats grid → hop while it is making
+  progress — the owner's "keep retrying until none is left" rule stands — but two
+  rounds in a row that leave the same number of cells unseeded end the pass with
+  `seeding: N cell(s) still need seed after 2 round(s) that took nothing — leaving
+  them for the next pass (the hitch and tool lines above say why)`, because a run
+  whose hitch failed keeps re-running that round for ever (live: `round 12` with
+  nothing taken, the seeder dry, while `hitch: gave up` sat above it).
 - **Drop-off pick** — Farm tab → **Drop-off**: **Fulfillment** (default) or
   **Sell**. When the harvester's tank fills it first fires the captured
   `EVTSellAtStore` **from wherever it stands**, at any distance, and watches
@@ -459,8 +477,60 @@ Everything merged into one paste-and-run file:
   "no tractor". Every "not found" line ends by naming what the world actually
   holds — `no Harvester for you found — this world holds: JDS790=Harvester
   (stored), KADL=Planter, …`.
-- **Go to the farm** — with a Farm owner picked, the run **teleports to that
-  owner's plot first** (only when it is more than 60 studs away; the character
+- **The game writes a name with spaces the model has none of** (v1.135). One run
+  proved it three ways at once: the planter's model is `TempoL16` while its
+  Equipment Manager card and its HUD slot both read **`Tempo L16`**. So the
+  manager answered `no card for TempoL16 — it is not among the cards listed
+  above` next to a list that said `Tempo L16`; the stale-label check looked up a
+  model that does not exist and so a stored implement kept reporting itself
+  attached; and the wrong-tool guard saw a different machine where the HUD named
+  the one it had just hitched, pressed X against its own seeder, and then had to
+  re-hitch it — from 1,120 studs, on the respawned instance. Every comparison
+  between a model name and something the game wrote now goes through one key:
+  `spudNameKey` drops a serial suffix (`#9`), drops everything that is not a
+  letter or a digit, and lowercases — `Tempo L16` and `TempoL16` fold together,
+  `ZM80` and `ZM80\n#9` fold together, and `TempoL16` and `TempoL20` **do not**
+  (the digits are the machine, so the strip is non-alphanumerics, not
+  non-letters). A card is still matched by **prefix on that key**, so a card
+  whose text merely mentions a name cannot win, and two empty labels never match
+  each other.
+- **The Equipment Manager shows one tab at a time** (v1.135). A run chasing
+  `ChallengerMT9` — a Tractor — read exactly **two** cards, both Planters
+  (`KADL · Tempo L16`), because the pass before it had been working on the
+  seeder, and the tab the game last showed is the filter on its own card list.
+  Five attempts, each ending `no card for ChallengerMT9 — it is not among the
+  cards listed above`, then `run ended — the last stage it reached was:
+  Equipment Manager: respawning ChallengerMT9`: the run **stores its ride** when
+  a pass finishes, so every next pass needed a card it could not reach. The tabs
+  are the game's own words (`All · Tractor · Harvester · Plow · Cultivator ·
+  Planter · Truck · Transport · Misc`), so a miss now asks the game to show
+  everything — it clicks that `All` button **through its own handler** (no
+  mouse), re-reads the cards, and only then declares the card absent. A build
+  with no `All` tab says so, with the number of tabs it did find, instead of
+  failing quietly.
+- **A fall-through names which half broke** (v1.135). `spudEquipRemoteAct`
+  returned `false` in five places with no log at all, so a console could not
+  tell "this build has no such remote", "the call threw", "switched off for the
+  session after 3 ignored calls", "no such model in `Objects.Equipment`" and "it
+  already reads the state you asked for" apart — and each of those falls through
+  to the slow UI. Each prints its own line now (the missing-model one with the
+  child count it did read), and the model lookup folds the name the same way, so
+  `Tempo L16` finds the model `TempoL16` instead of reaching the manager for
+  nothing.
+- **The hitch has two measurements, not one** (v1.135). The line-up aimed at a
+  part named `Hitch`/`HitchRoot`/`HitchKnob`/`HitchTip`, and a live run reported
+  `hitch parts: tractor=none` on a ride that had answered `HitchRoot` minutes
+  earlier — one unreadable measurement and the creep alignment took over for all
+  ten attempts. The game's **own** socket pair is now the second source:
+  `Components.Hitchable` on the ride and `Chassis.HitchableSocket` on the tool —
+  the exact attachments the captured `FNCAttemptHitch` takes — read at their
+  `WorldCFrame`. When neither source answers, the refusal names what is missing
+  instead of guessing past it: `tractor ChallengerMT2 has no hitch point (1842
+  instance(s) read, and it is NOT in the world)`, because a respawned model and a
+  machine that names its hitch differently are two different bugs and only one of
+  them is fixable here. (`plow=Hitch` — the tool's named part — answered in every
+  one of those runs, so the missing half was the ride.)
+- **Go to the farm** — with a Farm owner picked, the run **teleports to that  owner's plot first** (only when it is more than 60 studs away; the character
   is stood up first, because a teleport while seated does not travel). It then
   waits half a second for the fields and machines to stream in, finds **that
   farm's** tractor/tool, and logs

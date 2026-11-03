@@ -14,6 +14,12 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+# ▸ the harnesses quote the console, and the console quotes the game — `Y 166 →
+#   138`, `Empty → Plowed`. Windows' default cp1252 stream cannot encode that
+#   arrow, so `hop_test.py` died in its own `print` and the gate called the build
+#   broken. UTF-8 for every child is what the AGENTS §2.2 loop already does by
+#   hand; doing it here means one command and no false FAIL.
+os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 BASE = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else (
     pathlib.Path(os.environ.get("LOCALAPPDATA", ".")) / "Temp" / "opencode" / "luau")
 EXE = BASE / "luau.exe"

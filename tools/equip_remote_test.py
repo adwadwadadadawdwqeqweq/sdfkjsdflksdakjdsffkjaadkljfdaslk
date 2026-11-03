@@ -24,6 +24,19 @@ proof before trusting it:
 An ignored call counts a miss; three take that action back to keys/UI for the
 session. Nothing here can skip the old path.
 
+v1.135 adds the two things a live run proved and this file did not check:
+
+  * the machine is looked up by the game's FOLDED name (the planter's model is
+    TempoL16 while its card and HUD draw "Tempo L16"), and every path that
+    hands the action to the Equipment Manager now SAYS which half broke —
+    no model, already in that state, no remote, a throwing remote, or the call
+    switched off for the session;
+  * the Equipment Manager's card list is filtered to the tab the game last
+    showed, so a run that stores its ride at the end of every pass could never
+    reach that ride's card again (`no card for ChallengerMT9` next to a list of
+    two Planter cards). A miss now clicks the game's own `All` tab through its
+    own handler and re-reads, and a build with no such tab says so.
+
     python tools/equip_remote_test.py [path-to-luau.exe]
 """
 
@@ -37,6 +50,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "SpudFarm_Full.lua"
 WANTED = [
+    "spudNameKey",
     "spudEquipRemoteKit",
     "spudEquipRemoteMiss",
     "spudEquipRemoteCall",
@@ -92,6 +106,7 @@ local function newInst(name, class)
         end
         return false
     end
+    function o:GetChildren() return self.kids end
     function o:GetAttribute(k) return self.attrs[k] end
     function o:SetAttribute(k, val) self.attrs[k] = val end
     function o:GetPivot() return { Position = self.pivot or v(0, 0, 0) } end
@@ -184,7 +199,14 @@ local equipFolder = newInst("Equipment", "Folder")
 local kadl = adopt(equipFolder, newInst("KADL", "Model"))
 kadl:SetAttribute("InStorage", true)
 local zm80 = adopt(equipFolder, newInst("ZM80", "Model"))
+-- the planter the live game has: a MODEL name with no space, while the card
+-- and the HUD both draw "Tempo L16". The call path used to look the model up
+-- with FindFirstChild(vehicleName) only, so a name that arrives spaced (the
+-- label, not the model) silently missed and the whole action fell to the UI.
+local tempo = adopt(equipFolder, newInst("TempoL16", "Model"))
+tempo:SetAttribute("InStorage", true)
 function equipmentFolder() return equipFolder end
+function lastLog() return logs[#logs] or "" end
 
 -- tool hitch parts (captured paths)
 local tcomps = adopt(zm80, newInst("Components", "Folder"))
@@ -369,9 +391,62 @@ check("purchase without a crate fires nothing", spudPurchaseRemote(nil) == false
 resetState()
 larry.Name = "LarryX"
 check("no Modules.Larry -> no equipment kit", spudEquipRemoteKit() == nil)
+
+-- 16. every fall-through says WHICH half broke (v1.135: three of these
+--     paths returned false in silence, so the console could not tell the
+--     remote path, the absent machine and the switched-off call apart)
+kadl:SetAttribute("InStorage", true)
+done = spudEquipRemoteAct("KADL", "Spawn")
+check("no kit -> the spawn names the remote this build has not got",
+    done == false and lastLog():find("remote is not in this build") ~= nil,
+    lastLog())
 larry.Name = "Larry"
 
+resetState()
+done = spudEquipRemoteAct("NoSuchMachine", "Spawn")
+check("a machine that is not in the folder is named, not guessed",
+    done == false and lastLog():find("no NoSuchMachine model") ~= nil
+        and lastLog():find("Equipment Manager") ~= nil, lastLog())
+
+-- 17. the folder is searched by the game's FOLDED name: the pass holds the
+--     label the card draws ("Tempo L16"), the model is named without a space
+resetState()
+tempo:SetAttribute("InStorage", true)
+local te0 = spawnRemote.invokeCalls
+done = spudEquipRemoteAct("Tempo L16", "Spawn")
+check("a spaced label finds the model named without spaces",
+    spawnRemote.invokeCalls - te0 == 1 and spawnRemote.lastArgs[1] == tempo
+        and done == true, lastLog())
+
+resetState()
+tempo:SetAttribute("InStorage", false)
+te0 = storeRemote.invokeCalls
+done = spudEquipRemoteAct("Tempo  L16", "Store")
+check("the fold survives extra spacing and punctuation",
+    storeRemote.invokeCalls - te0 == 1 and storeRemote.lastArgs[1] == tempo
+        and done == true, lastLog())
+
+-- 18. a machine already in the state asked for is not called for, and says why
+resetState()
+kadl:SetAttribute("InStorage", true)
+local st0 = storeRemote.invokeCalls
+done = spudEquipRemoteAct("KADL", "Store")
+check("already stored is named, and fires no store call",
+    done == false and storeRemote.invokeCalls == st0
+        and lastLog():find("already reads InStorage=true") ~= nil, lastLog())
+
+-- 19. a call switched off for the session is named as that, not as a refusal
+resetState()
+kadl:SetAttribute("InStorage", true)
+spudEquipRemoteState.off.spawn = true
+local sp0 = spawnRemote.invokeCalls
+done = spudEquipRemoteAct("KADL", "Spawn")
+check("a session-switched call says it is switched off",
+    done == false and spawnRemote.invokeCalls == sp0
+        and lastLog():find("switched off this session") ~= nil, lastLog())
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
+if fails > 0 then error("equipment remote checks failed") end
 """
 
 
@@ -383,6 +458,19 @@ def extract(text: str, name: str) -> str:
     end = re.search(r"\n    (?:local function |function |-- )", tail[10:])
     block = tail[: end.start() + 10] if end else tail
     return "\n".join(l[4:] if l.startswith("    ") else l for l in block.splitlines())
+
+
+def block(text: str, name: str) -> str:
+    """A function's source with its indentation kept, for the tie checks —
+    managerAction is a nested local the harness cannot run, so its wiring is
+    read instead."""
+    m = re.search(r"^( +)(?:local )?function " + name + r"\(", text, re.M)
+    if not m:
+        return ""
+    indent = m.group(1)
+    body = text[m.end():]
+    nxt = re.search(r"\n" + indent + r"(?:local )?function \w+\(", body)
+    return text[m.start(): m.end() + (nxt.start() + 1 if nxt else len(body))]
 
 
 def main() -> int:
@@ -405,12 +493,54 @@ def main() -> int:
         print(out.stdout.strip())
         if out.returncode != 0:
             print(out.stderr.strip()[-1500:])
-        return out.returncode
+            return out.returncode
     finally:
         try:
             os.unlink(path)
         except OSError:
             pass
+
+    # ▸ the wiring the sliced functions cannot show: the Equipment Manager is a
+    #   nested local, and a fall-through that stopped logging is invisible here
+    ties = []
+
+    def tie(name, ok, detail=""):
+        ties.append((name, bool(ok), detail))
+
+    manager = block(src, "managerAction")
+    tie("a missed card asks the game's own All tab",
+        'spudNameKey(t.Name) == "all"' in manager
+        and "clickEffect(allTab" in manager)
+    tie("the tab is clicked, never mouse-operated",
+        "Mouse" not in manager and 'IsA("GuiButton")' in manager)
+    tie("a build with no All tab says so instead of silently failing",
+        "no All tab in this build" in manager)
+    tie("the tab rescue runs BEFORE the card is declared absent",
+        0 < manager.find('if allTab then')
+        < manager.find('log("equipment manager: no card for ') if manager else False)
+    tie("the tab rescue is reached only from a miss",
+        manager.count("if not card then") >= 2)
+
+    act = extract(src, "spudEquipRemoteAct")
+    tie("the call path folds the model name too",
+        "spudNameKey(m.Name) == nKey" in act)
+    tie("a machine it cannot find is named with what the folder read",
+        "#folder:GetChildren()" in act and "no %s model in Objects.Equipment" in act)
+    tie("a machine already in that state is named, not called for",
+        "already reads InStorage=%s" in act)
+    tie("a dead call names WHICH half is dead",
+        "switched off this session after 3 ignored calls" in act
+        and "the remote is not in this build" in act
+        and "the call threw" in act)
+
+    for name, ok, detail in ties:
+        print("%-58s %s%s" % (name, ok and "PASS" or "FAIL", ("  " + detail) if detail else ""))
+    bad = [n for n, ok, _ in ties if not ok]
+    if bad:
+        print("%d FAILED" % len(bad))
+        return 1
+    print("ALL OK")
+    return 0
 
 
 if __name__ == "__main__":

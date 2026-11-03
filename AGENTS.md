@@ -8,13 +8,13 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.134 ·
-  fluent gui` (`VERSION`, line 15). ≈13k lines.
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.135 ·
+  fluent gui` (`VERSION`, line 15). ≈14k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
   `luau-analyze.exe`).
 - Nothing here is a library or a build system. There is no bundler, no package
-  manager, no CI. Validation is a compile check plus thirty-one harness scripts in
+  manager, no CI. Validation is a compile check plus thirty-two harness scripts in
   `tools/` (`python tools/run_all.py` runs the whole gate).
 
 ---
@@ -73,13 +73,16 @@ description — it is the long-form manual and it is kept in sync with behaviour
 
 13. **Luau's 200-local limit is real** (it was 2 away from the practical
     ceiling until the path engine was deleted in v1.81). Run
-    `python tools/local_budget.py`. As of v1.134:
-    `4-space locals before milkCycle: 179 (practical ceiling 185)`,
-    whole body `186 / 200`, **headroom 6** (v1.129's four `*_STEMS` word tables
+    `python tools/local_budget.py`. As of v1.135:
+    `4-space locals before milkCycle: 180 (practical ceiling 185)`,
+    whole body `187 / 200`, **headroom 5** (v1.129's four `*_STEMS` word tables
     are four build-closure locals — every name the equipment rewrite, the tow
     carry and the v1.133 seed arithmetic needed is a global for exactly
     this reason; v1.134's weld removal gave three of those names back and the
-    budget did not move, because they were globals). Do **not**
+    budget did not move, because they were globals. v1.135 spent **one**: the
+    three new name/hitch names are globals, but `hitchPoint` had to be a
+    `local function` because it is read by `lineUpHitch`, which is itself a
+    build-closure local and therefore closes over it). Do **not**
     add a `local` inside the main build closure. Reuse an existing local,
     convert the feature to a **global** (the established pattern), or
     restructure — and re-run the budget.
@@ -152,10 +155,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 34/34 checks on v1.134
+python tools/run_all.py        # 35/35 checks on v1.135
 ```
 
-Last full run (v1.134): **34/34 checks passed** (31 harnesses + 3 gates).
+Last full run (v1.135): **35/35 checks passed** (32 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment the script contained a string with those three
@@ -187,9 +190,10 @@ exiting 0 is exactly what that scan exists to catch.
 | `field_soil_test.py` | Tree/wood field types and names are never crop-harvest targets; a successful cell read with 0 cells is empty (skipped), while a failed read stays unknown (never a skip reason). |
 | `early_cut_test.py` | The one harvest predicate: with `spudEarlyCut` off a `Seeded` cell is not standing (the old behaviour, byte for byte) and with it on `Seeded` + every unknown stage are; the other jobs still aim at their own stage either way; a nil/0-cell read stays unknown; and the source ties that the growth wait restarts on a cuttable field, bounds the restart with `spudCutWatch`, the census renames the column `cuttable`, the Settings toggle remembers the pick, and **Get coords** logs/copies the position. |
 | `field_remote_test.py` | The field remotes: ids come from the game's own `GetCells` dict (numeric keys only, sorted, failed read = unknown), the tool's RaycastPart attachment is the one sent, one call per remaining cell carries `(field, {id}, {attachment})`, a full batch reports done, a partial batch hands back the remainder, an ignored batch switches that job back to driving (and fires nothing again), and `FillSeeder` falls back to V on a refusal. The Tests-tab batch: one call carries every id, a full/partial/ignored id list is judged by the stage re-read, and an ignored list never switches the job off. The single-spot fire takes a whole field from one teleport when the blade reaches 60 studs, fires one call per cell, respects the seeder budget, and takes nothing when the reach is small (4 of 8 cells called, the far ones handed to the blocks, no call at all when nothing is in reach, no frame = no filter). **The tow** (v1.129): `spudWaitTool` is `none` with no readable attachment, `settled` behind the ride, `far 300` when flung off the hitch, and `swinging` after exactly **30** beats — and a flung implement makes the grid fire **0 calls over 0 jumps** with `not on the hitch any more`; source ties pin the gate sitting **before** the first rig move in `spudRadialFire` and `spudHopCells`. **The carry** (v1.131): the fixture ride now moves **only itself**, exactly like the game, so a bare teleport is proven to abandon the blade (`gap became 286.0`), and every grid stop and cell hop carries it — `1 jump(s), 1 carry(ies)` for a stop, `15 jump(s), 15 carry(ies)` for a 15-cell field, the blade left on the hitch in both passes, no carry and still 15 jumps for a nil tool, `tool == ride` moving the ride **once** (the harvest job tows itself), and both passes still take their cells; ties assert `spudPivotRig(ride,` in each function and **no** bare `ride:PivotTo(`/`tr:PivotTo(` left in them. **The tool-sized burst**: `spudToolExtraTiles` = width past one tile (3 for a 40-stud tool, **0** for no tool or a `partBoxes` that throws), and the constants stay the measured `spudToolSwing = 3` / `spudToolFar = 90`. **The equal square** (v1.132): a wide implement now gets **`3x3 per stop`, not `6x6`** — that old check was the cross-pattern defect written down — and `spudBlockSide` is pinned at the corner arithmetic (20 → 3, 21 → 3 but 22 → 4, 29/35 → 5, 400 → 7, 0/nil → 3), with ties that `spudFieldTaken = 20` is the constant, that the grid reads `spudBlockSide(spudFieldTaken)`, that `3 + spudToolExtraTiles(impl)` is gone from `spudRadialFire` and so is `firing anyway`. **The re-aim** (v1.132): a fixture whose tool settles at a real 5-stud trail but starts 46 studs behind (what a 288-stud arc leaves) must still land — 15 calls, 15 took, more than 2 pivots for its 2 stops, and no `leaving this block` line — while a blade that never lands (stuck 25 studs off all three stops of a 9×3 field on a turned 50×20 frame, with the ride itself jammed so `spudWaitTool` can never call it `far`) fires **0 calls**, names `leaving this block's N cell(s)`, ends on `not landed on 3 stop(s)`, and leaves all 27 cells standing. |
-| `equip_remote_test.py` | The equipment remotes: the seven captured calls resolve on `Modules.Larry`; spawn/store are proven by `InStorage` (or a >100-stud move for a rebuilt spawn) and fall back to the UI when ignored; enter is proven by the seat; hitch/unhitch use the captured `Components.Hitchable` + `Chassis.HitchableSocket` pair; carry/drop are proven by the hands; three misses switch one action off for the session. |
+| `equip_remote_test.py` | The equipment remotes: the seven captured calls resolve on `Modules.Larry`; spawn/store are proven by `InStorage` (or a >100-stud move for a rebuilt spawn) and fall back to the UI when ignored; enter is proven by the seat; hitch/unhitch use the captured `Components.Hitchable` + `Chassis.HitchableSocket` pair; carry/drop are proven by the hands; three misses switch one action off for the session. **The named fall-throughs** (v1.135): `spudEquipRemoteAct` finds the model by the game's **folded** name (a fixture `TempoL16` answers to `"Tempo L16"` and to `"Tempo  L16"`), and every path that hands the action to the Equipment Manager now says **which** half broke — no model (with the folder's child count), the machine already reads the state asked for (and fires no call), the remote is not in this build, or the call is switched off for the session. Ties: a missed card clicks the game's own **`All` tab** (`spudNameKey(t.Name) == "all"` + `clickEffect(allTab`, no `Mouse` anywhere in `managerAction`) and that rescue sits **before** the `no card for` bail, with a build that has no such tab named instead of the pass failing silently. |
 | `row_steer_test.py` | The row decision in the wide band: `spudRowNeedsAlign` asks for ONE snap only past `spudRowAng` (15°) or `spudRowTol` (6 studs); `spudRowSteer` presses nothing inside the band; `spudRowEase` takes a step off the throttle after three steering flips (×0.7, floor 30 %) and gives one back per steady 3 s. |
 | `foreign_respawn_test.py` | `spudMayRespawn()` is false while a Farm owner is picked, and `ensureToolNearby` then never calls `respawnTool`: a stored or far-away tool is named and the pass is skipped, while `(mine)` still respawns. |
+| `equip_name_test.py` | The game writes a display name the model name has no spaces in (v1.135): `spudNameKey` folds `Tempo L16`, `TempoL16` and a model tagged with a serial suffix to one key and keeps the **digits** (`%W`, not `%A` — `%A` folds `TempoL16` and `TempoL20` together), empty/nil never matches, and a card match stays a **prefix** match on the key. Ties: the Equipment Manager card lookup and the expanded-card proof fold the name, the stale-label check walks by key instead of `FindFirstChild`, the wrong-tool guard and the park pass compare folded names, `hitchPoint` falls back to the game's own socket Attachment at `WorldCFrame`, `lineUpHitch` measures the ride's `Components.Hitchable` against the tool's `Chassis.HitchableSocket`, carries the tow (`spudPivotRig(tr, newPivot, airborne and nil or plow)`) instead of a bare `tr:PivotTo`, and a miss NAMES the model and how much of it the client read; and `seedPasses` ends a round that took nothing (`leftStuck >= 2`). |
 | `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). **A walk match that is not AT the deck is refused too** (v1.128): the harness rebuilds the live `Ugc.CompanyArea.WarehouseArea` and asserts 0 pads, a log naming the **142-stud** miss, and the marker still returned as the waypoint — while an in-band match is still taken and logs no refusal, and the game's own `Stores.DropOffs` folder is never gated. **No pad instance and no waypoint still unloads** (v1.122, both picks since v1.126): the trip parks at the owner's 📍 Get coords readings — `spudFulfillPadSpot()` = `-353, 141, -92` and `spudCropSellSpot()` = `125, 142, -150` — fires no sell call it has no part for, and logs the spot as remembered rather than as a world part. Fulfillment presses **nothing** (auto pad); the remembered **Sell** board must keep `autoPad` false so `trySellAt`'s Q/E menu path still runs there, which is pinned. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
 | `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", the run's shop-trip cap is at least the seed pass's `refill N/M` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out — and a shelf price dearer than the balance blocks the **next** trip locally (unreadable price or balance blocks nothing; the gate must sit before the trip is counted). **The full tank** (v1.133): `spudSeedTripsNeeded` is pinned at the arithmetic (600 empty at 50 a crate, 2 crates a trip → **6** trips; a 50-slot tank → 1; room left, not capacity; a partial crate rounds **up**; full/over-full → 0; 1 crate a trip doubles the visits; a nil cap/crate size is **unknown**, not one trip; a nil `have` reads as empty) and `spudSeedTripCeiling` **only ever raises** the floor (unknown keeps 4, 6 trips → 6, a 1-trip tank never lowers the 4); `spudSeederWantsMore` stops the pour at the machine's own `MaxCapacity` and reads an unreadable pair as "no room", never "hungry"; `spudCratesInHand` counts `CarryLinks` children (0/1/2, no character = 0, no folder = 0). Ties: the refill ceiling scales, the run's trips cover that promise, no once-per-run latch came back, the shelf price is stored, the trip gate reads the **scaled** ceiling (not the constant) with the price gate still **before** it, the fill is a loop to the cap, `spudSeedsPerCrate` is never given a literal, the second crate is proven by `CarryLinks`, an unpaid crate calls `spudDropRemote()`, crates-per-trip is one setting, and a held crate is still gated by `spudCrateHasSeed`. |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
@@ -200,9 +204,9 @@ exiting 0 is exactly what that scan exists to catch.
 Plus the two non-test gates:
 
 ```bash
-python tools/local_budget.py   # headroom must stay >= 1 (currently 6)
+python tools/local_budget.py   # headroom must stay >= 1 (currently 5)
 python tools/name_audit.py     # no top-level name collisions, and no global
-                               # that calls a `local` declared later (365 names)
+                               # that calls a `local` declared later (377 names)
 ```
 
 Measurement harnesses (run when you touch the thing they measure, quote the
@@ -449,6 +453,30 @@ what is what"*). The live DOCTOR dump names an `EquipmentType` attribute on
   "none found" line now ends with `spudEquipHereText()` — up to eight
   `Name=Type (stored)` entries actually in `Objects.Equipment` — so the next run
   names the game's own words instead of this build guessing them (rule 4/7).
+- **The name the game DRAWS is not the name the model has** (v1.135, live
+  2026-11-03): the planter's model is `TempoL16` and its Equipment Manager card
+  and HUD slot both read **`Tempo L16`**. Four sites compared those two strings
+  with `==` and all four were wrong at once — the manager refused a card it had
+  just listed (`no card for TempoL16 — it is not among the cards listed above:
+  KADL · Tempo L16`), the wrong-tool guard pressed X against the implement this
+  very pass had hitched (`a different tool is hitched (Tempo L16)`), the
+  stale-label check `folder:FindFirstChild("Tempo L16")` found no model so a
+  stored implement kept reporting itself as attached, and the park pass failed
+  to recognise the tool under the hitch. One global fixes all four:
+  **`spudNameKey(s)`** drops a serial suffix (`#9`), drops every non-alphanumeric
+  character and lowercases, and `spudSameEquipName(a, b)` is that comparison —
+  empty or nil never matches (two blanks are not "the same machine"). The strip
+  is `%W`, **not** `%A`: `%A` also strips digits and folds `TempoL16` together
+  with `TempoL20`, which are two different machines. The card lookup stays a
+  **prefix** match on the key, so a card that merely mentions a name cannot win.
+  `spudNameKey` is a global for the 200-local reason (rule 13), and every folded
+  comparison is pinned by `tools/equip_name_test.py` so a later edit cannot go
+  back to a raw `==`. The same fold now picks the **crop**: the standing seed
+  default is found by matching `spudNameKey` against the game's own word
+  `Tomato` in `FieldHelper.SEED_TYPE` (the owner's 2026-11-03: *"btw we are
+  planting tomatoes so mke it plnt tht"*), because the live cell read `seed
+  Tomato` off its own `SeedType` — the word is the game's, not a constant — and
+  a remembered Farm-tab pick still wins over it (see §3.15).
 
 **On a picked farm nothing is spawned or respawned** (v1.34). User: *"when it's
 on someone elses plot make it not try to respawn things bro."* Bringing a
@@ -890,6 +918,34 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   `tools/tow_anchor_test.py` replaces the weld harness and refuses the build if
   any weld symbol comes back, and the note in the source says
   *"Do not re-add a weld to the tow."*
+- **The line-up has two measurements, not one** (v1.135, live 2026-11-03): the
+  physical park read a `BasePart` off each machine through `findHitchPart`, and
+  on the Tempo build the ride answered **`tractor=none`** in every run while the
+  implement answered `plow=Hitch` — so `lineUpHitch` had nothing to measure, said
+  `no hitch parts to measure from (tractor=none, plow=Hitch) — creeping` and spent
+  all ten attempts creeping. The second source is the game's **own socket pair**,
+  the exact instances the captured `FNCAttemptHitch` takes: `Components.Hitchable`
+  on the ride and `Chassis.HitchableSocket` on the tool. Both are `Attachment`s,
+  so `hitchPoint(model, folder, child)` asks for a part first and then for the
+  named socket at its `WorldCFrame`, and the log names which one it measured from
+  (`plow → HitchableSocket (the game's socket)`). A read that still fails is
+  **named, not guessed past** (rule 7): `spudHitchMissText` prints the model's
+  name, how many instances the client actually holds, and whether it is
+  `IsDescendantOf(workspace)` at all — `tractor TempoL16 … has no hitch point
+  (N instance(s) read, and it is NOT in the world)` — instead of a bare `none`.
+  The line-up's pivot carries the tow (`spudPivotRig(tr, newPivot, airborne and
+  nil or plow)`); the pre-hitch arc deliberately flies the ride alone, because a
+  welded-free carry through a 288-stud arc is what opens the gap. The same two
+  points are re-read at **arrival** (`hitch gap at arrival: N studs`), so the gap
+  the owner sees in the console is measured by the same rule that aimed the park.
+- **A seed round that takes nothing cannot run for ever** (v1.135, live): the
+  same build looped `seeding: 2362 cell(s) still need seed — teleport round 12`
+  because a round only ended when the count reached zero. `seedPasses` now keeps
+  `leftWas`/`leftStuck`: **two rounds in a row that leave the count unchanged**
+  end the pass with `N cell(s) still need seed after 2 round(s) that took nothing
+  — leaving them for the next pass (the hitch and tool lines above say why)`, and
+  a refill that puts seeds in resets the count. The "keep going while it makes
+  progress" rule is unchanged.
 - **Teleports only** (v1.95, owner 2026-10-31: *"during the plowing it
   started doing the fast tp and then kinda strafing the ground"*). Between
   the grid and the hop there used to be a **serpentine tween sweep**
@@ -1174,8 +1230,35 @@ EVTRequestToCarry(draggable) / EVTRequestToDrop()
   checklist for them (run it, or let one normal milk/barn cycle record while it
   runs), and `EQUIPMENT CALLS` confirms those above.
 
+- **The manager's card list is filtered to the tab the game last showed**
+  (v1.135, live 2026-11-03 — the run that could never get its ride back).
+  `GuiViews.Menus.GarageMenu.Background.Content.Cards` only holds the cards of
+  the **active tab**, and the tabs are the game's own words:
+  `All · Tractor · Harvester · Plow · Cultivator · Planter · Truck · Transport ·
+  Misc`. Chasing `ChallengerMT9` — a Tractor — the list read exactly two cards,
+  `KADL · Tempo L16`, both Planters, because the pass before it was working on
+  the seeder; five attempts, `wouldn't drive for this vehicle`, run ended. And
+  because a farming pass **stores the ride at the end of every pass**, that is a
+  self-made lock: the next pass could only ever see the implement's tab. So a
+  card miss now asks the game to show everything — it finds the `Tabs` child
+  whose folded name is `all` and drives it through `clickEffect` (the game's own
+  connected handlers, then `:Activate()`; **no mouse**, per the owner's rule),
+  polls for the card, and logs `the <machine> card was under another tab — the
+  game's All tab showed it`. A build with no such tab is named with its child
+  count instead of failing silently.
+- **A fall-through names which half broke** (v1.135): `spudEquipRemoteAct` used
+  to `return false` in three places with no log at all, so a console could not
+  tell "no remote in this build", "the call threw", "switched off for the
+  session", "the machine is not in `Objects.Equipment`" and "it already reads
+  the state you asked for". Each now prints its own line (with the folder's
+  child count on the missing-model one) before the Equipment Manager runs, and
+  the machine lookup folds the name the same way, so a label like `Tempo L16`
+  finds the model `TempoL16` instead of silently falling to the UI.
+
 `equip_remote_test.py` pins the kit, the call shapes, the effect proofs, the
-UI/key fallbacks and the three-miss switch-off.
+UI/key fallbacks, the three-miss switch-off, the folded model lookup, all five
+named fall-throughs and (by ties) the `All`-tab rescue sitting before the
+`no card` bail.
 
 ### 3.14 A crop does not have to be ripe to be cut (the early harvest)
 
@@ -1232,6 +1315,38 @@ can drive to. Its first four readings (2026-11-02) are the table in §3.10 — a
 because a standing reading is the **deck**, not the part centre, it corrected the
 Fulfillment pad's Y from the dump's 138 to 141.
 
+### 3.15 The standing crop is the one the owner is planting
+
+`SeedType` on a live field cell reads the game's own word (`Tomato` — the v1.124
+`Grow now` census printed `Seeded ×50 [growth 2012, mult 1, watered false, seed
+Tomato]`), so the Farm tab's seed default now looks for that word in
+`FieldHelper.SEED_TYPE` through `spudNameKey` (`seed default: Tomato (the crop
+you are planting)`) — owner's 2026-11-03: *"btw we are planting tomatoes so mke
+it plnt tht"*. Order of precedence, and none of it is a name this build invented:
+
+1. the **remembered** Farm-tab pick (`spudSavedSeed`, only while the game still
+   offers that name) — a hand-picked seed always wins over a default;
+2. **Tomato**, matched by folded name in whatever list this build exposes (so
+   `Tomato`, `tomato` and a spaced or punctuated variant are one crop);
+3. the game's **first crop** (`bestName` — the lowest `SEED_TYPE` id, the
+   existing rule that replaced the alphabetical first, which was an unsellable
+   event seed);
+4. `list[1]`.
+
+The `seed default:` line says which of those won, and a build whose list has no
+Tomato falls through to the old behaviour unchanged.
+
+The same read is what bounds the seed **round** (v1.135, the other half of the
+owner's "seeding is bugging"): live, `seedPasses` ran rounds 10, 11 and 12 on one
+field, each buying or pouring a 50-seed load and taking **nothing**, because the
+calls it fired were not landing and nothing in the loop ever noticed a round that
+changed no count. Two rounds that read `after >= leftWas` now end the pass —
+`seeding: N cell(s) still need seed after 2 round(s) that took nothing — leaving
+them for the next pass (the hitch and tool lines above say why)` — and a refill
+resets the count, so a field that is genuinely progressing is never cut off. The
+end is a decision made on a **count**, not a guess, and the cells are left
+standing for the next pass rather than eaten by an infinite loop.
+
 ---
 
 ## 4. Code map (names, not line numbers — they move)
@@ -1241,13 +1356,14 @@ Fulfillment pad's Y from the dump's 138 to 141.
 | Build identity | `VERSION` at the top of the file (`rebuild vX.YY · fluent gui`) |
 | Farm width / owner | top-level `SpudFarm` (`widthTiles`, `widthFromParts`, `rowPlan`, `ownerWanted`, `workTiles`, `partBoxes`, `declaredWidth`), `spudOwnerChoices`, global `farmOwnerPick`, `spudFarmOwnerDrop`; `sweepField` plans rows from `rowPlan` |
 | Go to the farm | global `spudFarmHop(here, plotPos)` (nil+reason, or centre +5 Y and distance), `milkStorePlotOf(who)`, `milkStandUp(who)` (default `"milk"`); wired at the top of `runFarmingBody` |
-| Whose machine | global `equipOwnerRank(m)` (farm being worked → mine → no readable owner → never another account), used by `findTractor` / `findImplement`; owner tag read by `milkStoreOwnerOf`. **What** it is: globals `spudEquipTypeKey(m)` (the game's `EquipmentType`, letters only), `spudEquipIs(m, STEMS)` (stem match), `spudEquipSeat(m)` (`VehicleSeat`/`Seat`), `spudEquipTows(m)` (`Components.Hitchable`), `spudEquipHereText()` (the world's `Name=Type (stored)` list); build-closure tables `HARVEST_STEMS` / `TRACTOR_STEMS` / `HAULER_STEMS` / `TOOL_STEMS` / `TYPE_STEMS` / `TYPE_MODEL` |
+| Whose machine | global `equipOwnerRank(m)` (farm being worked → mine → no readable owner → never another account), used by `findTractor` / `findImplement`; owner tag read by `milkStoreOwnerOf`. **What** it is: globals `spudEquipTypeKey(m)` (the game's `EquipmentType`, letters only), `spudEquipIs(m, STEMS)` (stem match), `spudEquipSeat(m)` (`VehicleSeat`/`Seat`), `spudEquipTows(m)` (`Components.Hitchable`), `spudEquipHereText()` (the world's `Name=Type (stored)` list); build-closure tables `HARVEST_STEMS` / `TRACTOR_STEMS` / `HAULER_STEMS` / `TOOL_STEMS` / `TYPE_STEMS` / `TYPE_MODEL`. **The name the game draws is not the name the model has**: globals `spudNameKey(s)` (drop a `#9` serial, drop every non-alphanumeric, lowercase — `%W`, never `%A`, because the digits ARE the machine) and `spudSameEquipName(a, b)` (same key, and **never** true on an empty pair) fold `Tempo L16` and `TempoL16` together; every equipment comparison in the build reads them, so a card, a HUD slot, a stale label and a park decision can never disagree over a space (§3.13) |
 | Tree soil | global `spudTreeField(typeName, modelName)` (wood/tree/log/forest/timber/lumber/sawmill/stump → no crop harvest) and `spudNoCells(st)` (successful 0-cell read is empty, `nil` read is unknown); used in `probeWork`, `runPass`, `needLeft`, `grownLeft`, growth wait |
 | Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (one EQUAL square per stop, sized by global `spudBlockSide(spudFieldTaken)` — the blade re-aims until it lands, fires that block's cells and skips a block it demonstrably missed, serpentine order), `spudHopCells` (one teleport per cell — the tween sweep was deleted in v1.95), `spudFillSeederRemote`; the tow gate `spudWaitTool(ride, att, who)` + `spudToolTrail` (constants `spudToolSwing = 3`, `spudToolFar = 90`) runs before **every** move, and the move itself is global `spudPivotRig(ride, cf, tool)` — pivot the ride, then translate the implement by the same delta (§3.12); the width helper `spudToolExtraTiles(impl)` scales **only** `spudFieldReach` (the block sizes off `spudFieldTaken = 20`, the band that was measured to take); state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, **default true** since v1.88); wired at the top of `sweepField` and in `buySeedAndFill` |
 | Tow anchor | **there is no weld** (v1.133 added one, v1.134 deleted it — §3.12). The anchor is global `spudPivotRig(ride, cf, tool)` alone: pivot the ride, translate the implement by the same delta, keep its own rotation. `spudAnchorTool` / `spudUnanchorTool` / `spudAnchor` must not come back, and the only `SetNetworkOwner` in the build is `claimOwnership(tr)` on the ride the player drives; `tools/tow_anchor_test.py` is the guard |
-| Seed fill | globals `spudCratesPerTrip` (**2** crates a town visit), `spudSeedsPerCrate` (**learned** from a real pour, nil until then), `spudCrateSeedCount(crate)`, `spudCrateHasSeed(n)`, and the pure arithmetic `spudSeedTripsNeeded(cap, have, perCrate, cratesPerTrip)` / `spudSeedTripCeiling(needed, floorMax)` / `spudSeederWantsMore(count, cap)` / `spudCratesInHand()` (`CarryLinks` children) — v1.133: the pour runs to the machine's own `MaxCapacity` and the trip budget scales to it instead of the constant 4; wired in `seedCheck`, the `seedCrateIntoSeeder` loop, the second-crate block and `seedPasses`' `refillsMax` |
+| Seed fill | globals `spudCratesPerTrip` (**2** crates a town visit), `spudSeedsPerCrate` (**learned** from a real pour, nil until then), `spudCrateSeedCount(crate)`, `spudCrateHasSeed(n)`, and the pure arithmetic `spudSeedTripsNeeded(cap, have, perCrate, cratesPerTrip)` / `spudSeedTripCeiling(needed, floorMax)` / `spudSeederWantsMore(count, cap)` / `spudCratesInHand()` (`CarryLinks` children) — v1.133: the pour runs to the machine's own `MaxCapacity` and the trip budget scales to it instead of the constant 4; wired in `seedCheck`, the `seedCrateIntoSeeder` loop, the second-crate block and `seedPasses`' `refillsMax`. **The standing pick** (v1.135, §3.15) is remembered `spudSavedSeed` (only while the game still offers it) → **Tomato** by folded name against the game's own `FieldHelper.SEED_TYPE` → the game's **first crop** (lowest `SEED_TYPE` id) → `list[1]`, and `seed default: …` says which rule won. **A bounded round** (v1.135): `seedPasses` counts rounds that take nothing (`leftStuck >= 2` on `after >= leftWas`) and ends with `N cell(s) still need seed after 2 round(s) that took nothing — leaving them for the next pass`; a refill resets the count |
 | Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes` / `growth` / `shop`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`, test run + last 60 farm lines), `spudTestCopyConsole` (`setclipboard`, last 150 farm lines only), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Grow now** (v1.123), **Shop counter** (v1.103), **Run all**, **Copy report**, **Copy console** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
-| Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
+| Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof — v1.135: it looks the model up **by folded name**, and every way out **names itself** — no kit, no model in `Objects.Equipment` (with the child count read), already in that state, the action switched off after 3 ignored calls, the remote not in this build, the call threw), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill`. **`managerAction` card search** reads `GarageMenu.Background.Content.Cards` by **prefixed folded key**, and a miss clicks the game's own **`All` tab** (`Content.Tabs`, through its own handler, no mouse) and re-polls before declaring the card absent — the Cards list is filtered to the tab the game last showed (§3.13) |
+| Hitch line-up | global `hitchPoint(model, folder, child)` — the named attachment, else the game's own socket `Attachment.WorldCFrame`, else the best-ranked hitch `BasePart` from `findHitchPart`; `lineUpHitch(ride, plow, newPivot, airborne)` measures **both** the ride's `Components.Hitchable` and the tool's `Chassis.HitchableSocket` (the exact pair the captured `FNCAttemptHitch` takes) and, with nothing to measure, calls global `spudHitchMissText(model)` — the model name, how many descendants the client actually has and whether it is still in the world (rule 7). The pre-park line-up carries the tow through the pivot; the pre-hitch arc does not |
 | Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job**; the A* planner was deleted in v1.81 and the row driver in v1.82, so a field pass never touches a movement key |
 | Dirt line | global `milkDirtLine = 24`; `milkDirtHigh(spot)` (the single "is this dirty?" answer) |
 | Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** room less than the cells still standing), `spudFulfillSpots()` (Deposit_Warehouse top; a world-walk match has to sit within `spudFulfillPadNear` of the measured deck or it is refused and only its marker comes back), `spudFulfillPadSpot()` (the measured `-353,141,-92` — the park-only fallback *and* the point the band is measured from), global `spudFulfillPadNear = 35`, `spudCropSellSpot()` (the measured `125, 142, -150` crop board, park-only fallback for the Sell pick), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
@@ -3161,9 +3277,148 @@ the next reload**, and it is the one this build was made for: no wheel on the gr
 a plow grid whose `took` climbs towards `fired`, and a status line that names the
 stage actually running.
 
-**Where it stands:** `rebuild v1.134 · fluent gui`, whole suite green (34/34),
+**"btw we are planting tomatoes so mke it plnt tht" + the v1.134 console read
+from the emulator (v1.135).** The weld is gone, so this build went back to the
+owner's standing ask — drive MuMu myself and fix what the console shows — plus
+the one direct instruction: the standing crop is **Tomato**. Both halves of the
+answer came from the emulator (`adb -s 127.0.0.1:16416 logcat -d | grep -F
+"[spud]"`), not from a guess, and the same buffer turned up **four** defects, of
+which two kill the run outright.
+
+**(1) The name the game DRAWS is not the name the model has.** The planter is
+the model `TempoL16`; its Equipment Manager card and its HUD slot both read
+**`Tempo L16`**, and four sites compared those strings with `==`:
+
+```
+equipment manager: looking for 'TempoL16' — 2 card(s) showing right now: KADL · Tempo L16
+equipment manager: no card for TempoL16 — it is not among the cards listed above
+✅ seeder hitched — staying hitched
+hitch target: TempoL16 (31 studs, by EquipmentType Planter)
+a different tool is hitched (Tempo L16) — unhitching it first
+```
+
+The last two lines are one pass unhitching the implement it had just hitched,
+then creeping 1,120 studs to re-hitch it, and the middle two are the manager
+refusing a card it had **just printed the name of**. One global
+(`spudNameKey`: a `#9` serial suffix out, every non-alphanumeric out,
+lowercased; `%W`, **not** `%A`, because the digits are the machine — `%A` folds
+`TempoL16` and `TempoL20` together) and `spudSameEquipName` at all four sites
+(§3.7). `hitchedImplementName`'s `folder:FindFirstChild("Tempo L16")` walked off
+the label to a model that does not exist, which is why a stored implement kept
+reporting itself attached.
+
+**(2) The card list is the ACTIVE TAB's list, and the run stores its own ride.**
+The far more expensive cousin of (1), and it was invisible in the code:
+
+```
+tractor is 1082 studs away (>1000) — respawning it via the Equipment Manager
+doc:   · ChallengerMT9 [Tractor · stored] (-101106, 1132, 99415) · 141580 studs from you · ⚠VOID
+equipment manager: looking for 'ChallengerMT9' — 2 card(s) showing right now: KADL · Tempo L16
+equipment manager: no card for ChallengerMT9 — it is not among the cards listed above
+ChallengerMT9: the Equipment Manager wouldn't drive for this vehicle — giving up for now
+run ended — the last stage it reached was: Equipment Manager: respawning ChallengerMT9
+```
+
+Two Planter cards, no Tractor card, because `Content.Cards` only holds the
+active tab and the tab the game last showed was the seeder's. The pass **ends by
+storing the ride**, so every next pass had to bring that ride back out of a card
+list it could not reach — a lock the build set for itself, five attempts, then
+`run ended`. The tabs are the game's own words (`All · Tractor · Harvester ·
+Plow · Cultivator · Planter · Truck · Transport · Misc`), so a miss now finds
+the `Tabs` child whose folded name is `all`, drives it through `clickEffect`
+(the game's own handlers, then `:Activate()` — **no mouse**, per the owner's
+rule), polls for the card and logs `the <machine> card was under another tab —
+the game's All tab showed it`; a build with no such tab is named with its child
+count instead of failing (the rescue sits **before** the `no card` bail).
+
+**(3) A ride that answers `tractor=none` loses the line-up's only measurement.**
+`hitch parts: tractor=none plow=Hitch — using creep alignment` printed **on
+every attempt** for a machine that had answered `HitchRoot` minutes earlier in
+the same session (the DOCTOR dump shows why: the ride was **in the void at
+-101106** and a respawn rebuilds it, so the part the pass held was a stale
+reference). With no point to aim at, `lineUpHitch` gave up its precise park and
+the creep took over — 462 → 527 → 591 → 656 → 720 → 785 → 849 studs of
+`hitch target: TempoL16` walking the rig toward a planter it could never reach.
+`hitchPoint(model, folder, child)` now falls back to the **game's own socket
+Attachment** at its `WorldCFrame` (the pair the captured `FNCAttemptHitch`
+takes: `Components.Hitchable` on the ride, `Chassis.HitchableSocket` on the
+tool), labelled `(the game's socket)`, and a miss that still has nothing prints
+`spudHitchMissText` — the model's name, **how many instances the client
+actually read**, and whether that instance is still in the world (§7: name what
+is unreadable). The line-up keeps carrying the tow through its own move
+(`spudPivotRig(tr, newPivot, airborne and nil or plow)`), and the arrival gap
+reads the same two points.
+
+**(4) A seed round that takes nothing ran for ever.** The same buffer:
+
+```
+hitch: gave up on TempoL16 after 10 attempt(s) — this pass runs without it
+seeder still has 50 seed(s) and 2300 cell(s) across 1 field(s) still need seeding — going back to seed them (round 10)
+… (round 11) … (round 12) …
+```
+
+Ten rounds of a **v1.134-verified** pattern (the harvest loop got this in v1.94,
+the field pass in v1.94 too) were missing here: the seeder never gained a seed,
+the tool was never hitched, and the loop re-bought and re-fired 50 seeds a round
+against 2,300 cells **for ever** with the toggle on. `seedPasses` now compares
+the leftover count to the last round's and gives up on the **second** identical
+read — `seeding: N cell(s) still need seed after 2 round(s) that took nothing —
+leaving them for the next pass (the hitch and tool lines above say why)` — and a
+refill resets the count, so progress still earns more rounds. v1.83's "retry
+until none is left" holds while a round moves.
+
+**(5) The silent `return false`.** `spudEquipRemoteAct` had three exits with no
+log at all, so a console could not tell "no remote in this build" from "the call
+threw" from "switched off for the session" from "that machine is not in
+`Objects.Equipment`" from "it already reads the state you asked for". Each now
+prints its own line before the Equipment Manager runs, and the machine lookup
+folds the name so a label finds its model instead of quietly falling to the UI.
+
+**And the crop (1 line of code, 1 line of log).** The Farm tab's standing default
+now asks the game's own word: it matches `Tomato` through `spudNameKey` against
+`FieldHelper.SEED_TYPE` — the same word the live cell printed on its own
+`SeedType` (`Seeded ×50 [… seed Tomato]`, §3.14's run) — after the **remembered
+pick** and before **the game's first crop** (`bestName`, the lowest `SEED_TYPE`
+id), and the log says which won: `seed default: Tomato (the crop you are
+planting) — change it in the Farm tab's Seed dropdown`. A build with no Tomato in
+its list falls through to exactly the old behaviour (§3.15).
+
+New `tools/equip_name_test.py` (11 Luau checks + 15 ties) runs the fold for real
+and pins every site that must use it, including the two hitch-point ties and the
+seed-round bound; `tools/equip_remote_test.py` gained a fixture model named
+`TempoL16`, six checks that run the real `spudEquipRemoteAct` (spaced label finds
+it, extra spacing finds it, and all five fall-throughs named) and nine ties for
+the `All`-tab rescue. Compile OK, suite **35/35** (32 harnesses + 3 gates),
+headroom **5** (`hitchPoint` is a `local function` inside the build closure and
+`spudNameKey`/`spudSameEquipName`/`spudHitchMissText` are globals — rule 13 is
+why), name audit clean **377**. **Harness green — reloaded in game next, and the
+verdicts are five lines:** `seed default: Tomato`, no `no card for
+ChallengerMT9` (instead `the game's All tab showed it`) and a ride that actually
+comes back out of the void, no `a different tool is hitched (Tempo L16)`, a
+`lined up … (the game's socket)` or an honest `has no hitch point (N instance(s)
+read…)`, and a seed pass that **ends** instead of reaching round 10.
+
+**One gate fix, and it was lying about the build.** `python tools/run_all.py`
+came back `34/35` with `hop_test.py` in a Python traceback — `UnicodeEncodeError:
+'charmap' codec can't encode character '\u2192'`. The harness quotes the console,
+the console quotes the game (`Y 166 → 138`, `Empty → Plowed`), and Windows'
+default cp1252 stream cannot encode that arrow, so the harness died in its own
+`print` while every Luau check in it had passed. `run_all.py` now sets
+`PYTHONIOENCODING=utf-8` for its children (what §2.2's hand-run loop already did
+by hand), because a gate that fails on its own console encoding reads as a broken
+build — and the compile row has an exactly symmetrical history of that (§2.2).
+
+**Where it stands:** `rebuild v1.135 · fluent gui`, whole suite green (35/35),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
-above). **v1.129 was reloaded in game and crashed** (the ordering bug above);
+above). **v1.134 was reloaded and driven in MuMu by the assistant** (the
+`[spud]` logcat quoted through §5 is that session), and what it showed is *not*
+the weld verdict: the run never reached a field pass — it died on
+`no card for ChallengerMT9` and on ten seed rounds against 2,300 cells — so
+**"no wheel on the ground, and a grid whose `took` climbs towards `fired`" is
+still unverified**, and the four defects that same session exposed are what
+v1.135 fixes (the spaced display names, the tab-filtered card list, the ride
+that answers `tractor=none`, the seed round that cannot end). v1.135's own
+verdicts are the five lines at the end of its entry. **v1.129 was reloaded in game and crashed** (the ordering bug above);
 **v1.130 fixed that and was run in game** — the owner's console opens
 `rebuild v1.130`, gets past `— seed check —` into the field, and never prints
 `⚠ farming loop error`, so the crash verdict is closed. What that same run
