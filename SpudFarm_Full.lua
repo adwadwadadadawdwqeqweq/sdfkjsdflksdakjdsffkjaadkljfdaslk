@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.131 · fluent gui"
+local VERSION    = "rebuild v1.132 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -2696,16 +2696,16 @@ local okBuild, errBuild = pcall(function()
     --   runs): the blade 20 studs to the side of a cell takes it, 30 refuses,
     --   and any height up to +80 is free — so the band is ~2 tiles sideways.
     spudFieldReach = 24
-    -- ▸ BIGGER TOOL, BIGGER BURST (owner 2026-11-02: "if the tool is bigger
-    --   cant the burst things also be bigger?"). That 24 is the band around the
-    --   BLADE, and a one-tile plow puts its blade at one point — so the grid got
-    --   3x3 cells a stop and the corner pass got 24 studs. A wide implement
-    --   already covers several tiles of ground wherever it sits, so every cell
-    --   within 20 studs of the nearest edge of that footprint is inside the SAME
-    --   measured rule; the tool is simply reaching farther. The extra is the
-    --   implement's own width past one tile, and both the burst block and the
-    --   corner reach grow by it. Unreadable parts give 0 extra, which is exactly
-    --   the old 3x3 and 24 studs — never a bigger guess.
+    -- ▸ BIGGER TOOL, BIGGER CORNER PASS (owner 2026-11-02: "if the tool is bigger
+    --   cant the burst things also be bigger?"). A wide implement already covers
+    --   several tiles of ground wherever it sits, so a cell within 20 studs of
+    --   the nearest edge of that footprint is inside the SAME measured rule; the
+    --   tool is simply reaching farther. The extra is the implement's own width
+    --   past one tile, and the corner pass's reach grows by it. Unreadable parts
+    --   give 0 extra, which is exactly the old 24 studs — never a bigger guess.
+    --   The burst BLOCK does not grow the same way (see spudBlockSide): the call
+    --   carries one attachment point and the block's corners sit on a diagonal,
+    --   where a bar that widens one axis earns nothing.
     function spudToolExtraTiles(impl)
         if impl == nil then return 0 end
         local ok, tiles = pcall(function()
@@ -2715,6 +2715,32 @@ local okBuild, errBuild = pcall(function()
         end)
         if not ok or not tiles or tiles <= 0 then return 0 end
         return math.clamp(SpudFarm.widthTiles(tiles) - 1, 0, 6)
+    end
+    -- ▸ THE NUMBER THAT ACTUALLY TOOK. 24 is the reach the corner pass filters
+    --   with (it sits between a take and a refusal, so an over-generous guess
+    --   costs one refused call); 20 is the widest sideways reading the live band
+    --   ever accepted — 30 was refused — and a stop that paints a cross has
+    --   already paid for every corner, so the block is sized against 20.
+    spudFieldTaken = 20
+    -- ▸ HOW BIG AN EQUAL SQUARE CAN ONE STOP CLEAR (owner 2026-11-03: "when it
+    --   plows, now it plows in a cross pattern, if it cant do a equal 3x3 or 4x4
+    --   or 5x5 or 6x6 or 7x7 it should only do one of those, if it make a cross
+    --   pattern it goes back to a 3x3")? A stop parks the blade on the block's
+    --   CENTRE, so its four corners are the farthest cells, and on the game's
+    --   10-stud field grid a square of `n` cells puts a corner at
+    --   sqrt(2) * (n-1) * 5 studs out — 14.1 for 3x3, 21.2 for 4x4, 28.3 for
+    --   5x5. The live arithmetic is the proof: the 4x4 plow grid fired 2388 calls
+    --   and took 1793 — 595 left is 24.9% refused, and the four corners of a
+    --   4x4 are 4 of 16 = 25% — the plus sign per stop that makes the cross, while
+    --   the same field's 3x3 cultivate grid took 2374 of 2399. So the side grows
+    --   only while the NEXT square's own corner stays inside the reading that took,
+    --   and on this build that is 3x3.
+    function spudBlockSide(band)
+        local side, tile = 3, 10
+        while side < 7 and math.sqrt(2) * side * tile / 2 <= (band or spudFieldTaken) do
+            side = side + 1
+        end
+        return side
     end
     -- ▸ TESTS · the captured shape is a LIST of one id ({1=129}), so the server
     --   may loop the list. With this on, a field job first fires ONE call
@@ -7061,10 +7087,10 @@ local okBuild, errBuild = pcall(function()
             table.sort(r.cells, function(a, b) return a.X < b.X end)
         end
         local stops = {}
-        -- ▸ the block is 3x3 for a one-tile tool (the owner's "tp to a spot, do
-        --   the closest 9 areas") and grows with the implement's own width,
-        --   because that width is ground the blade already covers.
-        local side = 3 + spudToolExtraTiles(impl)
+        -- ▸ one stop = one EQUAL square, sized so its own corners stay inside
+        --   the band (see spudBlockSide — a 4x4 loses its four corners to the
+        --   server and paints the cross the owner reported).
+        local side = spudBlockSide(spudFieldTaken)
         local flip = false
         for band = 1, #rows, side do
             local bandRows = {}
@@ -7144,10 +7170,10 @@ local okBuild, errBuild = pcall(function()
             end
             return false
         end
-        local swungLogged = false
+        local swungLogged, missLogged, misses, firedOnce = false, false, 0, false
         -- a wider block means the stop's own centre sits farther from its edge
-        -- cells, so the arrival tolerance and the "off the block" warning grow
-        -- with it; for a one-tile tool these are the measured 12 and 20.
+        -- cells, so the arrival tolerance and the "off the block" line grow with
+        -- it; for a one-tile tool these are the measured 12 and 20.
         local blockTol, blockOff = 4 * side, 20 + (side - 3) * 10
         for i, stop in ipairs(stops) do
             if stopping() then break end
@@ -7172,45 +7198,87 @@ local okBuild, errBuild = pcall(function()
             if not parked then break end
             -- the first stop follows a long ride, the rest are short trips
             local settled = bladeOn(stop, blockTol, i == 1 and 40 or 30)
-            if not settled then
+            -- ▸ AIM UNTIL THE BLADE IS ON IT, NOT JUST ONCE (live 2026-11-03:
+            --   every seed grid lost its FIRST stop — `the blade is 32/41 studs
+            --   off stop 1` — while stops 2..N took all nine cells each). The park
+            --   is aimed from the blade's position read BEFORE the jump and the
+            --   hitch then settles the implement onto its own rest trail, so the
+            --   reading taken after a park is what makes the next one land; the
+            --   first stop arrives straight out of a 288-stud arc, where one
+            --   correction is not enough. So re-aim from the blade's OWN position
+            --   until it is on the block (bounded), and give every later stop the
+            --   fresh trail.
+            local aims = i == 1 and 3 or 1
+            local flung
+            while not settled and aims > 0 and not flung and not stopping() do
                 local b1 = bladePos()
-                local again = b1 and spudWaitTool(ride, att, job.verb)
-                if b1 and (again == "settled" or again == "none" or again == "swinging") then
-                    pcall(function()
-                        spudPivotRig(ride, CFrame.new(Vector3.new(stop.x, sy, stop.z)
-                            - (b1 - ride:GetPivot().Position)) * rot, impl)
-                    end)
-                    settled = bladeOn(stop, blockTol, 24)
+                if not b1 then break end
+                local again, trail1 = spudWaitTool(ride, att, job.verb)
+                if again == "far" then
+                    flung = trail1
+                    break
                 end
+                aims = aims - 1
+                pcall(function()
+                    spudPivotRig(ride, CFrame.new(Vector3.new(stop.x, sy, stop.z)
+                        - (b1 - ride:GetPivot().Position)) * rot, impl)
+                end)
+                settled = bladeOn(stop, blockTol, 24)
+            end
+            if flung then
+                log(string.format("remote %s: the %s is %.0f studs from the ride — it came off the hitch on the way to stop %d, ending the grid instead of dragging it",
+                    job.verb, tostring(impl and impl.Name or "tool"), flung, i))
+                break
             end
             -- what we read is the CLIENT's blade; the server sees it a beat
             -- later, so a burst fired the frame it arrives is still refused
             if settled then task.wait(0.25) end
             local bs = bladePos()
+            local away
             if bs then
-                local away = (Vector3.new(bs.X, sy, bs.Z) - Vector3.new(stop.x, sy, stop.z)).Magnitude
-                if away > blockOff then
-                    log(string.format("remote %s: the blade is %.0f studs off stop %d — firing anyway", job.verb, away, i))
-                end
+                away = (Vector3.new(bs.X, sy, bs.Z) - Vector3.new(stop.x, sy, stop.z)).Magnitude
                 off = bs - ride:GetPivot().Position
             end
-            burst(stop)
-            if i == 1 then
-                -- ▸ THE FIRST CALL AFTER A LONG RIDE IS ROUTINELY REFUSED while
-                --   the server still holds the old pose (the artifact every
-                --   lift run hit). Asking once and giving the field away used
-                --   to hand a healthy field to the tween — which is what
-                --   "it's still driving" was. Settle and fire the same stop
-                --   once more before believing a parked blade is refused.
-                local chk = cellsAtStage(field, stage, baseCF, baseSize)
-                if not chk or #chk >= before then
-                    if chk and not stopping() then
-                        done = {}
-                        task.wait(0.5)
-                        burst(stop)
-                        chk = cellsAtStage(field, stage, baseCF, baseSize)
+            -- ▸ NO CALLS AT A BLADE THAT IS NOT ON ITS BLOCK. Each one is refused,
+            --   and for a seeder a refused call is still a seed spent — `0 took`
+            --   from 9 calls is what this build then handed to the hop pass with
+            --   the field still bare. A block whose blade never landed is left
+            --   alone: its cells stay on the field's list, so the next stop or the
+            --   hop fires them with the blade actually over them. An UNREADABLE
+            --   blade is not a miss (rule 7) — it still gets its burst.
+            if away and away > blockOff then
+                misses = misses + 1
+                if not missLogged then
+                    missLogged = true
+                    log(string.format("remote %s: the blade is %.0f studs off stop %d after %d re-aim(s) — leaving this block's %d cell(s) rather than firing calls it cannot take",
+                        job.verb, away, i, (i == 1 and 3 or 1) - aims, #stop.cells))
+                end
+                if misses >= 3 then
+                    log(string.format("remote %s: the blade has not landed on %d stop(s) in a row — ending the grid here; the hop pass puts it on each cell",
+                        job.verb, misses))
+                    break
+                end
+            else
+                misses = 0
+                burst(stop)
+                if not firedOnce then
+                    firedOnce = true
+                    -- ▸ THE FIRST CALL AFTER A LONG RIDE IS ROUTINELY REFUSED while
+                    --   the server still holds the old pose (the artifact every
+                    --   lift run hit). Asking once and giving the field away used
+                    --   to hand a healthy field to the tween — which is what
+                    --   "it's still driving" was. Settle and fire the same stop
+                    --   once more before believing a parked blade is refused.
+                    local chk = cellsAtStage(field, stage, baseCF, baseSize)
+                    if not chk or #chk >= before then
+                        if chk and not stopping() then
+                            done = {}
+                            task.wait(0.5)
+                            burst(stop)
+                            chk = cellsAtStage(field, stage, baseCF, baseSize)
+                        end
+                        if not chk or #chk >= before then break end
                     end
-                    if not chk or #chk >= before then break end
                 end
             end
             if dry then break end

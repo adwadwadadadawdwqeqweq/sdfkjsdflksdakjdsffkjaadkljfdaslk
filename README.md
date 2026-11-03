@@ -93,9 +93,7 @@ Everything merged into one paste-and-run file:
   reach never skips a call, and a tool whose parts cannot be read adds **no**
   reach. After the call pass there is a
   **block grid**: the remaining cells are grouped into rows, `side` rows at
-  a time are cut into `side`-column blocks (`side` is **3** for a one-tile tool —
-  the owner's "tp to a spot, do the closest 9 areas" — and grows with the
-  implement's own width), and each block gets one stop at its
+  a time are cut into `side`-column blocks, and each block gets one stop at its
   own centre — the ride parks with the **blade** on it (the tool trails behind
   the tractor, so the ride goes to `stop − blade offset`), fires that block's
   cells 40 ms apart, then walks **forward** to the next block (each
@@ -103,13 +101,38 @@ Everything merged into one paste-and-run file:
   nothing is skipped and nothing is fired twice; a 50-cell field is **8
   teleports** of nine calls each. The band it relies on was measured live: a
   take from **20 studs to the side** at +8 (30 refused) and from **+80 straight
-  up**. The stage re-read after the **first** stop decides — if the
+  up**. **One stop = one equal square** (owner: *"when it plows, now it plows in a
+  cross pattern, if it cant do a equal 3x3 or 4x4 or 5x5 or 6x6 or 7x7 it should
+  only do one of those, if it make a cross pattern it goes back to a 3x3"*): a
+  stop parks on the block's centre, so its corners are the farthest cells, and
+  `spudBlockSide` grows `side` only while the **next** square's own corner stays
+  inside the reading that actually took (`spudFieldTaken = 20`). On the game's
+  10-stud grid a corner sits `√2 × (n−1) × 5` studs out — **14.1** for a 3×3,
+  **21.2** for a 4×4 — so this build stops at **3×3**, and the live arithmetic is
+  the proof: the 4×4 plow grid logged `fired 2388 … 1793 took, 595 left` (595 of
+  2388 is 24.9% refused; the four corners of a 4×4 are 4 of 16 = 25%), while the
+  same field's 3×3 cultivate grid took 2374 of 2399. A wide implement grows the
+  **corner pass** (its own ground does reach farther) but never the block, because
+  the call carries one attachment point and a diagonal earns it nothing. The stage
+  re-read after the **first stop that fired** decides — if the
   server takes nothing from a parked blade the grid fires **that same stop
   once more**; between stops it **waits for the blade**, not a fixed beat — a
   hitched tool trails the tractor for a moment after a jump, so the call only
-  fires once the blade is actually on the block (re-parking once if it is
-  still swinging) — the first call after a long ride is routinely refused while the
-  server still holds the old pose — and only then ends
+  fires once the blade is actually on the block, **re-aiming from the blade's own
+  fresh position** until it lands (the first stop gets three aims: it arrives
+  straight out of a long arc, the first call after such a ride is routinely
+  refused while the server still holds the old pose, and the hitch settles the
+  implement onto its own rest trail after the jump). The live seed failure was
+  exactly that: `the blade is 32 studs off stop 1 — firing anyway` then
+  `fired 9 of 2362 cell(s) from 276 stop(s), 3x3 per stop — 0 took, 2362 left` —
+  nine refused calls were nine seeds spent for nothing. So a block whose blade
+  demonstrably is **not** on it now fires **no** calls and its cells stay on the
+  field's list for the hop, while an unreadable blade still gets its burst
+  (unreadable is not a miss). Three such misses in a row end the grid
+  (`the blade has not landed on 3 stop(s) in a row — ending the grid here; the hop
+  pass puts it on each cell`). A grid only gives up once a stop that actually
+  **fired** takes nothing, so a healthy field still ends like the
+  live run that did
   (`remote seed: fired 46 of 46 cell(s) from 8 stop(s), 3x3 per stop — 46 took,
   0 left`). **And it waits for the tow before it jumps at all** (owner: *"when it
   tp's the tools make the whole thing glitch and it falls out the map, make it

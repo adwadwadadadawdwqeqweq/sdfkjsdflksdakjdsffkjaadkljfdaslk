@@ -46,6 +46,7 @@ WANTED = [
     "spudWaitTool",
     "spudPivotRig",
     "spudToolExtraTiles",
+    "spudBlockSide",
 ]
 
 PRE = r"""
@@ -89,6 +90,9 @@ function require(x) return x end
 grownStage = function(s) return s == "Grown" end
 spudFieldRemoteState = { kit = nil, off = {} }
 spudFieldReach = 24
+-- the strict "this reading actually took" band the BURST BLOCK is sized against:
+-- 20 is the widest sideways distance the live server ever accepted (30 refused)
+spudFieldTaken = 20
 -- the tow-settle gate's own numbers (a stubbed blade moves with the ride, so
 -- every hop reads as already settled and the existing counts stay valid)
 spudToolSwing = 3
@@ -261,13 +265,26 @@ local att = adopt(adopt(impl, newInst("RaycastPart", "Part")), newInst("Attachme
 --   exactly why no harness ever saw it. So the tool gets a real pivot, and every
 --   carry the build performs lands here — CARRIED counts them.
 CARRIED = 0
+-- a hitch is a CONSTRAINT, not a parent. After a jump the implement settles at
+-- the ride's own rest offset — NOT the commanded point — so a park aimed from a
+-- stale reading leaves the blade off the block. TRAIL_REST models that offset
+-- (section 17), and TRAIL_STUCK an implement caught on something, for which a
+-- park command changes nothing at all.
+TRAIL_REST = nil
+TRAIL_STUCK = false
+RIDE_JAMMED = false
 function tool:GetPivot()
     if not ATTPARENT then return nil end
     return setmetatable({ pos = ATTPARENT.Position }, CF)
 end
 function tool:PivotTo(cf)
     CARRIED = CARRIED + 1
-    if ATTPARENT then ATTPARENT.Position = cf.pos end
+    if not ATTPARENT or TRAIL_STUCK then return end
+    if TRAIL_REST then
+        ATTPARENT.Position = RIDE_POS + TRAIL_REST
+    else
+        ATTPARENT.Position = cf.pos
+    end
 end
 
 local decoyTool = newInst("S4204", "Model")
@@ -578,6 +595,9 @@ function hopRide:GetPivot() return setmetatable({ Position = RIDE_POS }, CF) end
 -- stays on the ground behind it, so a pass that wants its blade has to carry it
 function hopRide:PivotTo(cf)
     rides = rides + 1
+    -- section 17: a rig that cannot move at all (the command is sent, the world
+    -- does not obey) — the honest model of a blade that will not land
+    if RIDE_JAMMED then return end
     RIDE_POS = cf.pos
 end
 local baseCF = setmetatable({ base = true, Position = Vector3.new(0, 0, 0) }, CF)
@@ -900,9 +920,25 @@ sweepGrid()
 resetState()
 local tookWide = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
     baseCF, baseSize, hopAtt)
-check("wide tool: the block grows with the implement",
-    loggedText():find("6x6 per stop") ~= nil,
+-- ▸ the wide implement grows the CORNER PASS, never the burst BLOCK: the call
+--   carries one attachment point and a square's corners sit on a diagonal, where
+--   a bar that widens one axis earns nothing (owner 2026-11-03, the cross).
+check("wide tool: the block stays an equal 3x3, not a wider square",
+    loggedText():find("3x3 per stop") ~= nil,
     "took " .. tostring(tookWide))
+check("equal squares: the measured 20-stud band gets a 3x3",
+    spudBlockSide(20) == 3, tostring(spudBlockSide(20)))
+check("equal squares: a 4x4 needs its own corner (21.2) inside the band",
+    spudBlockSide(21) == 3 and spudBlockSide(22) == 4,
+    string.format("%d / %d", spudBlockSide(21), spudBlockSide(22)))
+check("equal squares: a 5x5 needs 28.3",
+    spudBlockSide(29) == 5 and spudBlockSide(35) == 5,
+    tostring(spudBlockSide(29)))
+check("equal squares: capped at 7x7 however generous the band",
+    spudBlockSide(400) == 7, tostring(spudBlockSide(400)))
+check("equal squares: never smaller than the owner's 3x3",
+    spudBlockSide(0) == 3 and spudBlockSide(nil) == 3,
+    tostring(spudBlockSide(0)))
 
 -- 16. ANCHOR THE TOW (owner: "we need to anchor the tractor when it tps because
 --     the tool drags it, also the tractor tps before the tool can get back in
@@ -985,6 +1021,80 @@ check("self-propelled: the ride is moved once, not twice",
     "moved " .. string.format("%.0f",
         (hopRide:GetPivot().Position - selfBefore).X) .. " studs")
 
+-- 17. THE FIRST STOP HAS TO LAND (owner 2026-11-03: "the seeding is bugging,
+--     probably because the tool is attatched to the tractor"). The live console
+--     lost the FIRST stop of every seed grid —
+--       remote seed: the blade is 32 studs off stop 1 — firing anyway
+--       remote seed: fired 48 of 2398 cell(s) from 280 stop(s), 3x3 per stop — 36 took, 2362 left
+--       remote seed: the blade is 41 studs off stop 1 — firing anyway
+--       remote seed: fired 9 of 2362 cell(s) from 276 stop(s), 3x3 per stop — 0 took, 2362 left
+--     and that `fired 9` is exactly ONE 3x3 block: the honesty gate read those 0
+--     takes after stop 1 and gave up the whole grid, while the first grid spent
+--     its 48 seeds with 36 of them refused. A hitch is a CONSTRAINT: after a park
+--     the implement settles at the ride's own rest trail, so a park aimed from
+--     the pre-jump reading — stale straight out of a 288-stud arc — lands the
+--     blade 41 studs off the block, and only a re-aim from the FRESH reading
+--     closes it. TRAIL_REST models that settle.
+RIDE_POS = Vector3.new(0, 0, 0)
+TRAIL_REST = Vector3.new(0, 0, -5)           -- where the hitch actually leaves it
+ATTPARENT.Position = Vector3.new(0, 0, -46)  -- mid-swing: 41 past the rest trail
+mode.seed = "all"
+mode.atCell = true
+acceptR = 20                                 -- the real measured band
+capVal.Value = 50
+sweepGrid()
+resetState()
+rf0 = rides
+cj0 = seedRemote.invokeCalls
+local tookStale = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+check("stale first trail: every block still gets its burst",
+    seedRemote.invokeCalls - cj0 == 15,
+    (seedRemote.invokeCalls - cj0) .. " call(s)")
+check("stale first trail: and every cell takes", tookStale == 15, tostring(tookStale))
+check("stale first trail: aiming costs extra jumps, not calls",
+    rides - rf0 > 2, (rides - rf0) .. " pivot(s)")
+check("stale first trail: nothing was handed over",
+    loggedText():find("leaving this block") == nil)
+TRAIL_REST = nil
+
+-- and a blade that demonstrably is NOT on the block spends NOTHING (each call
+-- there is refused, and a refused call is still a seed the seeder paid for).
+-- RIDE_JAMMED + TRAIL_STUCK: the rig cannot be put on the block at all.
+local function longField()
+    fieldState[field] = {}
+    for x = 1, 9 do
+        for y = 1, 3 do
+            fieldState[field][x * 128 + y] = { Stage = "Cultivated" }
+        end
+    end
+end
+-- a 9x3 plate on a 50x20 frame is TURNED, so its rows run along Z and the grid
+-- makes three stops at (0,-30), (0,0) and (0,30); a blade stuck at (25,0,0) is
+-- 25, 25 and 39 studs off them — a miss every time, close enough to the ride to
+-- stay "on the hitch" so the pass ends on the misses, not on a flung tool.
+RIDE_POS = Vector3.new(0, 0, 0)
+ATTPARENT.Position = Vector3.new(25, 0, 0)
+TRAIL_STUCK, RIDE_JAMMED = true, true
+longField()
+resetState()
+cj0 = seedRemote.invokeCalls
+rf0 = rides
+local tookJam = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+check("a blade that never lands fires no calls",
+    seedRemote.invokeCalls - cj0 == 0,
+    (seedRemote.invokeCalls - cj0) .. " call(s)")
+check("a blade that never lands says which block it left",
+    loggedText():find("leaving this block") ~= nil)
+check("three stops that never land end the grid, and the hop takes over",
+    loggedText():find("not landed on 3 stop") ~= nil and tookJam == 0,
+    tostring(tookJam))
+check("a missed grid leaves every cell standing",
+    #spudFieldCellIds(field, "Cultivated") == 27)
+TRAIL_STUCK, RIDE_JAMMED = false, false
+mode.atCell = false
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 """
 
@@ -1007,11 +1117,24 @@ def main() -> int:
     if not re.search(r"^    spudFieldReach = 24\b", src, re.M):
         print("spudFieldReach is no longer 24 — update this harness")
         return 2
-    for const in ("spudToolSwing = 3", "spudToolFar = 90"):
+    for const in ("spudToolSwing = 3", "spudToolFar = 90", "spudFieldTaken = 20"):
         if not re.search(r"^    " + const + r"\b", src, re.M):
             print("the tow-settle gate no longer declares " + const
                   + " — update this harness")
             return 2
+    # ▸ the burst block is an EQUAL square sized against the band that actually
+    #   took (spudBlockSide), and a stop whose blade never landed fires NO calls
+    #   (the old "firing anyway" line spent the whole seeder on refusals).
+    radial = extract(src, "spudRadialFire")
+    if "spudBlockSide(spudFieldTaken)" not in radial:
+        print("the grid no longer sizes its block from the equal-square rule")
+        return 2
+    if "3 + spudToolExtraTiles(impl)" in radial:
+        print("the grid still widens the block with the implement — that is the cross")
+        return 2
+    if "firing anyway" in radial:
+        print("the grid still bursts at a blade it measured off the block")
+        return 2
     # the gate has to sit BEFORE each teleport, and the teleport has to be the
     # carrying one — a bare `ride:PivotTo` leaves the implement on the ground
     for fn in ("spudRadialFire", "spudHopCells"):

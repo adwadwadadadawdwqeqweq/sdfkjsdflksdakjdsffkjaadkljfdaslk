@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.131 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.132 ·
   fluent gui` (`VERSION`, line 15). ≈13k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -73,7 +73,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 
 13. **Luau's 200-local limit is real** (it was 2 away from the practical
     ceiling until the path engine was deleted in v1.81). Run
-    `python tools/local_budget.py`. As of v1.131:
+    `python tools/local_budget.py`. As of v1.132:
     `4-space locals before milkCycle: 179 (practical ceiling 185)`,
     whole body `186 / 200`, **headroom 6** (v1.129's four `*_STEMS` word tables
     are four build-closure locals — every other name the equipment rewrite
@@ -150,10 +150,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 33/33 checks on v1.131
+python tools/run_all.py        # 33/33 checks on v1.132
 ```
 
-Last full run (v1.131): **33/33 checks passed** (30 harnesses + 3 gates).
+Last full run (v1.132): **33/33 checks passed** (30 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment the script contained a string with those three
@@ -183,7 +183,7 @@ exiting 0 is exactly what that scan exists to catch.
 | `equip_owner_test.py` | Whose tractor/tool is picked: the farm being worked first, mine next, an unreadable owner after that, a stranger's never; stored machines are reported for spawning; the implement distance/basis stay honest — and **what** a machine is comes from the game's own data (v1.129): the harness pulls the real `*_STEMS`/`TYPE_STEMS`/`TYPE_MODEL` tables out of the build, so `EquipmentType` is matched by **stem** (`Forage Harvester` = `harvest`), a model name is only ever the no-attribute fallback and the `basis` names which rule won, `PDRILL22` still reads as a Planter, a driver-seat + `Components.Hitchable` ride is accepted **only** when nothing the game calls a Tractor is out (and a Truck / Transport / Harvester / seat-without-a-Hitchable never is), and `spudEquipHereText()` prints the `Name=Type (stored)` world inventory the refusal lines quote. |
 | `field_soil_test.py` | Tree/wood field types and names are never crop-harvest targets; a successful cell read with 0 cells is empty (skipped), while a failed read stays unknown (never a skip reason). |
 | `early_cut_test.py` | The one harvest predicate: with `spudEarlyCut` off a `Seeded` cell is not standing (the old behaviour, byte for byte) and with it on `Seeded` + every unknown stage are; the other jobs still aim at their own stage either way; a nil/0-cell read stays unknown; and the source ties that the growth wait restarts on a cuttable field, bounds the restart with `spudCutWatch`, the census renames the column `cuttable`, the Settings toggle remembers the pick, and **Get coords** logs/copies the position. |
-| `field_remote_test.py` | The field remotes: ids come from the game's own `GetCells` dict (numeric keys only, sorted, failed read = unknown), the tool's RaycastPart attachment is the one sent, one call per remaining cell carries `(field, {id}, {attachment})`, a full batch reports done, a partial batch hands back the remainder, an ignored batch switches that job back to driving (and fires nothing again), and `FillSeeder` falls back to V on a refusal. The Tests-tab batch: one call carries every id, a full/partial/ignored id list is judged by the stage re-read, and an ignored list never switches the job off. The single-spot fire takes a whole field from one teleport when the blade reaches 60 studs, fires one call per cell, respects the seeder budget, and takes nothing when the reach is small (4 of 8 cells called, the far ones handed to the blocks, no call at all when nothing is in reach, no frame = no filter). **The tow** (v1.129): `spudWaitTool` is `none` with no readable attachment, `settled` behind the ride, `far 300` when flung off the hitch, and `swinging` after exactly **30** beats — and a flung implement makes the grid fire **0 calls over 0 jumps** with `not on the hitch any more`; source ties pin the gate sitting **before** the first rig move in `spudRadialFire` and `spudHopCells`. **The carry** (v1.131): the fixture ride now moves **only itself**, exactly like the game, so a bare teleport is proven to abandon the blade (`gap became 286.0`), and every grid stop and cell hop carries it — `1 jump(s), 1 carry(ies)` for a stop, `15 jump(s), 15 carry(ies)` for a 15-cell field, the blade left on the hitch in both passes, no carry and still 15 jumps for a nil tool, `tool == ride` moving the ride **once** (the harvest job tows itself), and both passes still take their cells; ties assert `spudPivotRig(ride,` in each function and **no** bare `ride:PivotTo(`/`tr:PivotTo(` left in them. **The tool-sized burst**: `spudToolExtraTiles` = width past one tile (3 for a 40-stud tool, **0** for no tool or a `partBoxes` that throws), a wide implement logs `6x6 per stop`, and the constants stay the measured `spudToolSwing = 3` / `spudToolFar = 90`. |
+| `field_remote_test.py` | The field remotes: ids come from the game's own `GetCells` dict (numeric keys only, sorted, failed read = unknown), the tool's RaycastPart attachment is the one sent, one call per remaining cell carries `(field, {id}, {attachment})`, a full batch reports done, a partial batch hands back the remainder, an ignored batch switches that job back to driving (and fires nothing again), and `FillSeeder` falls back to V on a refusal. The Tests-tab batch: one call carries every id, a full/partial/ignored id list is judged by the stage re-read, and an ignored list never switches the job off. The single-spot fire takes a whole field from one teleport when the blade reaches 60 studs, fires one call per cell, respects the seeder budget, and takes nothing when the reach is small (4 of 8 cells called, the far ones handed to the blocks, no call at all when nothing is in reach, no frame = no filter). **The tow** (v1.129): `spudWaitTool` is `none` with no readable attachment, `settled` behind the ride, `far 300` when flung off the hitch, and `swinging` after exactly **30** beats — and a flung implement makes the grid fire **0 calls over 0 jumps** with `not on the hitch any more`; source ties pin the gate sitting **before** the first rig move in `spudRadialFire` and `spudHopCells`. **The carry** (v1.131): the fixture ride now moves **only itself**, exactly like the game, so a bare teleport is proven to abandon the blade (`gap became 286.0`), and every grid stop and cell hop carries it — `1 jump(s), 1 carry(ies)` for a stop, `15 jump(s), 15 carry(ies)` for a 15-cell field, the blade left on the hitch in both passes, no carry and still 15 jumps for a nil tool, `tool == ride` moving the ride **once** (the harvest job tows itself), and both passes still take their cells; ties assert `spudPivotRig(ride,` in each function and **no** bare `ride:PivotTo(`/`tr:PivotTo(` left in them. **The tool-sized burst**: `spudToolExtraTiles` = width past one tile (3 for a 40-stud tool, **0** for no tool or a `partBoxes` that throws), and the constants stay the measured `spudToolSwing = 3` / `spudToolFar = 90`. **The equal square** (v1.132): a wide implement now gets **`3x3 per stop`, not `6x6`** — that old check was the cross-pattern defect written down — and `spudBlockSide` is pinned at the corner arithmetic (20 → 3, 21 → 3 but 22 → 4, 29/35 → 5, 400 → 7, 0/nil → 3), with ties that `spudFieldTaken = 20` is the constant, that the grid reads `spudBlockSide(spudFieldTaken)`, that `3 + spudToolExtraTiles(impl)` is gone from `spudRadialFire` and so is `firing anyway`. **The re-aim** (v1.132): a fixture whose tool settles at a real 5-stud trail but starts 46 studs behind (what a 288-stud arc leaves) must still land — 15 calls, 15 took, more than 2 pivots for its 2 stops, and no `leaving this block` line — while a blade that never lands (stuck 25 studs off all three stops of a 9×3 field on a turned 50×20 frame, with the ride itself jammed so `spudWaitTool` can never call it `far`) fires **0 calls**, names `leaving this block's N cell(s)`, ends on `not landed on 3 stop(s)`, and leaves all 27 cells standing. |
 | `equip_remote_test.py` | The equipment remotes: the seven captured calls resolve on `Modules.Larry`; spawn/store are proven by `InStorage` (or a >100-stud move for a rebuilt spawn) and fall back to the UI when ignored; enter is proven by the seat; hitch/unhitch use the captured `Components.Hitchable` + `Chassis.HitchableSocket` pair; carry/drop are proven by the hands; three misses switch one action off for the session. |
 | `row_steer_test.py` | The row decision in the wide band: `spudRowNeedsAlign` asks for ONE snap only past `spudRowAng` (15°) or `spudRowTol` (6 studs); `spudRowSteer` presses nothing inside the band; `spudRowEase` takes a step off the throttle after three steering flips (×0.7, floor 30 %) and gives one back per steady 3 s. |
 | `foreign_respawn_test.py` | `spudMayRespawn()` is false while a Farm owner is picked, and `ensureToolNearby` then never calls `respawnTool`: a stored or far-away tool is named and the pass is skipped, while `(mine)` still respawns. |
@@ -764,20 +764,38 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   pose reaches the server is refused, the artifact every lift run hit) and
   fires **that block's nine cells**, 40 ms apart, **one call per cell**, capped by
   the seeder/tank budget. Height is free (+80 was taken), so the grid runs 10
-  studs above the cells. **A wide tool gets a wide block** (v1.129): the side is
-  `3 + spudToolExtraTiles(impl)` — 3×3 for a one-tile implement (the owner's
-  "closest 9 areas"), 6×6 for a 4-wide one — and the stop's arrival tolerance
-  (`4 * side`) and its "off the block" warning (`20 + (side − 3) * 10`) grow with
-  it, because the block's own edge cells sit farther from its centre. The log
-  prints the real shape (`3x3 per stop` / `6x6 per stop`). **The stop waits for its blade** (v1.97): a hitched
-  tool follows the ride through physics and trails behind for a moment after a
-  jump, so the pass polls the attachment's own position until the blade is on
-  the block (re-parking once from the fresh offset if it is still swinging) and
-  only then fires — the flat 0.5 s beat let a live run fire all 8 stops in 7 s
-  with the plow 27 studs behind and only **17 of 50** calls land. The per-cell
-  hop waits the same way (was a flat 0.1 s). The stage re-read after the **first** stop is the
-  honesty gate: nothing taken = the server refuses a parked blade, the grid
-  ends after one stop and the hop drives. The final re-read is the proof:
+  studs above the cells. **One stop = one EQUAL square** (v1.132, replaces
+  v1.129's wide block): `spudBlockSide(spudFieldTaken)` sizes the side so the
+  square's own **corners** stay inside the band that was measured to take. A
+  square of `n` cells on the game's 10-stud grid puts a corner at
+  `√2 × (n−1) × 5` studs out from its centre — 14.1 (3×3), 21.2 (4×4), 28.3
+  (5×5) — and `spudFieldTaken = 20` is the sideways reading the lift probe
+  recorded (20 taken, 30 refused), so this build gets **3×3 for every implement,
+  wide or not**. A wide tool still grows the *corner pass*
+  (`spudFieldReach + spudToolExtraTiles(impl) * 5`), because that leg filters one
+  cell at a time against the blade, but the block earns no diagonal credit: the
+  call carries a single attachment point. The stop's arrival tolerance
+  (`4 * side`) and its off-block warning (`20 + (side − 3) * 10`) still derive
+  from the side. **The stop waits for its blade, then re-aims** (v1.97 → v1.132):
+  a hitched tool follows the ride through physics and settles at the ride's own
+  rest trail, so the pass polls the attachment's position until the blade is on
+  the block and only then fires. v1.97's single re-park was not enough — the
+  trail is read *before* the jump, and after a 288-stud arc it is stale, so the
+  **first** stop of every grid landed off its own block and fired "anyway". Live:
+  `the blade is 32 studs off stop 1 — firing anyway` on the grid that spent its 48
+  seeds with `36 took, 2362 left`, then — after a refill —
+  `the blade is 41 studs off stop 1` and
+  `fired 9 of 2362 cell(s) from 276 stop(s), 3x3 per stop — 0 took, 2362 left`,
+  where `fired 9` is exactly one block: the honesty gate read those 0 takes after
+  stop 1 and gave up the whole grid. Now the
+  park is re-made **from the blade's fresh position** until it arrives (three
+  aims for the first stop, one for the rest), a block whose blade demonstrably
+  is **not** on it fires **no** calls, three such misses in a row end the grid
+  and hand the field to the per-cell hop, and an unreadable blade still gets its
+  burst (rule 7 — unreadable is not a miss). The per-cell hop waits the same way
+  (was a flat 0.1 s). The stage re-read after the **first stop that actually
+  fired** is the honesty gate: nothing taken = the server refuses a parked blade,
+  the grid ends there and the hop drives. The final re-read is the proof:
   `remote seed: fired 46 of 46 cell(s) from 8 stop(s), 9 per stop — 46 took,
   0 left`; anything it misses is still hopped, so it can only add speed. Pinned by 18 `field_remote_test.py` checks
   (a 40×20 field is covered by 2 stops with 15 calls, a 9×3 field
@@ -1156,7 +1174,7 @@ Fulfillment pad's Y from the dump's 138 to 141.
 | Go to the farm | global `spudFarmHop(here, plotPos)` (nil+reason, or centre +5 Y and distance), `milkStorePlotOf(who)`, `milkStandUp(who)` (default `"milk"`); wired at the top of `runFarmingBody` |
 | Whose machine | global `equipOwnerRank(m)` (farm being worked → mine → no readable owner → never another account), used by `findTractor` / `findImplement`; owner tag read by `milkStoreOwnerOf`. **What** it is: globals `spudEquipTypeKey(m)` (the game's `EquipmentType`, letters only), `spudEquipIs(m, STEMS)` (stem match), `spudEquipSeat(m)` (`VehicleSeat`/`Seat`), `spudEquipTows(m)` (`Components.Hitchable`), `spudEquipHereText()` (the world's `Name=Type (stored)` list); build-closure tables `HARVEST_STEMS` / `TRACTOR_STEMS` / `HAULER_STEMS` / `TOOL_STEMS` / `TYPE_STEMS` / `TYPE_MODEL` |
 | Tree soil | global `spudTreeField(typeName, modelName)` (wood/tree/log/forest/timber/lumber/sawmill/stump → no crop harvest) and `spudNoCells(st)` (successful 0-cell read is empty, `nil` read is unknown); used in `probeWork`, `runPass`, `needLeft`, `grownLeft`, growth wait |
-| Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (blocks of `spudToolExtraTiles + 3` a side: the blade parks on each block's centre and fires its cells, serpentine order), `spudHopCells` (one teleport per cell — the tween sweep was deleted in v1.95), `spudFillSeederRemote`; the tow gate `spudWaitTool(ride, att, who)` + `spudToolTrail` (constants `spudToolSwing = 3`, `spudToolFar = 90`) runs before **every** move, and the move itself is global `spudPivotRig(ride, cf, tool)` — pivot the ride, then translate the implement by the same delta (§3.12); the width helper `spudToolExtraTiles(impl)` scales `spudFieldReach` and the block; state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, **default true** since v1.88); wired at the top of `sweepField` and in `buySeedAndFill` |
+| Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (one EQUAL square per stop, sized by global `spudBlockSide(spudFieldTaken)` — the blade re-aims until it lands, fires that block's cells and skips a block it demonstrably missed, serpentine order), `spudHopCells` (one teleport per cell — the tween sweep was deleted in v1.95), `spudFillSeederRemote`; the tow gate `spudWaitTool(ride, att, who)` + `spudToolTrail` (constants `spudToolSwing = 3`, `spudToolFar = 90`) runs before **every** move, and the move itself is global `spudPivotRig(ride, cf, tool)` — pivot the ride, then translate the implement by the same delta (§3.12); the width helper `spudToolExtraTiles(impl)` scales **only** `spudFieldReach` (the block sizes off `spudFieldTaken = 20`, the band that was measured to take); state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, **default true** since v1.88); wired at the top of `sweepField` and in `buySeedAndFill` |
 | Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes` / `growth` / `shop`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`, test run + last 60 farm lines), `spudTestCopyConsole` (`setclipboard`, last 150 farm lines only), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Grow now** (v1.123), **Shop counter** (v1.103), **Run all**, **Copy report**, **Copy console** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
 | Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job**; the A* planner was deleted in v1.81 and the row driver in v1.82, so a field pass never touches a movement key |
@@ -2743,7 +2761,9 @@ first `:PivotTo` in both passes. Suite **33/33**, headroom **6** (the four
 global for that reason), name audit clean **364**. **Harness green — not reloaded
 in game**, and the verdicts are three lines: the harvester found by its
 `EquipmentType` word (not a name), a grid whose `took` is no longer gutted by a
-swinging plow, and a wide implement logging `6x6 per stop`.
+swinging plow, and a wide implement logging `6x6 per stop` — the last of those
+three was **reversed in v1.132**: a 4×4 stop paints a cross, because its own
+corners sit outside the band that was measured to take.
 
 **"what did you do" — v1.129 killed the farm loop (v1.130).** The owner reloaded
 `83fcf93` in game and pasted the console twice; both runs died the same place,
@@ -2835,8 +2855,99 @@ assignment costs no register), name audit clean **365**. **Harness green — not
 reloaded in game**, and the verdict is the two lines the owner already has:
 `hitch gap at arrival:` reading a **few** studs instead of `277.7`, and
 `fired N of N … N took` instead of `0 took` next to `not on the hitch any more`.
+**ANSWERED — the owner reloaded it.** The next console reads
+`hitch gap at arrival: 5.0 studs` and, after the field hops, `1.0 studs`, and no
+line says `not on the hitch any more`, so the carry is confirmed in game. What the
+same run exposes instead is the shape of the leftovers (`4x4 per stop — 1793 took,
+595 left`) and the first stop of a seed grid — the next entry.
 
-**Where it stands:** `rebuild v1.131 · fluent gui`, whole suite green (33/33),
+**"if it cant do a equal 3x3 or 4x4 or 5x5 or 6x6 or 7x7 it should only do one of
+those, if it make a cross pattern it goes back to a 3x3" + "the seeding is
+bugging, probably because the tool is attatched tot he tractor" (v1.132).** Two
+reports, both about `spudRadialFire`, both answered from the console rather than
+theory.
+
+**(1) The cross.** v1.129 had let a wide implement widen the *block* as well as
+the corner pass, and the live arithmetic says why that paints a plus sign instead
+of a square (the owner's emulator, v1.131 build):
+
+```
+remote plow: fired 2388 of 2388 cell(s) from 150 stop(s), 4x4 per stop — 1793 took, 595 left
+remote cultivate: fired 2399 of 2399 cell(s) from 280 stop(s), 3x3 per stop — 2374 took, 25 left
+```
+
+595 of 2388 is **24.9%** refused, and the four corners of a 4×4 are 4 of 16 =
+**25%** — the same field on a 3×3 grid loses 25 of 2399. A stop parks the blade on
+the block's **centre**, and on the game's 10-stud grid a square of `n` cells puts
+its corner at `√2 × (n−1) × 5` studs out (14.1 for 3×3, 21.2 for 4×4, 28.3 for
+5×5). The server's band is the sideways reading the lift probe measured — **20
+taken, 30 refused** — so a 4×4's corners sit 21.2 out and are the cells that never
+take, and a ride that fires them anyway and moves on leaves exactly that shape
+standing. `spudFieldTaken = 20` (the strict
+"actually took" number, distinct from the `spudFieldReach = 24` compromise the
+corner pass filters at) now sizes the block through global `spudBlockSide(band)`,
+which grows the side only while the **next** square's own corner is inside that
+band and caps at 7×7. On this build that is **3×3 for every implement**, which is
+what the owner asked for; a wide tool still widens the corner pass, because that
+leg checks one cell at a time against the blade and earns no diagonal credit — the
+call carries a single attachment point.
+
+**(2) The seed pass firing nothing.** The same run, the two grids that follow the
+shop trip:
+
+```
+remote seed: the blade is 32 studs off stop 1 — firing anyway
+remote seed: fired 48 of 2398 cell(s) from 280 stop(s), 3x3 per stop — 36 took, 2362 left
+remote seed: the blade is 41 studs off stop 1 — firing anyway
+remote seed: fired 9 of 2362 cell(s) from 276 stop(s), 3x3 per stop — 0 took, 2362 left
+```
+
+The owner's guess was *"probably because the tool is attatched tot he tractor"*,
+and the code confirms it without a new theory: v1.131 made the teleport carry the
+implement, so the tool now lands at the ride's **rest trail** — but the offset the
+stop is aimed from is read **before** the jump, and after a 288-stud arc that
+reading is stale. The first stop of every grid is precisely the one that arrives
+out of a long ride, so it parks 32 studs off its own block, the old code logged
+`firing anyway` and spent the burst there — the `fired 9` is exactly one 3×3
+block's calls, i.e. the honesty gate gave up the pass after stop 1 took nothing —
+while the 48-call grid before it had already spent a whole seeder load on cells
+the blade was not over. v1.97's
+single re-park could not close it either — it re-aims from the same pre-jump
+offset once. The fix is to re-make the park **from the blade's own fresh position**
+until it arrives (three aims for the first stop, one for the rest, each taking a
+new `spudWaitTool` settle so a flung tool still ends the pass) and, when the blade
+demonstrably is **not** on the block, to fire **nothing** there: the block's cells
+are left for the per-cell hop, which puts the blade on each one. Three consecutive
+misses end the grid with
+`the blade has not landed on 3 stop(s) in a row — ending the grid here; the hop
+pass puts it on each cell`, and the honesty gate now keys on the **first stop that
+fired** rather than stop 1, so a miss cannot disprove the server. An **unreadable**
+blade still gets its burst (rule 7 — unreadable is not a miss).
+
+`tools/field_remote_test.py` was the place the old defects were written down as
+passing: its `6x6 per stop` check asserted the cross, so it is inverted to
+`3x3 per stop` and six `spudBlockSide` corner checks added. The fixture ride now
+has a **rest trail** (`TRAIL_REST`) and can start a grid 46 studs behind it, like
+the arc hop does — that case must still take all 15 cells, with more than two pivots
+for its two stops and no `leaving this block` line. The jam case parks a blade that
+never lands (`TRAIL_STUCK` + `RIDE_JAMMED`, so `spudWaitTool` can never report
+`far` and the 3-miss rule is what ends it) and asserts **0 calls**, the refusal
+line, `not landed on 3 stop(s)` and all 27 cells still standing. Writing it taught
+me the geometry again: `cellsAtStage` **turns** the plate when the field frame's
+axis counts match the other dimension, so a 9×3 field on a 50×20 frame lays its
+stops along Z at (0,−30), (0,0), (0,30) — the first draft assumed X and its
+"stuck" blade was legitimately on stop 1. Ties now refuse the build if
+`spudRadialFire` still contains `3 + spudToolExtraTiles(impl)` or the words
+`firing anyway`. Compile OK, suite **33/33**, headroom **6** (both new names are
+global assignments; the three new locals are inside `spudRadialFire`), name audit
+clean **367**. **Harness green — not reloaded in game**, and the verdicts are the
+two lines above: a seed grid whose `took` climbs towards `fired` instead of
+`0 took` next to `firing anyway`, and a plow field that ends with no cross of
+leftover cells. If the first stop still misses after three aims, the honest
+reading is that the rest trail is longer than the arc's own settle can absorb, and
+the next number to measure is that trail.
+
+**Where it stands:** `rebuild v1.132 · fluent gui`, whole suite green (33/33),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **v1.129 was reloaded in game and crashed** (the ordering bug above);
 **v1.130 fixed that and was run in game** — the owner's console opens
@@ -2844,7 +2955,13 @@ above). **v1.129 was reloaded in game and crashed** (the ordering bug above);
 `⚠ farming loop error`, so the crash verdict is closed. What that same run
 opened is the tow: a 286-stud arc hop arriving with `hitch gap at arrival:
 277.7 studs`, every later pass refusing itself and `0 took` on a 2 398-cell
-field — which is what v1.131 answers, and its verdict is those same two lines.
+field — which is what v1.131 answers, **and v1.131 was reloaded and confirmed**:
+the same emulator now reads `hitch gap at arrival: 5.0 studs` (then `1.0`) and no
+pass says `not on the hitch any more`, and a 2 399-cell cultivate grid took 2 374.
+What that confirmed run then exposed is the grid's own shape — a 4×4 plow leaving
+`595 left` in crosses and a seed grid whose first stop sits `32 studs off stop 1`
+and fires `0 took` — which is what v1.132 answers, and its verdict is those same
+two lines.
 **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
