@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.132 · fluent gui"
+local VERSION    = "rebuild v1.133 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -1881,6 +1881,10 @@ local okBuild, errBuild = pcall(function()
             if stopping() then return 0 end
             return (impl:GetPivot().Position - before).Magnitude
         end
+        -- ▸ the anchor comes OFF first: the proof that the tool is parked is
+        --   the tug ("it stayed put"), and a welded tow would answer that no
+        --   matter what the game's own hitch did.
+        spudUnanchorTool("the tool is being parked")
         for attempt = 1, 3 do
             local lined = lineUpHitch(tr, impl)
             if not lined then log("park: hitch line-up parts missing — pressing the fallback anyway") end
@@ -2008,6 +2012,7 @@ local okBuild, errBuild = pcall(function()
         -- gated, so if it stays, only the user can free the hitch
         if attached and attached ~= impl.Name then
             log("a different tool is hitched (" .. attached .. ") — unhitching it first")
+            spudUnanchorTool("the hitch has to be freed")
             pressKey(Enum.KeyCode.X)
             task.wait(0.8)
             if stopping() then return false end
@@ -2073,6 +2078,7 @@ local okBuild, errBuild = pcall(function()
                         --   unhitch here; with nothing attached it does
                         --   nothing.
                         log("hitch: no prompt after 3 tries — pressing X in case another tool is still on")
+                        spudUnanchorTool("an X press is going to the hitch")
                         pressKey(Enum.KeyCode.X)
                         task.wait(0.8)
                         if stopping() then return false end
@@ -2102,6 +2108,7 @@ local okBuild, errBuild = pcall(function()
                     if got and got ~= impl.Name then
                         log(string.format("⚠ X grabbed the wrong tool (HUD: %s, wanted %s) — unhitching",
                             got, impl.Name))
+                        spudUnanchorTool("the wrong tool came off the hitch")
                         pressKey(Enum.KeyCode.X)
                         task.wait(0.8)
                     else
@@ -2116,6 +2123,9 @@ local okBuild, errBuild = pcall(function()
                 return false --- killed (toggle off) or out of attempts
             end
         end
+        -- ▸ the hitch is proven (a passed tug, or this attempt's tug) — NOW the
+        --   tow may be made rigid. A failure above never reaches this line.
+        spudAnchorTool(tr, impl)
         return true
     end
 
@@ -3000,6 +3010,87 @@ local okBuild, errBuild = pcall(function()
         end)
     end
 
+    -- ▸ ANCHOR THE TOW (owner 2026-11-03: "make it anchor the tool permanently
+    --   behind the tractor while it's hitched"). v1.131 carries the implement
+    --   through a teleport and v1.129 refuses a jump while it swings, but the
+    --   tow is still the GAME's constraint: the tool hangs on a slack line, so
+    --   the pose at arrival is whatever the solver managed in the frames
+    --   available, and every grid stop has to re-aim from a fresh reading.
+    --   A WeldConstraint between the two hitch parts makes ride + implement ONE
+    --   assembly: the tool is where the ride put it, the settle wait has no
+    --   swing to refuse, and nothing drags.
+    --   It is created only after a hitch is PROVEN (the tug test in hitchTool)
+    --   and destroyed before anything asks the game to unhitch — an X press
+    --   against a welded tow is a tug-of-war the script wins and the server
+    --   loses, and "the tool stayed put" would be a lie about the park.
+    --   Globals, for the 200-local ceiling and because the callers are scattered.
+    function spudAnchorTool(ride, impl)
+        if not (ride and impl) or ride == impl then return false end
+        if spudAnchor and spudAnchor.weld
+            and spudAnchor.impl == impl and spudAnchor.ride == ride then
+            return true
+        end
+        spudUnanchorTool("a tool is going on the hitch")
+        local p0, p1 = findHitchPart(ride), findHitchPart(impl)
+        if not (p0 and p1) then
+            log(string.format("anchor: %s or %s has no hitch part to weld — the tow stays on the game's own constraint",
+                tostring(ride and ride.Name), tostring(impl and impl.Name)))
+            return false
+        end
+        -- weld the SETTLED pose. The tug that proved the hitch leaves the tool
+        -- swinging, and freezing a mid-swing frame would hold the tow at an
+        -- angle the game never rests it at.
+        local v = spudWaitTool(ride, spudToolAttachment(impl), "anchor")
+        if v == "stop" then return false end
+        if v == "far" then
+            log(string.format("anchor: %s is off the hitch — nothing welded", tostring(impl.Name)))
+            return false
+        end
+        -- and only on `settled`: this weld is PERMANENT for the whole hitch, so
+        -- freezing a frame the tow was passing through would hold the implement
+        -- at an angle the game never rests it at. `swinging` / `gone` / `none`
+        -- cost the anchor and nothing else — the carry and the re-aim still work.
+        if v ~= "settled" then
+            log(string.format("anchor: %s reads %s behind the %s — nothing welded, the tow stays on the game's own constraint",
+                tostring(impl.Name), tostring(v), tostring(ride.Name)))
+            return false
+        end
+        -- the weld only holds if this client SIMULATES the assembly it joins —
+        -- a server-owned tool rubber-bands straight through it
+        pcall(function()
+            local pp = impl.PrimaryPart or impl:FindFirstChildWhichIsA("BasePart", true)
+            if pp then pp:SetNetworkOwner(LocalPlayer) end
+        end)
+        local ok, weld = pcall(function()
+            local w = Instance.new("WeldConstraint")
+            w.Name = "SpudTowAnchor"
+            w.Part0 = p0
+            w.Part1 = p1
+            w.Parent = p0
+            return w
+        end)
+        if not ok or not weld then
+            log(string.format("anchor: a WeldConstraint on %s was refused — the tow stays on the game's own constraint",
+                tostring(impl.Name)))
+            return false
+        end
+        spudAnchor = { weld = weld, ride = ride, impl = impl, p0 = p0, p1 = p1 }
+        log(string.format("anchor: %s welded to the %s's %s — the tool is part of the ride while it is hitched",
+            impl.Name, ride.Name, p0.Name))
+        return true
+    end
+
+    -- let the tow go back to the game's own constraint. Silent when nothing is
+    -- anchored, so every unhitch path can call it without judging first.
+    function spudUnanchorTool(why)
+        local a = spudAnchor
+        if not a then return false end
+        spudAnchor = nil
+        if a.weld then pcall(function() a.weld:Destroy() end) end
+        log(string.format("anchor: released (%s)", tostring(why)))
+        return true
+    end
+
     -- fire the game's own call for every cell still needing `job`, then
     -- re-read the field. Returns done, left:
     --   true, 0  = every cell took the call (no block or hop needed)
@@ -3552,6 +3643,53 @@ local okBuild, errBuild = pcall(function()
         return p > balance
     end
 
+    -- ▸ FILL TO THE MACHINE'S OWN CAPACITY, AND ENOUGH TRIPS TO DO IT (owner
+    --   2026-11-03: "if a seeder has like 600 capasity, make it fill up the
+    --   seeder fully" → "fill to max, trips scales to fix. by the way you can
+    --   carry to seed crates at once"). The old trip poured ONE press and the
+    --   run allowed FOUR shop trips whatever the tank said, so a 600-slot
+    --   seeder with 50-seed crates was called "loaded" at 50/600 and the field
+    --   starved eleven crates later. These four names are the arithmetic; the
+    --   call sites are the pour loop, the seedCheck trip ceiling and the
+    --   planting pass's refill ceiling.
+    spudCratesPerTrip = 2
+    -- What ONE crate actually gave the seeder, learned from a real pour (a
+    -- crate's own Capacity only reads on a streamed crate). nil = never seen,
+    -- which keeps the old constant trip ceiling rather than guessing a size
+    -- (rule 7 — unreadable is not a number).
+    spudSeedsPerCrate = nil
+    function spudSeedTripsNeeded(cap, have, perCrate, cratesPerTrip)
+        cap, perCrate = tonumber(cap), tonumber(perCrate)
+        have = tonumber(have) or 0
+        cratesPerTrip = math.max(1, tonumber(cratesPerTrip) or 1)
+        if not (cap and perCrate) or cap <= 0 or perCrate <= 0 then return nil end
+        local room = cap - have
+        if room <= 0 then return 0 end
+        return math.ceil(math.ceil(room / perCrate) / cratesPerTrip)
+    end
+    -- the run's ceiling is the promise (4) or the work (6 for a 600 tank),
+    -- whichever is bigger — an unknown crate size never LOWERS it
+    function spudSeedTripCeiling(needed, floorMax)
+        local f = tonumber(floorMax) or 0
+        if not needed then return f end
+        return math.max(f, needed)
+    end
+    -- "is there room left?" — only a readable pair answers, so an unreadable
+    -- seeder STOPS the pour loop instead of hammering V forever.
+    function spudSeederWantsMore(count, cap)
+        count, cap = tonumber(count), tonumber(cap)
+        if not (count and cap) or cap <= 0 then return false end
+        return count < cap
+    end
+    -- how many crates the game is carrying. CarryLinks is the game's own carry
+    -- rig and holds one child per item — carrying() above reads the same folder
+    -- for "anything", which cannot tell a second crate from the first.
+    function spudCratesInHand()
+        local ch = LocalPlayer.Character
+        local links = ch and ch:FindFirstChild("CarryLinks")
+        return (links and #links:GetChildren()) or 0
+    end
+
     -- how many cells across ALL my fields still need seeding (cells at
     -- "Cultivated"), and across how many fields — the yardstick for the
     -- user's re-seed rule: "if the seeder has seeds in it and the fields
@@ -3936,6 +4074,46 @@ local okBuild, errBuild = pcall(function()
                 readFill(4)
             end
             if n1 and n0 and n1 > n0 then
+                -- ▸ ONE PRESS IS ONE CRATE, AND THE TANK MAY WANT TWELVE (owner:
+                --   "make it fill up the seeder fully"). Keep pouring while the
+                --   seeder still reads room and the game is still carrying
+                --   something; a round that moves the count NOTHING is a refusal,
+                --   not a slow fill, so the loop ends there rather than pressing V
+                --   at an empty box. The rise itself is what teaches the crate
+                --   size the trip ceiling uses.
+                local gave = n1 - n0
+                if gave > (spudSeedsPerCrate or 0) then spudSeedsPerCrate = gave end
+                local rounds = 0
+                while rounds < 4 * math.max(1, spudCratesPerTrip or 1)
+                    and spudSeederWantsMore(n1, cap1)
+                    and spudCratesInHand() > 0 do
+                    if stopping() then break end
+                    rounds += 1
+                    local before = n1
+                    local again = spudFillSeederRemote(seeder2)
+                    if not again then pressKey(Enum.KeyCode.V) end
+                    task.wait(1.0)
+                    local rose = false
+                    for _ = 1, 6 do
+                        if stopping() then break end
+                        local c, cp, kd = seederSeedState(seeder2)
+                        if c and before and c > before then
+                            n1, cap1, kind1 = c, cp, kd
+                            rose = true
+                            break
+                        end
+                        task.wait(0.5)
+                    end
+                    if not rose then
+                        log(string.format("seeder fill: round %d put nothing more in (%d%s seeds, still carrying %d crate(s)) — the rest waits for the next trip",
+                            rounds, n1, cap1 and ("/" .. cap1) or "", spudCratesInHand()))
+                        break
+                    end
+                    local gave2 = n1 - before
+                    if gave2 > (spudSeedsPerCrate or 0) then spudSeedsPerCrate = gave2 end
+                    log(string.format("seeder fill: round %d poured %d more — the seeder reads %d%s",
+                        rounds, gave2, n1, cap1 and ("/" .. cap1) or ""))
+                end
                 log(string.format("✅ seeder now holds %d%s seeds%s — the planting pass takes it from here",
                     n1, cap1 and ("/" .. cap1) or "", kind1 and (" (" .. kind1 .. ")") or ""))
                 return true
@@ -3969,7 +4147,20 @@ local okBuild, errBuild = pcall(function()
                 local cnt = spudCrateSeedCount(m)
                 local p = m:FindFirstChildWhichIsA("BasePart", true)
                 if okh and who == LocalPlayer then
-                    heldModel, heldSeed, heldCount = m, seedM, cnt
+                    -- ▸ WITH TWO CRATES IN HAND, POUR THE ONE THAT STILL HAS SEED
+                    --   (owner: "you can carry to seed crates at once"). The trip
+                    --   that poured one box leaves the other in the same hands,
+                    --   and the old scan took whichever crate the folder happened
+                    --   to list first — so a full crate could be passed over for
+                    --   an empty one and the trip would go shopping again.
+                    local keep = seedM and spudCrateHasSeed(cnt)
+                        and seedM:lower() == seedName:lower()
+                    local hadKeep = heldModel and heldSeed
+                        and heldSeed:lower() == seedName:lower()
+                        and spudCrateHasSeed(heldCount)
+                    if not heldModel or (keep and not hadKeep) then
+                        heldModel, heldSeed, heldCount = m, seedM, cnt
+                    end
                 elseif seedM and p and seedM:lower() == seedName:lower() then
                     local ov = cfg and cfg:FindFirstChild("Owner")
                     local oko, ownerV = pcall(function() return ov and ov.Value end)
@@ -4527,6 +4718,122 @@ local okBuild, errBuild = pcall(function()
             return false
         end
         log("✅ " .. seedName .. " bought (balance " .. tostring(before) .. " → " .. tostring(after) .. ")")
+        -- ▸ AND A SECOND CRATE IN THE SAME TOWN VISIT (owner 2026-11-03: "by the
+        --   way you can carry to seed crates at once"). The proof a carry landed
+        --   is NOT carrying() — that is already true with the first crate in hand
+        --   — it is the game's own CarryLinks child COUNT rising. The buy is the
+        --   captured FNCRequestStorePurchase({crate}) with THIS crate named, and
+        --   the proof is the same balance drop that bought the first one. Nothing
+        --   is trusted: no second crate on the shelf, a price above what is left
+        --   after the first buy, a carry that adds no link, or a call that moves
+        --   no coins all end this loop, and an unpaid crate goes back down before
+        --   anything walks to the seeder. The rest of the tank is the scaled trip
+        --   ceiling's job, one town visit at a time.
+        local extraCrates = 0
+        while extraCrates < math.max(0, (tonumber(spudCratesPerTrip) or 1) - 1) do
+            if stopping() then break end
+            local pick, pickD
+            for _, c in ipairs(cands or {}) do
+                if c.m and c.m ~= hit.m and c.seed
+                    and not c.owner
+                    and tostring(c.seed):lower() == tostring(seedName):lower()
+                    and (not pickD or c.d < pickD) then
+                    pick, pickD = c, c.d
+                end
+            end
+            if not pick then
+                log("seed crate: no second " .. tostring(seedName) .. " crate on the shelf — one crate this trip")
+                break
+            end
+            local xPrice
+            local xcb = pick.m:FindFirstChild("CostBillboard", true)
+            local xpl = xcb and xcb:FindFirstChild("TextLabel", true)
+            if xpl then xPrice = tonumber((tostring(xpl.Text):gsub("[^%d]", ""))) end
+            local balX = coinBalance()
+            if xPrice and balX and xPrice > balX then
+                log(string.format("seed crate: the second %s crate costs %s and the balance is %s after the first buy — stopping at the crate that is paid for",
+                    seedName, tostring(xPrice), tostring(balX)))
+                break
+            end
+            setStage("shop trip: carrying a second " .. tostring(seedName) .. " crate")
+            tpChar(pick.pos)
+            task.wait(1.0)
+            if stopping() then break end
+            local links0 = spudCratesInHand()
+            local heldX = false
+            spudCarryRemote(pick.m)
+            for _ = 1, 6 do
+                if stopping() then break end
+                if spudCratesInHand() > links0 then heldX = true break end
+                task.wait(0.2)
+            end
+            if not heldX then
+                pressKey(Enum.KeyCode.E)
+                task.wait(0.9)
+                heldX = spudCratesInHand() > links0
+            end
+            if not heldX then
+                log(string.format("seed crate: the second crate did not join the %d already in hand — the trip goes to the seeder with what is bought", links0))
+                break
+            end
+            if oPart then
+                tpChar(oPart.Position)
+                task.wait(1.2)
+                if stopping() then break end
+                -- the same measured context as the first buy: the till prices the
+                -- crate in hand, and F is what raises it
+                pressKey(Enum.KeyCode.F)
+                task.wait(1.2)
+            end
+            local bal0 = coinBalance()
+            local crates0 = crateCount()
+            local gotX = false
+            if spudPurchaseRemote(pick.m) then
+                for _ = 1, 8 do
+                    if stopping() then break end
+                    task.wait(0.4)
+                    local bal1 = coinBalance()
+                    if (bal0 and bal1 and bal1 < bal0)
+                        or crateCount() > crates0 then
+                        gotX = true
+                        break
+                    end
+                end
+            end
+            -- whatever the till answered, the popup it raised is this trip's
+            -- problem — close it with the same container close the first buy
+            -- uses, and F only if a Purchase control is still on screen.
+            local dlgName2, dlgHow2 = closeDialog()
+            task.wait(0.5)
+            if dlgName2 and shownPurchase() and dlgHow2 then
+                closeDialog()
+                task.wait(0.5)
+            end
+            if shownPurchase() then
+                pressKey(Enum.KeyCode.F)
+                task.wait(0.6)
+                log(string.format("seed shop: ⚠ the second crate's dialog (%s) is still up — close it by hand once",
+                    tostring(dlgName2)))
+            end
+            if gotX then
+                extraCrates += 1
+                log(string.format("✅ second %s crate bought via FNCRequestStorePurchase (balance %s → %s) — the seeder gets both from this one trip",
+                    seedName, tostring(bal0), tostring(coinBalance())))
+            else
+                -- ▸ THE CRATE IS PUT BACK BEFORE THE FILL. An unpaid box left in
+                --   hand reads as "a crate in hand with seed" on the next trip,
+                --   and this run does not pour what the till did not sell. Drop
+                --   to empty hands and let the fill leg pick the BOUGHT crate up
+                --   by its own instance, so what reaches the seeder is certain.
+                log("seed crate: the second purchase did not land — putting the crates back down and picking up only the one that is paid for")
+                for _ = 1, 3 do
+                    spudDropRemote()
+                    task.wait(0.8)
+                    if spudCratesInHand() == 0 then break end
+                end
+                break
+            end
+        end
         -- ▸ STAGE 3/4 — the crate is ALREADY IN HAND (nothing was put down), so
         --   the fill leg is the shared helper: pick the crate up only if the
         --   game swapped it out during the buy, go to the seeder, pour it in.
@@ -4611,9 +4918,17 @@ local okBuild, errBuild = pcall(function()
                 tostring(coinBalance())))
             return false
         end
-        if not spudSeedTripAllowed(seedShopTries, spudSeedTripsMax) then
+        -- ▸ THE TRIP BUDGET SCALES TO THE TANK (owner: "trips scales to fix").
+        --   A 600-slot seeder with crates that give 50 needs SIX trips at two
+        --   crates each, and the constant 4 would refuse the last two — leaving
+        --   the field planted 200 deep out of 600 and the run saying it was done.
+        --   An unknown crate size (never poured, never read) keeps the old 4.
+        local tripsNeeded = spudSeedTripsNeeded(cap, count,
+            spudSeedsPerCrate, spudCratesPerTrip)
+        local tripsCeiling = spudSeedTripCeiling(tripsNeeded, spudSeedTripsMax)
+        if not spudSeedTripAllowed(seedShopTries, tripsCeiling) then
             log(string.format("the seeder is still empty and this run already made %d shop trip(s) (the cap is %d) — not teleporting again (pick a different seed, or fill it by hand)",
-                seedShopTries, spudSeedTripsMax))
+                seedShopTries, tripsCeiling))
             return false
         end
         seedShopTries += 1
@@ -8109,6 +8424,18 @@ local okBuild, errBuild = pcall(function()
             --   changed nothing (so it can never ping-pong) · 6 rounds.
             local rounds = 0
             local refills = 0
+            -- ▸ THE REFILL CEILING IS THE TANK'S ARITHMETIC, NOT A CONSTANT
+            --   (owner: "fill to max, trips scales to fix"). Three refills were
+            --   enough for a 50-seed seeder and half of what a 600-slot one
+            --   needs; the number now comes from the same helper the trip gate
+            --   uses, with 3 as the floor so an unreadable seeder behaves
+            --   exactly as before.
+            local planter = findImplement("Planter", tr:GetPivot().Position, tr)
+            local fillCount, fillCap
+            if planter then fillCount, fillCap = seederSeedState(planter) end
+            local refillsMax = spudSeedTripCeiling(
+                spudSeedTripsNeeded(fillCap, fillCount,
+                    spudSeedsPerCrate, spudCratesPerTrip), 3)
             while true do
                 rounds += 1
                 if stopping() then return end
@@ -8130,14 +8457,14 @@ local okBuild, errBuild = pcall(function()
                     --   the plant stage already uses) and carry on, at most 3
                     --   refills per pass; a refill that puts nothing in the
                     --   seeder stops it instead of spending coins in a loop.
-                    if refills >= 3 then
+                    if refills >= refillsMax then
                         log(string.format("still %d cell(s) across %d field(s) need seed after %d refill(s) — stopping this pass",
                             after, afields, refills))
                         break
                     end
                     refills += 1
-                    log(string.format("seeder EMPTY with %d cell(s) across %d field(s) still to seed — refill %d/3: buying %s and filling",
-                        after, afields, refills, tostring(seedChoice)))
+                    log(string.format("seeder EMPTY with %d cell(s) across %d field(s) still to seed — refill %d/%d: buying %s and filling",
+                        after, afields, refills, refillsMax, tostring(seedChoice)))
                     seedCheck(tr, hum, true)
                     if stopping() then return end
                     local filled = seederSeeds(tr)
@@ -8824,6 +9151,7 @@ local okBuild, errBuild = pcall(function()
                         -- ended on its own (success or honest failure)
                         loopThread = nil
                         log("farming loop: ended")
+                        spudUnanchorTool("the farming loop ended")
                         pcall(function()
                             (Fluent.Options and Fluent.Options.farmingLoop
                                 or farmingToggle):SetValue(false)
@@ -8835,6 +9163,7 @@ local okBuild, errBuild = pcall(function()
                 if not loopThread then return end -- already off (echo-safe)
                 loopThread = nil
                 log("farming loop: off — stopped")
+                spudUnanchorTool("the farming loop was stopped")
             end
         end,
     })
@@ -13318,6 +13647,7 @@ local okBuild, errBuild = pcall(function()
         --   copy of each (the FPS that kept getting worse). Bumping the
         --   session generation stops every loop this build started.
         spudGen = (spudGen or 0) + 1
+        spudUnanchorTool("the script unloaded")
         milkThread = nil
         milkStoreAuto = false
         milkStoreThread = nil

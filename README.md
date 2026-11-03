@@ -157,8 +157,35 @@ Everything merged into one paste-and-run file:
   the field fired **0** calls. `spudPivotRig` now pivots the ride and translates
   the implement by the **same delta**, keeping the tool's own rotation (a turn
   must not spin the plow), at every grid stop, every per-cell hop and every frame
-  of the arc; a job whose tool IS the ride (harvest) is moved once, not twice. The hitch stays the length of the tow-bar, so the settle wait reads
-  settled instead of far, and the whole field gets called at rather than refused.
+  of the arc; a job whose tool IS the ride (harvest) is moved once, not twice. The
+  hitch stays the length of the tow-bar, so the settle wait reads settled instead
+  of far, and the whole field gets called at rather than refused. **And since
+  v1.133 the tow is welded, not towed** (owner: *"bro make it anchor te tool
+  permanantly behind the tractor while it's hitched"*): carrying the implement
+  through the jump still left it hanging on the **game's** constraint, so the pose
+  at arrival was whatever the solver managed in the frames available and every
+  grid stop had to re-aim from a fresh reading. `spudAnchorTool` puts a client
+  `WeldConstraint` between the ride's hitch **part** and the tool's — the same two
+  `BasePart`s `findHitchPart` already ranks for the physical line-up (`Hitch` >
+  `HitchRoot` > `HitchKnob` > `HitchTip`), which is **not** the
+  `Components.Hitchable` / `Chassis.HitchableSocket` pair the captured hitch call
+  takes, because a `WeldConstraint` joins parts and those are attachments. That
+  makes ride + implement **one assembly**: the tool is where the ride put it,
+  there is no swing to refuse, and nothing drags. Three rules keep it honest. It
+  is created only **after a hitch is proven** (the tug test in `hitchTool`), so a
+  weld is never the reason a failed hitch looked like a success; it is created
+  only on a **settled** read (`spudWaitTool` == `settled`), because this weld is
+  permanent for the whole hitch and freezing a mid-swing frame would hold the plow
+  at an angle the game never rests it at; and it is **destroyed before anything
+  asks the game to unhitch** — an X press against a welded tow is a tug-of-war the
+  script wins and the server loses, and "the tool stayed put" would be a lie about
+  the park. So `spudUnanchorTool` runs at the park, at every unhitch, at the
+  hitching attempt itself, at the wrong-tool removal, when the run ends or is
+  stopped, and when the script unloads. A refused weld (no hitch part, no
+  attachment to read, the build rejecting the instance) costs **the anchor and
+  nothing else** — the carry and the re-aim still work — and it says so
+  (`anchor: S4204 is swinging behind the ZM80 — nothing welded, the tow stays on
+  the game's own constraint`).
   Whatever it misses is then **hopped**: one
   teleport per remaining cell with the blade on it. Anything still standing
   after the hop is **retried**: grid → hop again, round after round, until the
@@ -269,9 +296,27 @@ Everything merged into one paste-and-run file:
   `Configurations.Capacity` (the same field the seeder uses): a half crate fills
   the seeder half-way and the pass comes back for more, and a crate that reads
   empty is skipped as the empty box it is — a crate that cannot be read at all is
-  still used. A run is allowed **four** shop trips rather than one, so the seed
-  pass's own `refill 1/3` promise is reachable when the field is bigger than the
-  seeder. The
+  still used. **A seeder is filled to its own capacity, not to 50** (owner: *"if a
+  seeder has like 600 capasity, make it fill up the seeder fully"* + *"fill to max,
+  trips scales to fix. by the way you can carry to seed crates at once"*, v1.133):
+  the pour keeps carrying crates to the till and pouring them until the seeder
+  reads `Capacity == MaxCapacity`, so a 600-slot machine gets 600 seeds instead of
+  the first box's 50. The shop-trip budget **scales to that arithmetic** instead of
+  staying the old constant four: `spudSeedTripsNeeded(cap, have, perCrate,
+  cratesPerTrip)` works out `ceil(ceil(room / perCrate) / cratesPerTrip)` trips and
+  `spudSeedTripCeiling` only ever **raises** the old floor (4 for the entry check, 3
+  for a mid-field refill), so a machine whose capacity no crate can cover still
+  gets the trips it needs and a 50-slot seeder still gets exactly the four it used
+  to. `spudSeedsPerCrate` is **learned**, never guessed — it is the count a real
+  pour actually raised — and until a pour has happened it is nil, which means the
+  arithmetic answers nil and the old ceiling stands (unreadable is not a number to
+  divide by). **Two crates a trip** (`spudCratesPerTrip = 2`, the game's own carry
+  limit): after the first purchase is proven, the run prices and carries a second
+  crate in the same town visit, proven by the `CarryLinks` count rather than by
+  `carrying()` — which is already true with one box in hand. A second crate dearer
+  than the balance is left on the shelf, and anything already bought but not paid
+  for is put back down before the fill (`spudDropRemote` until the hands read
+  empty), so a shelf box can never reach the seeder. The
   crate's own price billboard is the only price read, and it is only readable
   standing in town — so the first trip makes that hop, and a seed found dearer
   than the balance is then refused **where the run stands** (`the Cabbage crate

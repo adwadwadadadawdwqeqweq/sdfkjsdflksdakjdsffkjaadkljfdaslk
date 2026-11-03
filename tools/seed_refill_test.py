@@ -12,14 +12,17 @@ whole thing up". The live console (v1.115) shows the chain:
   the refill put no seeds in the seeder — stopping this pass
 
 So 27 tiles stayed unseeded for the whole growth cycle, and the run ended.
-Two rules are pinned here:
+Three rules are pinned here:
 
   * a crate that READS zero seeds is not seed - an empty box cannot fill a
     seeder, and using one burns the trip. A crate that cannot be read at all
     is still used (owner rule 7: unreadable is not empty);
-  * the seed pass promises "refill 1/3", so a run must be able to make more
-    than one shop trip. The old once-per-run boolean made refills 2 and 3
-    unreachable dead code;
+  * the trip budget is a COUNT, and since v1.133 it is the TANK'S arithmetic:
+    "if a seeder has like 600 capasity, make it fill up the seeder fully" →
+    "fill to max, trips scales to fix. by the way you can carry to seed crates
+    at once". A 600-slot seeder with 50-seed crates needs twelve crates, two a
+    trip, six town visits — the constant 4 silently called that "loaded" at
+    200/600;
   * a price learned standing at the shelf is remembered, so a seed that costs
     more than the balance cannot cost a second 1,000-stud hop to town. The
     balance is re-read every time, so the cache remembers the PRICE and never
@@ -39,7 +42,8 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "SpudFarm_Full.lua"
 
 WANTED = ["spudCrateSeedCount", "spudCrateHasSeed", "spudSeedTripAllowed",
-          "spudSeedPriceBlocks"]
+          "spudSeedPriceBlocks", "spudSeedTripsNeeded", "spudSeedTripCeiling",
+          "spudSeederWantsMore", "spudCratesInHand"]
 
 
 def extract(text: str, name: str) -> str:
@@ -50,6 +54,25 @@ def extract(text: str, name: str) -> str:
     end = re.search(r"\n    (?:local function |function |-- )", tail[10:])
     block = tail[: end.start() + 10] if end else tail
     return "\n".join(l[4:] if l.startswith("    ") else l for l in block.splitlines())
+
+
+def block_of(text: str, pattern: str) -> str:
+    """A 4-space function's body, up to the next definition or comment block."""
+    m = re.search(pattern, text, re.M)
+    if not m:
+        return ""
+    rest = text[m.start():]
+    e = re.search(r"\n    (?:local function |function |-- )", rest[10:])
+    return rest[: e.start() + 10] if e else rest
+
+
+def region(text: str, start: str, end: str) -> str:
+    """From one marker to the next — for a function nested inside another."""
+    a = text.find(start)
+    if a < 0:
+        return ""
+    b = text.find(end, a + len(start))
+    return text[a:b] if b > a else text[a:]
 
 
 PRE = r"""
@@ -84,6 +107,23 @@ local function crateWith(value, class)
         conf.kids[#conf.kids + 1] = cap
     end
     return m
+end
+
+-- the game's carry rig: CarryLinks holds ONE child per item in hand
+LocalPlayer = { Character = nil }
+local function setCratesInHand(n)
+    local links = { Name = "CarryLinks", n = n }
+    function links:GetChildren()
+        local t = {}
+        for _ = 1, self.n do t[#t + 1] = { Name = "Link" .. _ } end
+        return t
+    end
+    local ch = { Name = "Character" }
+    function ch:FindFirstChild(nm)
+        if nm == "CarryLinks" then return links end
+        return nil
+    end
+    LocalPlayer.Character = ch
 end
 """
 
@@ -144,6 +184,66 @@ check("the seed name is matched case-insensitively",
     spudSeedPriceBlocks(prices, "cabbage", 54159) == true)
 check("a nil seed name never blocks", spudSeedPriceBlocks(prices, nil, 54159) == false)
 
+-- ── 5. the trip count is the TANK's arithmetic (600-slot seeder) ───────────
+-- 600 slots, an empty seeder, a crate that gives 50, two crates a trip:
+-- twelve crates is six town visits, and the constant 4 was a quarter of a fill.
+check("600 empty slots need 6 trips at 2 crates of 50",
+    spudSeedTripsNeeded(600, 0, 50, 2) == 6, tostring(spudSeedTripsNeeded(600, 0, 50, 2)))
+check("a 50-slot seeder still needs 1 trip", spudSeedTripsNeeded(50, 0, 50, 2) == 1)
+check("the room left is what counts, not the capacity",
+    spudSeedTripsNeeded(600, 550, 50, 2) == 1, tostring(spudSeedTripsNeeded(600, 550, 50, 2)))
+check("600 with 300 in needs 3 trips", spudSeedTripsNeeded(600, 300, 50, 2) == 3)
+check("a partial crate rounds UP, never down",
+    spudSeedTripsNeeded(600, 560, 50, 2) == 1, tostring(spudSeedTripsNeeded(600, 560, 50, 2)))
+check("a full seeder needs no trip", spudSeedTripsNeeded(600, 600, 50, 2) == 0)
+check("an over-full read is not a trip", spudSeedTripsNeeded(600, 640, 50, 2) == 0)
+check("one crate a trip doubles the visits",
+    spudSeedTripsNeeded(600, 0, 50, 1) == 12, tostring(spudSeedTripsNeeded(600, 0, 50, 1)))
+check("a nil crates-per-trip means one", spudSeedTripsNeeded(600, 0, 50, nil) == 12)
+check("a zero crates-per-trip is clamped to one",
+    spudSeedTripsNeeded(600, 0, 50, 0) == 12, tostring(spudSeedTripsNeeded(600, 0, 50, 0)))
+check("a nil crate size is UNKNOWN, not one trip",
+    spudSeedTripsNeeded(600, 0, nil, 2) == nil)
+check("a nil capacity is unknown", spudSeedTripsNeeded(nil, 0, 50, 2) == nil)
+check("a zero capacity is unknown, not free", spudSeedTripsNeeded(0, 0, 50, 2) == nil)
+check("a zero crate size is unknown", spudSeedTripsNeeded(600, 0, 0, 2) == nil)
+check("no 'have' reading is treated as empty",
+    spudSeedTripsNeeded(600, nil, 50, 2) == 6, tostring(spudSeedTripsNeeded(600, nil, 50, 2)))
+check("a 600-seed crate fills it in one trip",
+    spudSeedTripsNeeded(600, 0, 600, 2) == 1)
+
+-- ── 6. the ceiling is the promise OR the work, whichever is bigger ─────────
+check("an unknown crate size keeps the old 4", spudSeedTripCeiling(nil, 4) == 4)
+check("6 trips raises the ceiling to 6", spudSeedTripCeiling(6, 4) == 6)
+check("a 1-trip tank never LOWERS the 4", spudSeedTripCeiling(1, 4) == 4)
+check("0 trips needed keeps the floor", spudSeedTripCeiling(0, 4) == 4)
+check("no floor and no need is no trips", spudSeedTripCeiling(nil, nil) == 0)
+check("a numeric string is still a number", spudSeedTripCeiling("6", 4) == 6)
+
+-- ── 7. "is there room?" only answers for a readable pair ───────────────────
+check("50 of 600 still wants seed", spudSeederWantsMore(50, 600) == true)
+check("599 of 600 still wants seed", spudSeederWantsMore(599, 600) == true)
+check("600 of 600 is full", spudSeederWantsMore(600, 600) == false)
+check("more than the cap is full", spudSeederWantsMore(601, 600) == false)
+check("no count read is NOT 'room left'", spudSeederWantsMore(nil, 600) == false)
+check("no cap read is NOT 'room left'", spudSeederWantsMore(50, nil) == false)
+check("a zero cap is unknown, not hungry", spudSeederWantsMore(0, 0) == false)
+
+-- ── 8. the carry rig counts CRATES, which carrying() cannot ────────────────
+setCratesInHand(0)
+check("empty hands read 0 crates", spudCratesInHand() == 0)
+setCratesInHand(1)
+check("one crate reads 1", spudCratesInHand() == 1)
+setCratesInHand(2)
+check("two crates read 2", spudCratesInHand() == 2, tostring(spudCratesInHand()))
+LocalPlayer.Character = nil
+check("no character is 0 crates, not a crash", spudCratesInHand() == 0)
+setCratesInHand(0)
+local noLinks = { Name = "Character" }
+function noLinks:FindFirstChild(_) return nil end
+LocalPlayer.Character = noLinks
+check("no CarryLinks folder is 0 crates", spudCratesInHand() == 0)
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 """
 
@@ -160,25 +260,45 @@ def main() -> int:
             return 2
         parts.append(code)
 
-    # the numbers must agree with what the seed pass PROMISES in its own log
-    # line ("refill 1/3"): the run has to afford the entry trip plus the refills.
-    cap = re.search(r"if refills >= (\d+) then", src)
-    declared = re.search(r"^    (?:local )?spudSeedTripsMax = (\d+)", src, re.M)
     fails = []
-    if not cap:
-        fails.append("the seed pass no longer caps its refills - the tie is unmeasurable")
+
+    # The refill ceiling used to be the literal 3 written into the loop. It is
+    # now the same helper the trip gate uses, with 3 as its FLOOR — so a 50-seed
+    # seeder behaves exactly as before and a 600-slot one gets its six trips.
+    rm = re.search(r"local refillsMax = spudSeedTripCeiling\(([\s\S]{0,400}?)\n\s*while true do", src)
+    if not rm:
+        fails.append("seedPasses no longer scales its refill ceiling - the "
+                     "600-slot seeder is back to three refills")
     else:
-        refill_cap = int(cap.group(1))
-        if not declared:
-            fails.append("spudSeedTripsMax is missing")
+        inner = rm.group(1).strip()
+        if "spudSeedTripsNeeded(" not in inner:
+            fails.append("the refill ceiling does not come from "
+                         "spudSeedTripsNeeded - it is a constant again")
+        floor = re.search(r",\s*(\d+)\)\s*$", inner)
+        if not floor:
+            fails.append("the refill ceiling has no floor - an unreadable "
+                         "seeder would get zero refills")
         else:
-            trips = int(declared.group(1))
-            if trips < refill_cap + 1:
-                fails.append(f"spudSeedTripsMax={trips} cannot reach refill {refill_cap}/"
-                             f"{refill_cap} (needs at least {refill_cap + 1} trips)")
+            floor_n = int(floor.group(1))
+            if re.search(r"if refills >= refillsMax then", src) is None:
+                fails.append("the refill loop no longer compares against "
+                             "refillsMax - the ceiling is computed and ignored")
+            else:
+                print(f"{'the refill ceiling scales to the tank':<56} PASS  "
+                      f"{floor_n} as the floor")
+            # the run's trip budget must still be able to REACH that floor:
+            # the entry trip plus `floor` refills.
+            declared = re.search(r"^    (?:local )?spudSeedTripsMax = (\d+)", src, re.M)
+            if not declared:
+                fails.append("spudSeedTripsMax is missing")
+            elif int(declared.group(1)) < floor_n + 1:
+                fails.append(f"spudSeedTripsMax={declared.group(1)} cannot reach "
+                             f"refill {floor_n}/{floor_n} (needs at least "
+                             f"{floor_n + 1} trips)")
             else:
                 print(f"{'run trips cover the refill promise':<56} PASS  "
-                      f"{trips} trips vs {refill_cap} refills")
+                      f"{declared.group(1)} trips vs {floor_n} refills")
+
     if re.search(r"\bseedShopTried\b", src):
         fails.append("seedShopTried is still there - the once-per-run latch is the bug")
     else:
@@ -191,23 +311,101 @@ def main() -> int:
     else:
         fails.append("the crate price is never cached - the gate has nothing to read")
 
-    # ... and consulted in seedCheck BEFORE the run commits a trip.
-    sc = re.search(r"^    local function seedCheck\(", src, re.M)
-    body = ""
-    if sc:
-        rest = src[sc.start():]
-        e = re.search(r"\n    (?:local function |function )", rest[10:])
-        body = rest[: e.start() + 10] if e else rest
+    # ... and consulted in seedCheck BEFORE the run commits a trip, and the
+    # scaled ceiling must be what the trip gate compares against.
+    body = block_of(src, r"^    local function seedCheck\(")
     if not body:
-        fails.append("seedCheck was not found - the price gate cannot be placed")
-    elif "spudSeedPriceBlocks" not in body:
-        fails.append("seedCheck does not consult spudSeedPriceBlocks - "
-                     "an unaffordable seed still hops to town every trip")
-    elif body.index("spudSeedPriceBlocks") > body.index("spudSeedTripAllowed"):
-        fails.append("the price gate runs after the trip is already counted - "
-                     "it costs a trip to be refused")
+        fails.append("seedCheck was not found - the gates cannot be placed")
     else:
-        print(f"{'the price is checked before the trip is spent':<56} PASS")
+        for need, why in (("spudSeedPriceBlocks",
+                           "seedCheck does not consult spudSeedPriceBlocks - "
+                           "an unaffordable seed still hops to town every trip"),
+                          ("spudSeedTripsNeeded",
+                           "seedCheck does not size the trips to the tank - a "
+                           "600-slot seeder is refused after the constant 4"),
+                          ("spudSeedTripCeiling",
+                           "seedCheck does not raise its own ceiling from the "
+                           "arithmetic - spudSeedTripsNeeded alone changes nothing")):
+            if need not in body:
+                fails.append(why)
+        if "spudSeedTripAllowed(seedShopTries, spudSeedTripsMax)" in body:
+            fails.append("seedCheck still compares against the constant - the "
+                         "scaled ceiling is computed and thrown away")
+        elif "spudSeedTripAllowed(seedShopTries, tripsCeiling)" not in body:
+            fails.append("seedCheck does not hand the scaled ceiling to "
+                         "spudSeedTripAllowed")
+        else:
+            print(f"{'the trip gate reads the scaled ceiling':<56} PASS")
+        if "spudSeedPriceBlocks" in body and "spudSeedTripAllowed" in body:
+            if body.index("spudSeedPriceBlocks") > body.index("spudSeedTripAllowed"):
+                fails.append("the price gate runs after the trip is already counted - "
+                             "it costs a trip to be refused")
+            else:
+                print(f"{'the price is checked before the trip is spent':<56} PASS")
+
+    # The pour is a LOOP now: one press is one crate and the tank may want
+    # twelve. It must stop on a readable-full seeder, on empty hands, and on a
+    # round that moved nothing - never on a guessed number of presses.
+    fill = region(src, "local function seedCrateIntoSeeder(crate)",
+                  "-- ▸ NEVER BUY A SEED THAT IS ALREADY IN HAND")
+    if not fill:
+        fails.append("seedCrateIntoSeeder was not found - the fill loop cannot be checked")
+    else:
+        for need, why in (("while rounds <",
+                           "the pour is a single press again - the seeder is "
+                           "called loaded at one crate's worth"),
+                          ("spudSeederWantsMore",
+                           "the pour loop does not ask the seeder if it still "
+                           "has room - it would press V into a full tank"),
+                          ("spudCratesInHand() > 0",
+                           "the pour loop does not check the hands - it would "
+                           "press at an empty box until the loop ran out")):
+            if need not in fill:
+                fails.append(why)
+        if all(n in fill for n in ("while rounds <", "spudSeederWantsMore",
+                                   "spudCratesInHand() > 0")):
+            print(f"{'the fill pours to the machine\'s own cap':<56} PASS")
+
+    # The crate size must be LEARNED from a rise, never guessed: a guessed 50
+    # would size every trip ceiling for a crate the game may have filled with 12.
+    if re.search(r"spudSeedsPerCrate = \d", src):
+        fails.append("spudSeedsPerCrate is given a literal number - the crate "
+                     "size is guessed, not measured")
+    elif "spudSeedsPerCrate = gave" not in src:
+        fails.append("spudSeedsPerCrate is never learned from a real pour")
+    else:
+        print(f"{'the crate size is learned from a rise':<56} PASS")
+
+    # A second crate is proven by the CarryLinks COUNT, and an unpaid one is
+    # put back down - carrying() is already true with the first one in hand.
+    if "spudCratesInHand() > links0" not in src:
+        fails.append("the second carry is not proven by the link count - "
+                     "carrying() cannot tell crate 2 from crate 1")
+    else:
+        print(f"{'the second crate is proven by CarryLinks':<56} PASS")
+    second = src[src.find("the second purchase did not land"):] if \
+        "the second purchase did not land" in src else ""
+    if not second:
+        fails.append("there is no unpaid-crate path - a refused second buy "
+                     "would leave a shelf crate in hand")
+    elif "spudDropRemote()" not in second[:1500]:
+        fails.append("the unpaid crate is never put back down - the fill leg "
+                     "would pour a box the till never sold")
+    else:
+        print(f"{'an unpaid crate goes back down':<56} PASS")
+    if not re.search(r"while extraCrates < math\.max\(0, \(tonumber\(spudCratesPerTrip\)", src):
+        fails.append("the second-crate loop is not driven by spudCratesPerTrip - "
+                     "the owner's 'two crates at once' is hardcoded or gone")
+    else:
+        print(f"{'crates a trip is one setting':<56} PASS")
+
+    # The held-crate short-circuit must prefer a crate that still HAS seed, not
+    # merely the right kind (v1.116's half-poured box).
+    if "spudCrateHasSeed(heldCount)" not in src:
+        fails.append("the held-crate scan no longer checks what the box holds - "
+                     "an empty crate is still 'seed'")
+    else:
+        print(f"{'a held crate is checked for seed':<56} PASS")
 
     with tempfile.NamedTemporaryFile("w", suffix=".lua", delete=False, encoding="utf-8") as fh:
         fh.write("\n\n".join(parts) + "\n" + POST)

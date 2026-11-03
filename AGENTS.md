@@ -8,13 +8,13 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.132 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.133 ·
   fluent gui` (`VERSION`, line 15). ≈13k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
   `luau-analyze.exe`).
 - Nothing here is a library or a build system. There is no bundler, no package
-  manager, no CI. Validation is a compile check plus thirty harness scripts in
+  manager, no CI. Validation is a compile check plus thirty-one harness scripts in
   `tools/` (`python tools/run_all.py` runs the whole gate).
 
 ---
@@ -73,11 +73,12 @@ description — it is the long-form manual and it is kept in sync with behaviour
 
 13. **Luau's 200-local limit is real** (it was 2 away from the practical
     ceiling until the path engine was deleted in v1.81). Run
-    `python tools/local_budget.py`. As of v1.132:
+    `python tools/local_budget.py`. As of v1.133:
     `4-space locals before milkCycle: 179 (practical ceiling 185)`,
     whole body `186 / 200`, **headroom 6** (v1.129's four `*_STEMS` word tables
-    are four build-closure locals — every other name the equipment rewrite
-    and the tow carry needed is a global for exactly this reason). Do **not**
+    are four build-closure locals — every name the equipment rewrite, the tow
+    carry and the v1.133 weld and seed arithmetic needed is a global for exactly
+    this reason). Do **not**
     add a `local` inside the main build closure. Reuse an existing local,
     convert the feature to a **global** (the established pattern), or
     restructure — and re-run the budget.
@@ -150,10 +151,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 33/33 checks on v1.132
+python tools/run_all.py        # 34/34 checks on v1.133
 ```
 
-Last full run (v1.132): **33/33 checks passed** (30 harnesses + 3 gates).
+Last full run (v1.133): **34/34 checks passed** (31 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment the script contained a string with those three
@@ -177,6 +178,7 @@ exiting 0 is exactly what that scan exists to catch.
 | `herd_arm_test.py` | Arming a cow is fast when the menu is up, and the no-menu timeout is bounded. |
 | `herd_order_test.py` | Cows nearest the barn go first; a dirty free stall is skipped and an all-dirty barn arms nobody. |
 | `herd_send_test.py` | The wrong-barn regression: no fallback to a stranger's `AutoWoodenBarn`. |
+| `hitch_anchor_test.py` | The tow weld (v1.133): `spudAnchorTool` makes **no** weld for a nil pair or a tool that IS the ride, refuses when either side has no hitch part, and refuses **every** non-settled verdict — `far` says "off the hitch", `swinging` / `gone` / `none` name the verdict and leave the tow on the game's own constraint — while `stop` logs nothing. On `settled` it makes exactly one `WeldConstraint` named `SpudTowAnchor` with `Part0` = the ride's hitch part and `Part1` = the tool's, parented to `Part0`, claims network ownership once, and a second call for the same pair is idempotent (no second weld, no second claim, no second wait). A new tool destroys the old weld first; `spudUnanchorTool` releases it, logs the reason, and is silent on the second call; a refused `Instance.new` leaves `spudAnchor` **empty** (no phantom anchor) and a later weld still works, and a refused `SetNetworkOwner` still welds. Ties pin the anchor **after** `hitchTool`'s gave-up branch, the seven game-facing `spudUnanchorTool("<reason>")` sites (the eighth is inside `spudAnchorTool` and makes way for a different tool), that the settle is read before the weld, that `if v ~= "settled" then` is in the source, that no classic `Instance.new("Weld")` was used, and that `spudAnchor =` is assigned in exactly two places (weld, release). |
 | `hop_test.py` | The arc hop's landing height: **the landing is the target's own height** (v1.122), so a return leg from the lower pad lands ON the field and a trip *down* to the pad lands ON the pad instead of hovering 28 studs above it; the arc clears the landing by ~12 studs and arrives from above in both directions, a level hop stays level, a target with no Y keeps the takeoff height, a zero-length hop is one move, and stopping aborts without landing. **The tow** (v1.131): the fake ride's `PivotTo` moves **only the ride**, so a hop handed an implement must carry it — 24 carries over 25 moves, the hitch still exactly 20 studs after the landing, no implement costs no carry, and the control (a bare `ride:PivotTo`) opens the 286-stud gap the live v1.130 run reported; a source tie refuses to run the harness if `hopTo` loses `spudPivotRig(tr,` or keeps a bare `tr:PivotTo(`. |
 | `milk_arrivals_test.py` | The arrival wait watches stall `Occupant` values and scans a handful of times, not five times a second. |
 | `farm_width_test.py` | Working width and row plan: studs→tiles rounding, oriented-box union width, rotated bars, 1/2/3-wide plans (step, headland, row half-extent) and an interval-coverage proof on 100/200-stud and narrow fields; owner match rules. |
@@ -188,7 +190,7 @@ exiting 0 is exactly what that scan exists to catch.
 | `row_steer_test.py` | The row decision in the wide band: `spudRowNeedsAlign` asks for ONE snap only past `spudRowAng` (15°) or `spudRowTol` (6 studs); `spudRowSteer` presses nothing inside the band; `spudRowEase` takes a step off the throttle after three steering flips (×0.7, floor 30 %) and gives one back per steady 3 s. |
 | `foreign_respawn_test.py` | `spudMayRespawn()` is false while a Farm owner is picked, and `ensureToolNearby` then never calls `respawnTool`: a stored or far-away tool is named and the pass is skipped, while `(mine)` still respawns. |
 | `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). **A walk match that is not AT the deck is refused too** (v1.128): the harness rebuilds the live `Ugc.CompanyArea.WarehouseArea` and asserts 0 pads, a log naming the **142-stud** miss, and the marker still returned as the waypoint — while an in-band match is still taken and logs no refusal, and the game's own `Stores.DropOffs` folder is never gated. **No pad instance and no waypoint still unloads** (v1.122, both picks since v1.126): the trip parks at the owner's 📍 Get coords readings — `spudFulfillPadSpot()` = `-353, 141, -92` and `spudCropSellSpot()` = `125, 142, -150` — fires no sell call it has no part for, and logs the spot as remembered rather than as a world part. Fulfillment presses **nothing** (auto pad); the remembered **Sell** board must keep `autoPad` false so `trySellAt`'s Q/E menu path still runs there, which is pinned. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
-| `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", the run's shop-trip cap is at least the seed pass's `refill N/3` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out — and a shelf price dearer than the balance blocks the **next** trip locally (unreadable price or balance blocks nothing; the gate must sit before the trip is counted). |
+| `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", the run's shop-trip cap is at least the seed pass's `refill N/M` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out — and a shelf price dearer than the balance blocks the **next** trip locally (unreadable price or balance blocks nothing; the gate must sit before the trip is counted). **The full tank** (v1.133): `spudSeedTripsNeeded` is pinned at the arithmetic (600 empty at 50 a crate, 2 crates a trip → **6** trips; a 50-slot tank → 1; room left, not capacity; a partial crate rounds **up**; full/over-full → 0; 1 crate a trip doubles the visits; a nil cap/crate size is **unknown**, not one trip; a nil `have` reads as empty) and `spudSeedTripCeiling` **only ever raises** the floor (unknown keeps 4, 6 trips → 6, a 1-trip tank never lowers the 4); `spudSeederWantsMore` stops the pour at the machine's own `MaxCapacity` and reads an unreadable pair as "no room", never "hungry"; `spudCratesInHand` counts `CarryLinks` children (0/1/2, no character = 0, no folder = 0). Ties: the refill ceiling scales, the run's trips cover that promise, no once-per-run latch came back, the shelf price is stored, the trip gate reads the **scaled** ceiling (not the constant) with the price gate still **before** it, the fill is a loop to the cap, `spudSeedsPerCrate` is never given a literal, the second crate is proven by `CarryLinks`, an unpaid crate calls `spudDropRemote()`, crates-per-trip is one setting, and a held crate is still gated by `spudCrateHasSeed`. |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
 | `stall_stream_test.py` | The stall scan after a milk teleport, on a virtual clock: a pass that did **not** hop reads once and sleeps zero (the old behaviour), a pass that hopped re-reads until the game actually has stalls and hands those back, each try costs 0.25 s, the wait is **bounded** at 12 tries (3 s), Stop ends it between tries, the skipped count and the same plot/owner are carried through every re-read, and a barn that never streams is logged as **not streamed** (naming the farm, saying the plot reads, saying this is not "no barn") rather than as an empty answer. Plus the ties: `milkCycle` scans through `spudStallScan`, its two plot teleports each report whether they moved, and the timing stamp is taken after the scan. |
 | `fulfill_probe_test.py` | The fulfillment probe's **company-order** sections on a fake tree: every order-named instance with its value tree, the board's text read from **PlayerGui as well as workspace**, what `Stores` holds, each seed crate's `Configurations`, one field cell's full key list, and the honest grow-time verdict — a cell with only `PlantGrowth`/`GrowthMultiplier` must **not** be called a readable duration. Also pins the probe's read-only claim (no key press, no `FireServer`/`InvokeServer`, no `CFrame`/`PivotTo`, no metatable hook) and that the report reaches the panel, the multiline box and the clipboard. |
@@ -855,6 +857,45 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   15 carries) plus ten tie checks that no bare `ride:PivotTo` survives in them;
   `hop_test.py` pins the arc (24 carries over 25 moves, the hitch still exactly
   20 studs, and a control that a ride-only hop opens a 286-stud gap).
+- **The tow is welded while it is hitched** (v1.133, owner: *"bro make it anchor
+  te tool permanantly behind the tractor while it's hitched"*). Carrying the
+  implement through the jump fixed the *gap* but not the *pose*: the tool still
+  hangs on the game's own constraint, so what arrives behind the ride is whatever
+  the solver managed in the frames available, and every grid stop has to re-aim
+  from a fresh reading. `spudAnchorTool(ride, impl)` puts a client
+  **`WeldConstraint`** (`SpudTowAnchor`, `Part0` = the ride's hitch **part**,
+  `Part1` = the tool's, parented to `Part0`) — the same two `BasePart`s
+  `findHitchPart` already ranks for the physical line-up (`Hitch` > `HitchRoot` >
+  `HitchKnob` > `HitchTip`), **not** the `Components.Hitchable` /
+  `Chassis.HitchableSocket` pair the captured `FNCAttemptHitch` takes, because a
+  `WeldConstraint` joins parts and those are attachments —
+  after claiming `SetNetworkOwner(LocalPlayer)` on the implement — a server-owned
+  part rubber-bands straight through a client weld. Ride + implement are then
+  **one assembly**: the tool is where the ride put it, there is no swing to
+  refuse, and nothing drags. Three rules, all pinned by
+  `tools/hitch_anchor_test.py`:
+  - **Only after a proven hitch.** The call sits at the bottom of `hitchTool`,
+    *below* the `if not didHitch then … return false` branch, so a weld is never
+    the reason a failed hitch looked like a success.
+  - **Only on a settled tow.** The weld is permanent for the whole hitch, so a
+    mid-swing frame would hold the plow at an angle the game never rests it at.
+    `spudWaitTool` is asked first and `far` ("off the hitch") / `swinging` /
+    `gone` / `none` each refuse with a line; `stop` is silent.
+  - **Released before anything unhitches.** `spudUnanchorTool(why)` runs at each of
+    the seven sites that face the game — the park, the unhitch path, the blind X at
+    attempt 3, the wrong-tool grab, loop end, loop stop, `destroyUI` — plus one
+    inside `spudAnchorTool` itself (a different tool on the ride makes the old weld
+    go first). An X press against a welded tow is a tug-of-war the script wins and
+    the server loses, and "the tool stayed put" would then be a lie about the park.
+  A refused weld (no hitch part, no readable attachment, the build rejecting the
+  instance) costs **the anchor and nothing else** — v1.131's carry and v1.132's
+  re-aim still work — so it cannot regress a field pass. `spudAnchor` is assigned
+  in exactly two places (the weld, the release) and a rejected `Instance.new`
+  leaves it **empty** rather than holding a phantom joint. Whether the live server
+  accepts a client-created weld at all is **not yet measured**; the verdict is
+  `anchor: <tool> welded to the <ride>'s <part> — the tool is part of the ride
+  while it is hitched` followed by grid stops that need no re-aim, versus the
+  honest `the tow stays on the game's own constraint`.
 - **Teleports only** (v1.95, owner 2026-10-31: *"during the plowing it
   started doing the fast tp and then kinda strafing the ground"*). Between
   the grid and the hop there used to be a **serpentine tween sweep**
@@ -875,6 +916,40 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
 - **Seeder fill** — `spudFillSeederRemote(seeder)` calls the captured
   `FNCFillSeeder(seeder)`; `buySeedAndFill` still presses V when the seed count
   does not rise, so a refusal costs one extra press, not a failed trip.
+- **Fill to the machine's OWN capacity** (v1.133, owner: *"if a seeder has like
+  600 capasity, make it fill up the seeder fully"* → *"fill to max, trips scales
+  to fix. by the way you can carry to seed crates at once"*). A seeder is no
+  longer topped up with one crate: the pour loop runs while
+  `spudSeederWantsMore(count, cap)` (i.e. `count < cap`, and **false** when either
+  number is unreadable — an unknown pair is never "hungry") and the hands still
+  hold a crate, so a 600-slot machine gets 600 seeds instead of the first box's
+  50. Three globals carry the arithmetic (all **pure**, so the harness can slice
+  them; the loop they drive is nested inside `buySeedAndFill` and is pinned by
+  source ties instead):
+  - `spudCratesPerTrip = 2` — the game's own carry limit, so one town visit buys
+    **two** crates. After the first purchase is proven the run prices and carries
+    a second crate, proven by the `CarryLinks` **child count**
+    (`spudCratesInHand()`) rather than by `carrying()`, which is already true with
+    one box in hand. A second crate dearer than the *post-first-buy* balance is
+    left on the shelf, and anything bought-but-unpaid is put back down
+    (`spudDropRemote` until the hands read empty) before the fill, so a shelf box
+    can never reach the seeder.
+  - `spudSeedTripsNeeded(cap, have, perCrate, cratesPerTrip)` =
+    `ceil(ceil(room / perCrate) / cratesPerTrip)`, and **nil** when the capacity or
+    the crate size is unreadable (rule 7 — that is unknown, not one trip).
+    `spudSeedsPerCrate` is **learned** from a real pour (the count a rise actually
+    gave), never guessed at 50, so until a crate has been poured the ceiling stays
+    at the old constant.
+  - `spudSeedTripCeiling(needed, floorMax)` only ever **raises** the floor — 4 for
+    the entry check, 3 for a mid-field refill — so a big tank gets the trips it
+    needs (`refill 1/6`, not the unreachable `refill 1/3`) and a 50-slot seeder
+    behaves exactly as before. Both call sites read it; the price gate still sits
+    **before** the trip is counted.
+- **Buying seeds from anywhere is NOT a thing** (owner: *"in earlier explot check
+  diddnt you say that we could buy seedcs from anywhere? if no then drop it"*).
+  It was never measured — the only answered shop questions are **Fill from afar**
+  (refused at 963 studs) and **Spawn from afar** (works from anywhere), so no
+  remote here is assumed to ignore proximity and nothing is wired for it.
 - **Tests tab · batch field remote** (v1.43, user: *"can we just abuse bugs to
   plow and harvest"*). The captured call already carries a **list** of ids
   (`{1=641}`), so with the Tests toggle on (`spudBatchRemotes`) the pass first
@@ -1175,6 +1250,8 @@ Fulfillment pad's Y from the dump's 138 to 141.
 | Whose machine | global `equipOwnerRank(m)` (farm being worked → mine → no readable owner → never another account), used by `findTractor` / `findImplement`; owner tag read by `milkStoreOwnerOf`. **What** it is: globals `spudEquipTypeKey(m)` (the game's `EquipmentType`, letters only), `spudEquipIs(m, STEMS)` (stem match), `spudEquipSeat(m)` (`VehicleSeat`/`Seat`), `spudEquipTows(m)` (`Components.Hitchable`), `spudEquipHereText()` (the world's `Name=Type (stored)` list); build-closure tables `HARVEST_STEMS` / `TRACTOR_STEMS` / `HAULER_STEMS` / `TOOL_STEMS` / `TYPE_STEMS` / `TYPE_MODEL` |
 | Tree soil | global `spudTreeField(typeName, modelName)` (wood/tree/log/forest/timber/lumber/sawmill/stump → no crop harvest) and `spudNoCells(st)` (successful 0-cell read is empty, `nil` read is unknown); used in `probeWork`, `runPass`, `needLeft`, `grownLeft`, growth wait |
 | Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (one EQUAL square per stop, sized by global `spudBlockSide(spudFieldTaken)` — the blade re-aims until it lands, fires that block's cells and skips a block it demonstrably missed, serpentine order), `spudHopCells` (one teleport per cell — the tween sweep was deleted in v1.95), `spudFillSeederRemote`; the tow gate `spudWaitTool(ride, att, who)` + `spudToolTrail` (constants `spudToolSwing = 3`, `spudToolFar = 90`) runs before **every** move, and the move itself is global `spudPivotRig(ride, cf, tool)` — pivot the ride, then translate the implement by the same delta (§3.12); the width helper `spudToolExtraTiles(impl)` scales **only** `spudFieldReach` (the block sizes off `spudFieldTaken = 20`, the band that was measured to take); state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, **default true** since v1.88); wired at the top of `sweepField` and in `buySeedAndFill` |
+| Tow anchor | globals `spudAnchorTool(ride, impl)` / `spudUnanchorTool(why)` and the state `spudAnchor` (v1.133, §3.12) — a client `WeldConstraint` (`SpudTowAnchor`) joining the two hitch **parts** `findHitchPart` ranks (`Hitch` > `HitchRoot` > `HitchKnob` > `HitchTip`) — **not** the `Components.Hitchable` / `Chassis.HitchableSocket` attachments the captured hitch call takes — after `SetNetworkOwner` on the implement; welded **only** after the tug test and **only** on a `settled` read, released before any unhitch (7 sites) at the two loop exits and in `destroyUI`; call sits at the bottom of `hitchTool` |
+| Seed fill | globals `spudCratesPerTrip` (**2** crates a town visit), `spudSeedsPerCrate` (**learned** from a real pour, nil until then), `spudCrateSeedCount(crate)`, `spudCrateHasSeed(n)`, and the pure arithmetic `spudSeedTripsNeeded(cap, have, perCrate, cratesPerTrip)` / `spudSeedTripCeiling(needed, floorMax)` / `spudSeederWantsMore(count, cap)` / `spudCratesInHand()` (`CarryLinks` children) — v1.133: the pour runs to the machine's own `MaxCapacity` and the trip budget scales to it instead of the constant 4; wired in `seedCheck`, the `seedCrateIntoSeeder` loop, the second-crate block and `seedPasses`' `refillsMax` |
 | Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes` / `growth` / `shop`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`, test run + last 60 farm lines), `spudTestCopyConsole` (`setclipboard`, last 150 farm lines only), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Grow now** (v1.123), **Shop counter** (v1.103), **Run all**, **Copy report**, **Copy console** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
 | Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job**; the A* planner was deleted in v1.81 and the row driver in v1.82, so a field pass never touches a movement key |
@@ -2947,7 +3024,86 @@ leftover cells. If the first stop still misses after three aims, the honest
 reading is that the rest trail is longer than the arc's own settle can absorb, and
 the next number to measure is that trail.
 
-**Where it stands:** `rebuild v1.132 · fluent gui`, whole suite green (33/33),
+**"make it anchor te tool permanantly behind the tractor while it's hitched" +
+"if a seeder has like 600 capasity, make it fill up the seeder fully" (v1.133).**
+Two asks, one build, both answered from the code the previous builds had already
+proven — no new probe was needed for either.
+
+**(1) The weld.** v1.131 closed the 277-stud gap and the owner's own next console
+read `hitch gap at arrival: 5.0 studs`, so the tow arrives *near* the ride — but
+"near" is still the game's solver answering whenever it gets around to it, which
+is why v1.132 had to re-aim each stop from a fresh blade reading. `spudAnchorTool`
+makes the join **rigid** instead: a client `WeldConstraint` between the ride's
+hitch `BasePart` and the tool's — the pair `findHitchPart` already ranks for the
+physical line-up, **not** the `Components.Hitchable` / `Chassis.HitchableSocket`
+attachments the captured `FNCAttemptHitch` takes (a `WeldConstraint` joins parts) —
+after `SetNetworkOwner(LocalPlayer)` on the
+implement, because a server-owned part simply rubber-bands through a client weld.
+Three gates, and the middle one was the only real code change this segment: the
+weld is made **only after the tug test proves the hitch** (it sits below
+`hitchTool`'s gave-up branch, so a failed hitch can never weld anything), **only on
+a `settled` read** (`far` / `swinging` / `gone` / `none` each refuse with a named
+line — freezing a mid-swing frame would hold the plow at an angle the game never
+rests it at), and it is **destroyed before anything asks the game to unhitch**
+(the seven sites that face the game — park, unhitch path, the blind X at attempt 3,
+the wrong-tool grab, loop end, loop stop, `destroyUI`, plus one inside the anchor
+itself when a different tool goes on the same ride) because an X press against a
+welded tow is a tug-of-war the script wins and the server loses, and "the tool
+stayed put" would be a lie about the park. Every refusal costs the anchor **and
+nothing else**, so this cannot regress a field pass.
+New `tools/hitch_anchor_test.py` (≈40 checks + 13 ties) stubs `Instance.new`,
+`findHitchPart` and `spudWaitTool` and asserts the weld's class, name, `Part0`,
+`Part1`, parent, one network claim, idempotence on a re-call, the old weld destroyed
+by a new tool, an empty `spudAnchor` after a refused `Instance.new`, and that a
+weld still lands when `SetNetworkOwner` is refused.
+
+**(2) Fill to max.** The live arithmetic was already in the console
+(`the seeder is empty — going to buy Wheat (50 cell(s) need seed right now)` against a
+machine whose `MaxCapacity` the KADL may now read far above 50): one crate bought,
+one crate poured, one trip spent, and the field still hungry. Now the pour is a
+loop until `spudSeederWantsMore(count, cap)` says the machine is full, the trip
+ceiling is `spudSeedTripCeiling(spudSeedTripsNeeded(...), floor)` — which **only
+ever raises** the old 4 / 3, so a 50-slot seeder is untouched — and
+`spudCratesPerTrip = 2` buys and carries two crates per town visit, proven by the
+`CarryLinks` child count because `carrying()` is already true with one box in hand.
+`spudSeedsPerCrate` is **learned** from a real rise, never guessed at 50, and nil
+until a pour has happened (rule 7: an unknown crate size is unknown, and the old
+ceiling stands). An unpaid second crate goes back on the shelf before the fill.
+The three arithmetic globals are **pure and top-level** because the loops they drive
+are nested locals the harness cannot slice — so `tools/seed_refill_test.py` runs the
+functions directly (600 empty at 50 a crate, 2 a trip → **6** trips; 1-trip tank
+never lowers the 4; nil cap/crate → nil, not 1) and pins the wiring with 12 ties,
+including that the price gate still sits **before** the trip is counted. Its
+`refills >= (<digit>)` tie was itself the defect written down — the constant it
+asserted is exactly what v1.133 removes — so it now reads the
+`local refillsMax = spudSeedTripCeiling(...)` block, and the `extract()` helper
+gained a `region()` sibling for a function nested inside another
+(`seedCrateIntoSeeder` lives inside `buySeedAndFill`).
+
+**Also settled by the owner, and deliberately NOT built:** *"in earlier explot
+check diddnt you say that we could buy seedcs from anywhere? if no then drop it"*.
+We never said that. The Tests tab answered **Fill from afar → refused at 963
+studs** and **Spawn from afar → works from anywhere**; a purchase at a distance has
+never been probed, so nothing is wired for it and no shop call is assumed to ignore
+proximity. The auto-Fulfillment ask is real and approved (the design is in the
+v1.121 entry below and the questions are in `SpudFulfillProbe.lua`), but it is
+**blocked by rule 4**: no world dump has ever named a Company order, and a crop's
+grow time — the ranking key the owner asked for (*"it chooses the easyest one by
+seeding time and cost"*) — has never been proven readable anywhere. `SpudFulfillProbe.lua`
+is built to answer exactly those two questions and has not been run in game yet.
+
+Compile OK, suite **34/34** (the new harness auto-discovered), headroom **6**
+(every v1.133 name is a global assignment — `spudAnchorTool`, `spudUnanchorTool`,
+`spudAnchor`, `spudCratesPerTrip`, `spudSeedsPerCrate`, `spudSeedTripsNeeded`,
+`spudSeedTripCeiling`, `spudSeederWantsMore`, `spudCratesInHand` — and each new
+`local` is inside its own function), name audit clean **375**. **Harness green —
+not reloaded in game**, and the verdicts are four lines: `anchor: <tool> welded to
+the <ride>'s <part>` (or the honest "nothing welded"), grid stops that need no
+re-aim, a seed pass that logs `refill N/6`-style arithmetic rather than the dead
+`refill 1/3`, and a 600-slot machine that reads `50/600 → 600/600` instead of
+stopping at the first crate.
+
+**Where it stands:** `rebuild v1.133 · fluent gui`, whole suite green (34/34),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **v1.129 was reloaded in game and crashed** (the ordering bug above);
 **v1.130 fixed that and was run in game** — the owner's console opens
@@ -2960,8 +3116,14 @@ the same emulator now reads `hitch gap at arrival: 5.0 studs` (then `1.0`) and n
 pass says `not on the hitch any more`, and a 2 399-cell cultivate grid took 2 374.
 What that confirmed run then exposed is the grid's own shape — a 4×4 plow leaving
 `595 left` in crosses and a seed grid whose first stop sits `32 studs off stop 1`
-and fires `0 took` — which is what v1.132 answers, and its verdict is those same
-two lines.
+and fires `0 took` — which is what v1.132 answers. **v1.132 and v1.133 are
+harness-green only: neither has been reloaded in game.** v1.133's four verdicts are
+`anchor: <tool> welded to the <ride>'s <hitch part> — the tool is part of the ride
+while it is hitched` (or the honest `nothing welded, the tow stays on the game's
+own constraint`, which means the weld was refused and the field pass is unchanged),
+grid stops that log no `the blade is N studs off stop` line at all, a seed trip that
+refills to the machine's own `MaxCapacity` (`refill 1/6`-shaped arithmetic, not the
+dead `refill 1/3`), and two crates carried per town visit.
 **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
 target:`/pathfinding line may appear), the
@@ -3012,6 +3174,20 @@ behind the ride …`, or no such line at all), and — with a wide implement hit
 — a `3x3` that became `NxN per stop`. If a tool is ever logged
 `not on the hitch any more`, that pass stopped on purpose: the implement had been
 flung off, and dragging it the rest of the way is what the owner reported.
+**v1.132's and v1.133's verdicts are both still open — neither was reloaded.**
+v1.132: a seed grid whose `took` climbs towards `fired` (not `0 took` next to
+`firing anyway`) and a plow field with no cross of leftovers. v1.133 has **two
+things the harness genuinely cannot know**, so say which of these the console shows:
+**(a)** whether the live server accepts a **client-created `WeldConstraint`** on a
+part it may not hand over — `anchor: … welded to …` and then grid stops that need no
+re-aim, versus `the tow stays on the game's own constraint` (refused: the field pass
+is then exactly v1.132's behaviour, which is the point of making every refusal
+cost only the anchor); and **(b)** whether a **second** `FNCRequestStorePurchase`
+while the first crate is still in hand buys the second box or answers the till's
+"place items on the counter" toast — `✅ <seed> bought …` twice in one town visit
+versus the second crate left on the shelf. **(c)** A 600-slot seeder should read a
+`refill N/M` with `M > 3` and end at `600/600`; if it stops at the first crate the
+`MaxCapacity` read is the thing to name.
 
 ---
 
