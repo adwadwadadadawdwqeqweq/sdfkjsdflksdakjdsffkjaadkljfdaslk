@@ -8,8 +8,8 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.122 ·
-  fluent gui` (`VERSION`, line 15). ≈12.5k lines.
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.123 ·
+  fluent gui` (`VERSION`, line 15). ≈13k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
   `luau-analyze.exe`).
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 31/31 checks on v1.122
+python tools/run_all.py        # 31/31 checks on v1.123
 ```
 
-Last full run (v1.122): **31/31 checks passed** (28 harnesses + 3 gates).
+Last full run (v1.123): **31/31 checks passed** (28 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -724,6 +724,31 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
     `FNCConvertRundownField()` refuses with
     `ConstructionHandler:686: attempt to index nil with 'Name'` — it wants an
     instance, so it is not a free field reset.
+  - **Grow now** (v1.123, owner: *"is there a exploit that we can make the croops
+    grow instalntly"*) — the instant-growth question, asked of the four things
+    that were never measured. It (1) prints **every stage name on one of our
+    fields with the cell's own `PlantGrowth` / `GrowthMultiplier` / `IsWatered` /
+    `SeedType`**, which is also the only way to see whether the harvest job's
+    "any stage we do not know is a standing crop" rule is being handed an
+    immature name; (2) **gets INTO the harvester** (spawned out of storage if it
+    is parked — the Tool-apart answer says a loose implement takes nothing, so a
+    refusal read from outside the seat would be a false answer), parks the blade
+    on a **Seeded** cell with the grid's own settle-poll and fires
+    `FNCHarvestFieldCell` at it, then reads the **stage and the tank**: a take
+    that raises `Capacity` is the exploit (the wait can be skipped), a take that
+    raises nothing is a bare cut, a refusal means the server wants a ripe cell;
+    (3) writes the cell's `PlantGrowth` to the **ripe number the game itself
+    just printed** (never tried — Force a tile forged `Stage`) and distinguishes
+    "a fresh `GetCells` dropped the write" (the cell table is a copy, nothing to
+    patch) from "the mirror now reads ripe" (re-fire the cut and see whether the
+    server consults it); (4) fires `FNCSprayFieldCell` with the **sprayer's own**
+    attachment at that cell — the v1.66 run sprayed an *Empty* one, so
+    water-vs-growth was never actually tested on a planted cell — and finds the
+    sprayer by walking `Objects.Equipment` for a spray/sprinkler/water/irrig
+    name, printing every machine with its real `EquipmentType` when none
+    matches (no guessed type name). It is **not** in Run all, which stays the two
+    read-only probes; this one sits in a machine and cuts a cell. No harness —
+    the live re-read is the verdict, and `Copy report` carries it.
   **Copy report** (`spudTestCopy`) now also appends the last **60 farm-log
   lines** from `_G.SPUD_TRACE` (v1.85) — a Tests-only copy cannot answer "why is
   harvesting silent", and the console is the place the owner does not want to
@@ -869,7 +894,7 @@ UI/key fallbacks and the three-miss switch-off.
 | Whose machine | global `equipOwnerRank(m)` (farm being worked → mine → no readable owner → never another account), used by `findTractor` / `findImplement`; owner tag read by `milkStoreOwnerOf` |
 | Tree soil | global `spudTreeField(typeName, modelName)` (wood/tree/log/forest/timber/lumber/sawmill/stump → no crop harvest) and `spudNoCells(st)` (successful 0-cell read is empty, `nil` read is unknown); used in `probeWork`, `runPass`, `needLeft`, `grownLeft`, growth wait |
 | Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (3×3 blocks: the blade parks on each block's centre and fires its nine cells, serpentine order), `spudHopCells` (one teleport per cell — the tween sweep was deleted in v1.95), `spudFillSeederRemote`; state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, **default true** since v1.88); wired at the top of `sweepField` and in `buySeedAndFill` |
-| Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes` / `shop`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`, test run + last 60 farm lines), `spudTestCopyConsole` (`setclipboard`, last 150 farm lines only), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Shop counter** (v1.103), **Run all**, **Copy report**, **Copy console** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
+| Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes` / `growth` / `shop`), `spudTestRunAll`, `spudTestCopy` (`setclipboard`, test run + last 60 farm lines), `spudTestCopyConsole` (`setclipboard`, last 150 farm lines only), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Grow now** (v1.123), **Shop counter** (v1.103), **Run all**, **Copy report**, **Copy console** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
 | Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job**; the A* planner was deleted in v1.81 and the row driver in v1.82, so a field pass never touches a movement key |
 | Dirt line | global `milkDirtLine = 24`; `milkDirtHigh(spot)` (the single "is this dirty?" answer) |
@@ -2151,7 +2176,43 @@ yet reloaded in game**, and the verdict is one log line: `✅` a tank that drops
 while parked, or the honest `the pad didn't take it while parked` at the probed
 spot, which would mean the pad needs something other than contact.
 
-**Where it stands:** `rebuild v1.122 · fluent gui`, whole suite green (31/31),
+**"is there a exploit that we can make the croops grow instalntly" (v1.123).**
+The honest starting point is that four doors are **already measured shut**, so the
+question is not "can we hurry the clock" but "can we skip the wait":
+`EVTFieldPacket` is server→client (a real packet with its stage byte patched moved
+nothing), the client cell mirror is writable but the server never reads it (a
+forged `Cultivated` sat there and read back `Cultivated`, no update arrived),
+`FieldHelper` exports **no setter**, and `FNCSprayFieldCell` changed nothing on the
+one cell the v1.66 run happened to aim at. What had never been asked is the only
+thing left, so the answer is a new Tests-tab probe rather than a guess: **Grow
+now** (`spudTestWork("growth")`) prints the field's **stage census with each
+cell's own `PlantGrowth` / `GrowthMultiplier` / `IsWatered` / `SeedType`** (which
+also shows whether the harvest job's "any unknown stage is a standing crop" rule is
+being fed an immature name, and what the ripe number even is), then **gets into
+the harvester** — spawned out of storage if parked, because the Tool-apart answer
+(§3.12) is that a loose implement takes *nothing*, so a refusal read from the
+ground would be a false answer — parks the blade on a `Seeded` cell with the
+grid's own settle-poll, fires `FNCHarvestFieldCell` and reads **both the stage and
+the tank**: a take that raises `Capacity` is the exploit (plant, cut, repeat, no
+wait), a take that raises nothing is a bare cut, a refusal is the server asking for
+a ripe cell. Only then, and only after a refusal, does it write the cell's
+`PlantGrowth` to the **ripe number the game just printed** and split "a fresh
+`GetCells` dropped the write" (the table is a copy — nothing to patch) from "the
+mirror now reads ripe" (re-fire the cut and see whether the server consults it —
+the old tile test forged `Stage`, never the growth number). Last it fires
+`FNCSprayFieldCell` with the **sprayer's own** attachment at that planted cell —
+the earlier spray hit an *Empty* tile, so water-vs-growth was never measured on a
+crop — finding the sprayer by walking `Objects.Equipment` for a
+spray/sprinkler/water/irrig name and printing every machine with its real
+`EquipmentType` when none matches, so the next run names it instead of this one
+guessing it (rule 4). It is deliberately **not** in **Run all**, which stays the
+two read-only probes; this one sits in a machine and cuts a cell. No harness (the
+live re-read is the only verdict, same as the other Tests probes). Suite **31/31**,
+headroom **10**, name audit clean **345** — no new global, every local is inside
+`spudTestWork`'s own scope. **Harness green — not reloaded in game**, and the whole
+answer is in the `growth:` lines of one `Copy report`.
+
+**Where it stands:** `rebuild v1.123 · fluent gui`, whole suite green (31/31),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
@@ -2176,6 +2237,10 @@ for this session`), and the equipment lines (`✅ mounted … (FNCEnterEquipment
 `✅ <seed> bought via FNCRequestStorePurchase`) or their honest fallback lines
 (`equipment: store didn't Store the KADL — using the Equipment Manager`,
 `seed shop: FNCRequestStorePurchase didn't buy anything — clicking the menu`).
+On top of all that, **one press of Tests → Grow now** is the whole answer to the
+instant-growth question: its `growth:` lines name the stage census, whether a
+`Seeded` cell takes the harvest call, whether the tank gains from it, and whether
+a forged `PlantGrowth` survives a fresh `GetCells`.
 
 ---
 

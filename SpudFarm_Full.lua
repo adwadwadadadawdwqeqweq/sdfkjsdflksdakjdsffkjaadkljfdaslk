@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.122 · fluent gui"
+local VERSION    = "rebuild v1.123 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5955,6 +5955,291 @@ local okBuild, errBuild = pcall(function()
             return
         end
 
+        -- ▸ GROW NOW (owner 2026-11-02: "is there a exploit that we can make the
+        --   croops grow instalntly"). The growth CLOCK is already measured
+        --   server-side: EVTFieldPacket is server→client (a real packet with its
+        --   stage byte patched moved nothing), the client cell mirror is writable
+        --   but the server never reads it (a forged Cultivated stayed Cultivated
+        --   and no update arrived), and FieldHelper exports no setter. So the
+        --   only instant growth this game could still offer is SKIPPING the wait,
+        --   and three things have never been asked: what growth actually READS on
+        --   a cell, whether FNCHarvestFieldCell takes a cell that is not ripe (and
+        --   whether the tank GAINS anything from cutting it — a take that pays is
+        --   the exploit, a take that pays nothing is just a bare cut), and whether
+        --   the server accepts a forged PlantGrowth (the old tile test forged
+        --   Stage, never the growth number). Every verdict is the game's own
+        --   re-read. It gets INTO the harvester first, because the Tool-apart
+        --   answer (§3.12) is that a loose implement takes NOTHING — an IGNORED
+        --   reading from a machine standing on the ground with nobody in it would
+        --   not be an answer.
+        if kind == "growth" then
+            -- the helpers below (managerAction, mountTractor) ask stopping(),
+            -- which is true whenever no farm loop runs — lend the slot (§ "shop")
+            local savedLoop = loopThread
+            loopThread = coroutine.running()
+            local okG, errG = pcall(function()
+                local mods = game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
+                local F = mods and mods:FindFirstChild("FieldHelper")
+                local larry = mods and mods:FindFirstChild("Larry")
+                if not F then spudTestSay("growth: Modules.FieldHelper is missing") return end
+                local M = require(F)
+                local knobs = {}
+                for k in pairs(M) do
+                    local lk = tostring(k):lower()
+                    if lk:find("grow", 1, true) or lk:find("time", 1, true)
+                        or lk:find("stage", 1, true) or lk:find("ripe", 1, true) then
+                        knobs[#knobs + 1] = tostring(k) .. "=" .. type(M[k])
+                    end
+                end
+                table.sort(knobs)
+                spudTestSay(#knobs > 0
+                    and ("growth: FieldHelper exports growth-shaped names: " .. table.concat(knobs, ", "))
+                    or "growth: FieldHelper exports nothing growth-shaped — no client table holds a grow time")
+                local f = fields[1]
+                if not f then spudTestSay("growth: no field of ours is streamed") return end
+                local baseCF, baseSize = fieldFrame(f.d)
+                if not baseCF then
+                    spudTestSay("growth: " .. f.d.Name .. " has no readable field frame")
+                    return
+                end
+                local cs = M.GetCells(f.d)
+                if type(cs) ~= "table" then
+                    spudTestSay("growth: GetCells returned nothing for " .. f.d.Name)
+                    return
+                end
+
+                -- 1 · THE CENSUS: every stage name on this field with one cell's
+                --     own growth readings. This is also what says whether the
+                --     harvest job's "any stage we do not know is a standing crop"
+                --     rule is looking at an immature name like Growing.
+                local count, sample = {}, {}
+                for k, c in pairs(cs) do
+                    if type(k) == "number" and type(c) == "table" then
+                        local s = tostring(c.Stage or "?")
+                        count[s] = (count[s] or 0) + 1
+                        if not sample[s] then sample[s] = c end
+                    end
+                end
+                local names = {}
+                for s in pairs(count) do names[#names + 1] = s end
+                table.sort(names)
+                local by = {}
+                for _, s in ipairs(names) do
+                    local c = sample[s]
+                    by[#by + 1] = string.format("%s ×%d [growth %s, mult %s, watered %s, seed %s]",
+                        s, count[s], tostring(c.PlantGrowth), tostring(c.GrowthMultiplier),
+                        tostring(c.IsWatered), tostring(c.SeedType))
+                end
+                spudTestSay("growth: " .. f.d.Name .. " — " .. table.concat(by, "; "))
+                local ripe
+                for _, s in ipairs(names) do
+                    if grownStage(s) then
+                        local g = sample[s].PlantGrowth
+                        if type(g) == "number" and (not ripe or g > ripe) then ripe = g end
+                    end
+                end
+                spudTestSay(ripe and string.format(
+                    "growth: a standing cell reads PlantGrowth %s — that is what the game waits for",
+                    tostring(ripe))
+                    or "growth: no standing cell here, so the ripe growth number is unknown")
+
+                -- 2 · THE EARLY CUT, from inside the machine
+                local green = cellsAtStage(f.d, "Seeded", baseCF, baseSize)
+                if not green or #green == 0 then
+                    spudTestSay("growth: nothing on this field is Seeded — no growing crop to cut early")
+                    return
+                end
+                local cell = green[1]
+                local c0 = cs[cell.id]
+                spudTestSay(string.format(
+                    "growth: cell %d is %s with PlantGrowth %s — testing an early cut on it",
+                    cell.id, tostring(c0 and c0.Stage), tostring(c0 and c0.PlantGrowth)))
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                local hv = findImplement("Harvester", here, nil, true)
+                if not hum then spudTestSay("growth: no humanoid on this character") return end
+                if not hv then
+                    spudTestSay("growth: no Harvester on this farm — the early-cut question needs one")
+                    return
+                end
+                local spawned = false
+                if equipInStorage(hv) then
+                    spudTestSay("growth: " .. hv.Name .. " is in storage — bringing it out")
+                    if not managerAction(hv.Name, "Spawn") then
+                        spudTestSay("growth: could not bring " .. hv.Name .. " out")
+                        return
+                    end
+                    task.wait(1)
+                    hv = findImplement("Harvester", here) or hv
+                    spawned = true
+                end
+                local seat = hv:FindFirstChildWhichIsA("VehicleSeat", true)
+                    or hv:FindFirstChildWhichIsA("Seat", true)
+                local function putAway()
+                    if not spawned then return end
+                    -- get OUT before the ride is put away, or the seat is left
+                    -- pointing at a model with no place in the world
+                    if hum.SeatPart and hum.SeatPart:IsDescendantOf(hv) then
+                        milkStandUp("test")
+                    end
+                    managerAction(hv.Name, "Store")
+                    spudTestSay("growth: " .. hv.Name .. " is back in storage")
+                end
+                if not seat then
+                    spudTestSay("growth: " .. hv.Name .. " has no driver seat — it cannot be driven, so a call from it proves nothing")
+                    putAway()
+                    return
+                end
+                if not (hum.SeatPart and hum.SeatPart:IsDescendantOf(hv)) then
+                    local r2 = char:FindFirstChild("HumanoidRootPart")
+                    local d0 = r2 and (seat.Position - r2.Position).Magnitude or 0
+                    spudTestSay(string.format(
+                        "growth: getting into the %s (%.0f studs) — a loose implement takes nothing",
+                        hv.Name, d0))
+                    if not mountTractor(char, hum, hv, seat, d0, "harvester") then
+                        spudTestSay("growth: could not get in — stopping, because an IGNORED reading from outside the seat is not a verdict")
+                        putAway()
+                        return
+                    end
+                end
+                local att = spudToolAttachment(hv)
+                if not (att and att.Parent) then
+                    spudTestSay("growth: no attachment on " .. hv.Name .. " — nothing to fire with")
+                    putAway()
+                    return
+                end
+                local function tank(m)
+                    local out
+                    pcall(function()
+                        local conf = m:FindFirstChild("Configurations")
+                        local c = conf and conf:FindFirstChild("Capacity")
+                        if c then out = tonumber(c.Value) end
+                    end)
+                    return out
+                end
+                -- the blade lands on the cell, not the cab (the grid's own
+                -- arithmetic), and the call waits for it (§3.12, v1.97)
+                local function fireAt(pt)
+                    local cf = hv:GetPivot()
+                    local off = att.Parent.Position - cf.Position
+                    local rot = cf - cf.Position
+                    local sy = pt.Y + 10
+                    local goal = Vector3.new(pt.X, sy, pt.Z)
+                    hv:PivotTo(CFrame.new(goal - off) * rot)
+                    for _ = 1, 40 do
+                        if stopping() then break end
+                        local b = att.Parent and att.Parent.Position
+                        if b and (Vector3.new(b.X, sy, b.Z) - goal).Magnitude <= 12 then break end
+                        task.wait(0.05)
+                    end
+                    task.wait(0.25)
+                    spudFieldRemoteCall("harvest", f.d, pt.id, att)
+                    task.wait(1.2)
+                end
+                local t0, s0 = tank(hv), tostring(c0 and c0.Stage)
+                fireAt(cell)
+                local c1 = (M.GetCells(f.d) or {})[cell.id]
+                local s1 = tostring(c1 and c1.Stage)
+                local t1 = tank(hv)
+                local took = s1 ~= s0
+                spudTestSay(string.format("growth: early cut — %s → %s, tank %s → %s — %s",
+                    s0, s1, tostring(t0), tostring(t1),
+                    took and ((t0 and t1 and t1 > t0)
+                        and "TAKEN AND IT PAID: a crop can be harvested before it is ripe — the wait can be skipped"
+                        or "TAKEN but the tank gained nothing: cutting early is a bare cut, not a yield")
+                    or "IGNORED: the server wants a ripe cell"))
+
+                -- 3 · THE FORGED GROWTH NUMBER. Only worth asking after a refusal,
+                --   and only if the mirror even keeps the write — Force a tile
+                --   proved Stage writes stick locally and change nothing, but
+                --   PlantGrowth was never written and never followed by a call.
+                if not took and ripe and c1 then
+                    local was = c1.PlantGrowth
+                    pcall(function() c1.PlantGrowth = ripe end)
+                    local fresh = (M.GetCells(f.d) or {})[cell.id]
+                    if tostring(fresh and fresh.PlantGrowth) ~= tostring(ripe) then
+                        pcall(function() c1.PlantGrowth = was end)
+                        spudTestSay(string.format(
+                            "growth: the write did not land — a fresh GetCells still reads %s, so the cell table is a copy and there is nothing to patch",
+                            tostring(fresh and fresh.PlantGrowth)))
+                    else
+                        spudTestSay(string.format(
+                            "growth: the cell table now reads PlantGrowth %s (was %s) — re-firing the cut",
+                            tostring(ripe), tostring(was)))
+                        fireAt(cell)
+                        local c3 = (M.GetCells(f.d) or {})[cell.id]
+                        local s3 = tostring(c3 and c3.Stage)
+                        spudTestSay(string.format("growth: forged growth — %s → %s — %s",
+                            s1, s3, s3 ~= s1
+                                and "TAKEN: the server reads the client's growth number — THAT is the instant-growth door"
+                                or "IGNORED: growth is server-side, so no cell write can hurry a crop"))
+                        pcall(function()
+                            local back = (M.GetCells(f.d) or {})[cell.id]
+                            if back then back.PlantGrowth = was end
+                        end)
+                    end
+                end
+
+                -- 4 · WATER. The earlier spray run fired at "the first cell in
+                --   GetCells", which was an Empty one, so water-vs-growth was never
+                --   actually measured on a planted cell. This fires the sprayer's
+                --   OWN attachment at the green cell. Read the result with the
+                --   Wrong-tool/Tool-apart answers in mind: a TAKE here is news, an
+                --   IGNORE only means this pose (a loose tool) cannot answer it.
+                local spray = larry and larry:FindFirstChild("FNCSprayFieldCell")
+                -- the sprayer is NOT guessed by an EquipmentType we have never
+                -- seen: the folder is walked for a spray/sprinkler/water name and,
+                -- when nothing matches, the run prints every machine with the type
+                -- the game actually gives it (rule 4).
+                local sprayer, roster = nil, {}
+                local folder = equipmentFolder()
+                for _, d in ipairs(folder and folder:GetChildren() or {}) do
+                    if d:IsA("Model") then
+                        local et = tostring(d:GetAttribute("EquipmentType") or "?")
+                        roster[#roster + 1] = d.Name .. "=" .. et
+                        local hay = (d.Name .. " " .. et):lower()
+                        if not sprayer and (hay:find("spray", 1, true)
+                            or hay:find("sprinkler", 1, true)
+                            or hay:find("water", 1, true)
+                            or hay:find("irrig", 1, true)) then
+                            sprayer = d
+                        end
+                    end
+                end
+                if not spray then
+                    spudTestSay("growth: FNCSprayFieldCell is missing from Modules.Larry")
+                elseif not sprayer then
+                    spudTestSay("growth: water not tested — no spray-named implement on this farm ("
+                        .. table.concat(roster, ", ") .. "); the census' watered column is all there is")
+                else
+                    local satt = spudToolAttachment(sprayer)
+                    if not satt then
+                        spudTestSay("growth: water not tested — " .. sprayer.Name .. " has no attachment")
+                    else
+                        local b0 = tostring(c1 and c1.IsWatered)
+                        local g1 = tostring(c1 and c1.PlantGrowth)
+                        local okS = pcall(function() spray:InvokeServer(f.d, { cell.id }, { satt }) end)
+                        spudTestSay("growth: FNCSprayFieldCell with the " .. sprayer.Name
+                            .. " attachment — " .. (okS and "ran" or "refused"))
+                        task.wait(1.5)
+                        local c4 = (M.GetCells(f.d) or {})[cell.id]
+                        spudTestSay(string.format(
+                            "growth: after spray — watered %s → %s, growth %s → %s — %s",
+                            b0, tostring(c4 and c4.IsWatered), g1, tostring(c4 and c4.PlantGrowth),
+                            (tostring(c4 and c4.IsWatered) ~= b0 or tostring(c4 and c4.PlantGrowth) ~= g1)
+                                and "CHANGED: water moves a growing cell"
+                                or "no change (an unhitched tool — see the note above)"))
+                    end
+                end
+                spudTestSay(string.format(
+                    "growth: done — %s tank reads %s; verdict above is what the cell re-read said",
+                    hv.Name, tostring(tank(hv))))
+                putAway()
+            end)
+            loopThread = savedLoop
+            if not okG then spudTestSay("growth: probe crashed: " .. tostring(errG)) end
+            return
+        end
+
         -- ▸ SHOP COUNTER (probe). The seed buy never lands: the captured
         --   remote and the dialog's own buttons both leave the balance alone,
         --   and the game answers "You must place items on the counter to buy
@@ -7712,6 +7997,9 @@ local okBuild, errBuild = pcall(function()
     end })
     Tabs.Tests:CreateButton({ Title = "Field remotes", Callback = function()
         task.spawn(function() spudTestRun("fieldremotes") end)
+    end })
+    Tabs.Tests:CreateButton({ Title = "Grow now", Callback = function()
+        task.spawn(function() spudTestRun("growth") end)
     end })
     Tabs.Tests:CreateButton({ Title = "Shop counter", Callback = function()
         task.spawn(function() spudTestRun("shop") end)

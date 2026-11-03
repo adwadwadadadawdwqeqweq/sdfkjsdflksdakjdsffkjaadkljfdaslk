@@ -130,6 +130,23 @@ Everything merged into one paste-and-run file:
   `FNCConvertRundownField()` with **no arguments** just to read the shape they
   demand (an error names it; nothing that could rebuild the field is handed to
   them).
+  **Grow now** answers *"can the crops be made to grow instantly"*. The clock
+  itself is not reachable — the game's field packets only run server→client, the
+  cell table the client can see is not what the server reads, and `FieldHelper`
+  has no setter — so this asks the one question that could still skip the wait.
+  It prints every stage name on your field with the cell's own growth numbers,
+  then **gets into the harvester** (bringing it out of storage if it is parked),
+  puts the blade on a `Seeded` cell and fires the harvest call at it, reading
+  both the cell and the tank: a cell that is cut early **and** puts something in
+  the tank is the abuse (plant and harvest on the same pass, no growth wait), one
+  that cuts but pays nothing is just a bare cut, and a refusal means the game
+  wants a ripe crop. If it refuses, the button then rewrites that cell's growth
+  to the ripe number the game itself just printed and re-fires, to say whether
+  the server ever consults the number the client can see. Last it tries water on
+  a cell that actually holds a crop (the old test sprayed an empty tile, so this
+  was never really measured) with the sprayer's own attachment. It is not part of
+  **Run all** — that stays read-only — because this one sits in a machine and
+  cuts a cell.
   **Shop counter** repeats the seed-buy trip: it prints FarmCo's own parts and
   every `CounterAttachments` spot with its world position, carries the crate
   onto that attachment, drops it, and reads the game's context actions and
