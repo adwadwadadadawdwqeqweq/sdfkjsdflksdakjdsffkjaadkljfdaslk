@@ -692,6 +692,31 @@ stall, milk a cow, send one, sell a load, fulfill an order, buy a crate, fill a
 feeder, open a gate — or just let one normal milk/barn cycle run while it is
 recording, because the script's own key presses produce the same calls.
 
+### `SpudFulfillProbe.lua` — the Fulfillment area and the Company's orders (read-only)
+Two questions live at that building and neither is in any dump yet: **which pad**
+drains a parked harvester, and **what the Company is actually asking for** (item,
+quantity, how much is already in, reward) and **how long a crop takes to grow** —
+the number an "easiest order" choice would rank on. This probe reads the area,
+every instance whose name says order / contract / request / company / cargo /
+shipment (with its whole value tree), the board's **visible text in `workspace`
+and in `PlayerGui`**, what `Stores` holds, every seed crate's `Configurations`,
+one field cell's complete key list and `FieldHelper`'s exports, the game's own
+**live** offer billboards (each action's key and what it is adorned to), what the
+character is standing on, everything within 30 studs and the old sell-pad targets.
+It presses nothing, teleports nothing and writes nothing; each section is guarded,
+so one shape it did not expect prints a `!! … FAILED` line instead of losing the
+report. Stand **at the Company / Fulfillment board** (the area has to be streamed)
+and run:
+
+```lua
+loadstring(game:HttpGet("https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFulfillProbe.lua?t=" .. os.time()))()
+```
+
+**COPY REPORT** puts the whole thing on the clipboard (it is copied as soon as it
+finishes); **CLOSE** hides the panel. Lines also go to the console prefixed
+`[FULFILL]`. To learn how the game *fulfils* an order — the call it sends — run
+`SpudRemoteProbe.lua` and complete **one order by hand** while it counts.
+
 ### `SpudBoot.lua` — loader that shows its own errors
 A tiny (~8 KB) launcher for when the executor console is not visible: it
 downloads `SpudFarm_Full.lua`, compiles it and runs it, and puts every step in a

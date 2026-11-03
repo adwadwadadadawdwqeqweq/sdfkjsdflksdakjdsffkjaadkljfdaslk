@@ -1,21 +1,25 @@
 -- SPUD FULFILLMENT PROBE — read-only. It presses nothing, teleports nothing,
--- and dumps the Fulfillment / Shipment area so the harvester's drop-off can be
--- named exactly instead of guessed.
+-- and dumps the Fulfillment / Shipment area so the harvester's drop-off and the
+-- Company's orders are named exactly instead of guessed.
 --
 -- WHY IT EXISTS
---   The harvester now STOPS when its tank is full because the real drop-off is
---   not wired yet. The place is the Fulfillment building next to Shipment
---   (user's words); its pad, prompt/key and unloading behaviour are unknown,
---   and the old sell-pad scan (GameplayVisuals.SellArea / Stores.DropOffs) may
---   point at the wrong store. This dump answers it from the game.
+--   The unload leg is wired (park on the pad; the pad drains the tank), so the
+--   open question is now the other half: WHAT the Company is asking for and HOW
+--   LONG each crop takes to grow. Both live in structures nobody has ever read
+--   from the inside — `Stores.DropOffs` turned out to be empty in the live
+--   world, and no dump has named an order instance. Guessing either shape is
+--   what put a 50/50 tank on a navigation marker for 60 s at a time. This dump
+--   answers it from the game.
 --
 -- HOW TO RUN
---   1. stand in front of the Fulfillment / Shipment building with the vehicle
---      you unload with spawned nearby (the loop can be off).
+--   1. stand at the Company / Fulfillment board itself (the orders are the
+--      point now), with the vehicle you unload with spawned nearby — the farm
+--      loop can be off.
 --   2. run this loader:
 --        loadstring(game:HttpGet("https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFulfillProbe.lua?t=" .. os.time()))()
 --   3. a panel shows the report: COPY REPORT puts it on the clipboard, CLOSE
---      hides it. The same lines go to the console, prefixed [FULFILL].
+--      hides it. The same lines go to the console, prefixed [FULFILL]. The
+--      report is also copied the moment it finishes building.
 --
 -- WHAT IT ANSWERS
 --   * every building/model near the area whose name looks like
@@ -29,8 +33,22 @@
 --     the key it wants for unloading will be in that list
 --   * the old sell-pad targets the script scans today (Stores.DropOffs,
 --     GameplayVisuals.SellArea) so a wrong pad is visible
+--   * COMPANY ORDERS (v2, the reason this run exists): every instance whose
+--     name says order/contract/request/company/cargo/shipment, with its whole
+--     value tree, so the board's real shape is named instead of guessed
+--   * the board's VISIBLE TEXT, from workspace AND from PlayerGui — the first
+--     version only walked workspace, so a ScreenGui board would have read as
+--     "no orders anywhere"
+--   * what we actually hold that could fill an order (Stores / inventory values)
+--   * whether a crop's GROW TIME is readable anywhere: every seed crate's
+--     Configurations, and one field cell's full key list plus FieldHelper's own
+--     exports. If no duration is in either, the answer is "not readable" and
+--     the order pick ranks on cost alone.
 --
--- Nothing here writes to the game. It only reads.
+-- Nothing here writes to the game. It only reads. It fires no remote, presses
+-- no key and moves nobody — the ORDER CALL SHAPE comes from SpudRemoteProbe.lua
+-- (its ACTION CALLS list already watches FulfillOrder) while you fulfil one by
+-- hand.
 
 local Players = game:GetService("Players")
 local LP = Players.LocalPlayer
@@ -495,12 +513,342 @@ local function oldTargets()
     end
 end
 
+-- ── COMPANY ORDERS ─────────────────────────────────────────────────────────
+-- ▸ WHY THIS IS A SEPARATE WALK. The order feature has to answer three things
+--   no run has ever printed: where the game keeps the orders, what one order
+--   holds (item / wanted count / how much is in / reward), and whether a crop's
+--   GROW TIME is readable so the pick can rank "easiest first". Guessing any of
+--   them is how the Fulfillment pad ended up being a navigation marker, so this
+--   prints the tree the game actually has and lets the report name the fields.
+local ORDER_WORDS = {
+    "order", "contract", "request", "demand", "company", "cargo", "freight",
+    "shipment", "fulfill", "deliver", "pallet", "goal", "want", "need",
+    "inbound", "outbound",
+}
+local function orderish(name)
+    local n = tostring(name):lower()
+    if n == "" then return nil end
+    for _, w in ipairs(ORDER_WORDS) do
+        if n:find(w, 1, true) then return w end
+    end
+    return nil
+end
+
+-- one instance, one line: path, class, its value if it has one, its attrs
+local function lineFor(d)
+    local cls = safe(function() return d.ClassName end, "?")
+    local bits = { tostring(d:GetFullName()), "[" .. cls .. "]" }
+    if cls:find("Value", 1, true) then
+        local v = safe(function() return d.Value end, nil)
+        if typeof and typeof(v) == "Instance" then
+            bits[#bits + 1] = "=" .. tostring(v:GetFullName())
+        else
+            bits[#bits + 1] = "=" .. tostring(v)
+        end
+    end
+    if cls == "TextLabel" or cls == "TextButton" then
+        local t = safe(function() return d.Text end, "")
+        if t and tostring(t) ~= "" then bits[#bits + 1] = "text='" .. tostring(t) .. "'" end
+    end
+    local sz = safe(function() return d.Size end, nil)
+    if sz and typeof and typeof(sz) == "Vector3" then
+        bits[#bits + 1] = string.format("size %.0fx%.0fx%.0f at %s",
+            sz.X, sz.Y, sz.Z, posText(safe(function() return d.Position end, nil)))
+    end
+    local attrs = attrsOf(d)
+    if #attrs > 0 then bits[#bits + 1] = "attrs{" .. table.concat(attrs, ",") .. "}" end
+    return table.concat(bits, "  ")
+end
+
+-- the whole tree under a folder/model, capped so a building cannot eat the report
+local function treeUnder(root, cap)
+    local kids, shown = {}, 0
+    for _, d in ipairs(safe(function() return root:GetDescendants() end, {})) do
+        if shown >= cap then
+            kids[#kids + 1] = "      … (capped at " .. cap .. ")"
+            break
+        end
+        shown += 1
+        kids[#kids + 1] = "      " .. lineFor(d)
+    end
+    if #kids == 0 then kids[1] = "      (no descendants)" end
+    return kids
+end
+
+local function orderTrees()
+    say("")
+    say("== COMPANY ORDERS: instances whose name says order/company/cargo/… ==")
+    local found, shown = {}, 0
+    for _, d in ipairs(safe(function() return workspace:GetDescendants() end, {})) do
+        local why = orderish(d.Name)
+        if why then
+            found[#found + 1] = { d = d, why = why }
+            if #found >= 40 then break end
+        end
+    end
+    if #found == 0 then
+        say("   (NOTHING in the streamed world is named like an order)")
+        say("   workspace children: " .. table.concat((function()
+            local n = {}
+            for _, c in ipairs(safe(function() return workspace:GetChildren() end, {})) do
+                n[#n + 1] = c.Name
+            end
+            table.sort(n)
+            return n
+        end)(), ", "))
+        return
+    end
+    -- the small ones are the interesting ones: a data folder is dumped whole,
+    -- a building is only named (its tree is dumpModel's job)
+    for _, hit in ipairs(found) do
+        if shown >= 25 then say("   … (25 order-named instances shown)"); break end
+        shown += 1
+        local d = hit.d
+        local cls = safe(function() return d.ClassName end, "?")
+        local nkids = #safe(function() return d:GetChildren() end, {})
+        say(string.format("   %s  [%s]  matched '%s'  %d child(ren)",
+            lineFor(d), cls, hit.why, nkids))
+        if cls == "Folder" or cls == "Model" or cls:find("Value", 1, true) then
+            if nkids > 0 and nkids <= 60 then
+                for _, line in ipairs(treeUnder(d, 60)) do say(line) end
+            elseif nkids > 60 then
+                say("      (too many children to dump — names only)")
+                local names = {}
+                for _, c in ipairs(d:GetChildren()) do names[#names + 1] = c.Name end
+                say("      " .. table.concat(names, ", "))
+            end
+        end
+    end
+end
+
+-- ▸ THE BOARD IS PROBABLY TEXT, NOT DATA. A board the player reads is drawn
+--   from somewhere, and the words on it are the one source that cannot lie
+--   about what the Company wants. The first version of this probe only walked
+--   workspace, so a ScreenGui board would have read as "no orders anywhere" —
+--   PlayerGui is walked here too, and a label under an order-named parent
+--   counts even when its own text does not.
+local function boardTexts()
+    say("")
+    say("== COMPANY ORDERS: the words on the board (workspace + PlayerGui) ==")
+    local roots = { workspace }
+    local pg = LP and LP:FindFirstChildOfClass("PlayerGui")
+    if pg then roots[#roots + 1] = pg end
+    local hits, shown = 0, 0
+    for _, root in ipairs(roots) do
+        for _, d in ipairs(safe(function() return root:GetDescendants() end, {})) do
+            local cls = safe(function() return d.ClassName end, "")
+            if (cls == "TextLabel" or cls == "TextButton" or cls == "TextBox") then
+                local txt = tostring(safe(function() return d.Text end, "") or "")
+                local low = txt:lower()
+                local underOrder = false
+                local p = d
+                for _ = 1, 8 do
+                    p = p and p.Parent
+                    if not p then break end
+                    if orderish(p.Name) then underOrder = true; break end
+                end
+                local saysOrder = orderish(txt) ~= nil
+                    or low:find("coins", 1, true) ~= nil
+                    or low:find("reward", 1, true) ~= nil
+                    or low:find("deliver", 1, true) ~= nil
+                if txt ~= "" and (saysOrder or underOrder) then
+                    hits += 1
+                    if shown < 70 then
+                        shown += 1
+                        say(string.format("   '%s'%s  %s", txt,
+                            underOrder and "  (under an order-named parent)" or "",
+                            d:GetFullName()))
+                    end
+                end
+            end
+        end
+    end
+    if hits == 0 then
+        say("   (no label anywhere says order/company/reward/coins — the board")
+        say("    may be a 3D sign streamed only when you stand at it: run this")
+        say("    again standing right in front of it)")
+    elseif hits > shown then
+        say("   … (" .. (hits - shown) .. " more label(s) not shown)")
+    else
+        say("   " .. hits .. " order-sounding label(s) read")
+    end
+end
+
+-- what we could hand over: the store/warehouse inventory numbers
+local function heldGoods()
+    say("")
+    say("== what we hold that could fill an order ==")
+    local roots = {}
+    local stores = safe(function() return workspace:FindFirstChild("Stores") end, nil)
+    if stores then roots[#roots + 1] = stores end
+    local objects = safe(function() return workspace:FindFirstChild("Objects") end, nil)
+    if objects then
+        for _, c in ipairs(objects:GetChildren()) do
+            local n = c.Name:lower()
+            if n:find("inventor", 1, true) or n:find("warehous", 1, true)
+                or n:find("storage", 1, true) or n:find("stock", 1, true) then
+                roots[#roots + 1] = c
+            end
+        end
+    end
+    if #roots == 0 then
+        say("   (no Stores folder and no inventory/warehouse/storage child in Objects)")
+        return
+    end
+    for _, r in ipairs(roots) do
+        say("   " .. r:GetFullName() .. " [" .. tostring(safe(function() return r.ClassName end, "?")) .. "]")
+        local nums, shown = {}, 0
+        for _, d in ipairs(safe(function() return r:GetDescendants() end, {})) do
+            local cls = safe(function() return d.ClassName end, "")
+            if cls == "IntValue" or cls == "NumberValue" or cls == "BoolValue"
+                or cls == "StringValue" then
+                shown += 1
+                if shown <= 60 then nums[#nums + 1] = "      " .. lineFor(d) end
+            end
+        end
+        for _, line in ipairs(nums) do say(line) end
+        if shown > 60 then say("      … (" .. (shown - 60) .. " more value(s))") end
+        if shown == 0 then say("      (no plain values here — its contents are models/parts)") end
+    end
+end
+
+-- ▸ THE GROW-TIME QUESTION. "easiest by seeding time and cost" needs a time per
+--   crop. Two honest places it could live: the seed crate's own Configurations
+--   (next to the Capacity and CostBillboard we already read) or the field cell
+--   (PlantGrowth / GrowthMultiplier are known to be there). Both are printed in
+--   full, plus FieldHelper's own exports — if no duration is in any of them the
+--   report says so and the pick ranks on cost alone instead of a made-up table.
+local function seedData()
+    say("")
+    say("== seed crates: every Configuration, looking for a grow time ==")
+    local objects = safe(function() return workspace:FindFirstChild("Objects") end, nil)
+    local gv = safe(function() return workspace:FindFirstChild("GameplayVisuals") end, nil)
+    local folders = {
+        objects and objects:FindFirstChild("DraggableObjects"),
+        gv and gv:FindFirstChild("LockedDraggables"),
+    }
+    local names, shown = {}, 0
+    for _, f in ipairs(folders) do
+        if f then
+            for _, c in ipairs(f:GetChildren()) do
+                local cfg = c:FindFirstChild("Configurations") or c:FindFirstChild("Configuration")
+                local seedName = nil
+                if cfg then
+                    for _, v in ipairs(cfg:GetDescendants()) do
+                        local n = v.Name:lower()
+                        if n:find("seed", 1, true) or n:find("type", 1, true) then
+                            seedName = tostring(safe(function() return v.Value end, v.Name))
+                        end
+                    end
+                end
+                names[tostring(seedName or c.Name)] = (names[tostring(seedName or c.Name)] or 0) + 1
+                if shown < 14 then
+                    shown += 1
+                    say("   " .. lineFor(c))
+                    if cfg then
+                        for _, line in ipairs(cfgLines(c)) do say("      cfg." .. line) end
+                    else
+                        say("      (no Configurations folder)")
+                    end
+                end
+            end
+        end
+    end
+    local kinds = {}
+    for k in pairs(names) do kinds[#kinds + 1] = k end
+    table.sort(kinds)
+    say("   seed kinds seen: " .. (#kinds > 0 and table.concat(kinds, ", ") or "(none)"))
+    if shown == 0 then say("   (no crates streamed — stand near the shop and run again)") end
+
+    say("")
+    say("== one field cell, every key: is a growth DURATION readable? ==")
+    local ok, err = pcall(function()
+        local mods = game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
+        local F = mods and mods:FindFirstChild("FieldHelper")
+        if not F then say("   Modules.FieldHelper NOT FOUND"); return end
+        F = require(F)
+        local exports = {}
+        for k, v in pairs(F) do exports[#exports + 1] = tostring(k) .. "(" .. type(v) .. ")" end
+        table.sort(exports)
+        say("   FieldHelper exports: " .. table.concat(exports, " "))
+        local fields = objects and objects:FindFirstChild("Fields")
+        local field = fields and fields:GetChildren()[1]
+        if not field then say("   no Objects.Fields child streamed — nothing to read a cell from"); return end
+        say("   field: " .. field:GetFullName())
+        if type(F.GetCells) ~= "function" then say("   GetCells is not a function"); return end
+        local cells = F.GetCells(field)
+        if type(cells) ~= "table" then say("   GetCells returned " .. type(cells)); return end
+        local firstKey, first
+        local n = 0
+        for k, v in pairs(cells) do
+            n += 1
+            if not firstKey then firstKey, first = k, v end
+        end
+        say("   " .. n .. " cell(s); one cell's keys:")
+        if type(first) ~= "table" then
+            say("      the cell is a " .. type(first) .. " — " .. tostring(first))
+            return
+        end
+        local keys = {}
+        for k in pairs(first) do keys[#keys + 1] = tostring(k) end
+        table.sort(keys)
+        for _, k in ipairs(keys) do
+            local v = first[k]
+            local vs
+            if typeof and typeof(v) == "Vector3" then
+                vs = string.format("(%.0f, %.0f, %.0f)", v.X, v.Y, v.Z)
+            else
+                vs = tostring(v)
+            end
+            say(string.format("      %-18s = %s  [%s]", k, vs, type(v)))
+        end
+        -- ▸ GROW TIME, NAME BY NAME. A whole-cell substring search is a lie
+        --   here: PlantGrowth and GrowthMultiplier both contain "grow" and
+        --   neither is a duration. A time key has to say time / duration / a
+        --   unit / ripe / ready on its own.
+        local TIME_WORDS = { "time", "duration", "sec", "minute", "hour",
+            "day", "ripe", "ready", "harvestat", "growsec", "growtime" }
+        local hits = {}
+        for _, k in ipairs(keys) do
+            local n = k:lower()
+            for _, w in ipairs(TIME_WORDS) do
+                if n:find(w, 1, true) then
+                    hits[#hits + 1] = k .. "(" .. w .. ")"
+                    break
+                end
+            end
+        end
+        table.sort(hits)
+        if #hits > 0 then
+            say("   → a time-shaped key IS on the cell: " .. table.concat(hits, ", "))
+        else
+            say("   → NO time-shaped key on a cell: grow time is not readable here")
+        end
+    end)
+    if not ok then say("   cell read failed: " .. tostring(err)) end
+end
+
+-- one failing section must not eat the whole report
+local function section(label, fn)
+    local ok, err = pcall(fn)
+    if not ok then
+        say("   !! " .. label .. " FAILED: " .. tostring(err))
+    end
+end
+
 local function run()
-    say("== SPUD FULFILLMENT PROBE (read-only) ==")
+    say("== SPUD FULFILLMENT PROBE (read-only) · company orders ==")
     say("place " .. tostring(game.PlaceId) .. "  job " .. tostring(game.JobId))
     local char = LP and LP.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
     say("you: " .. tostring(LP and LP.Name or "?") .. " at " .. posText(root and root.Position))
+
+    -- 0. the orders, first: this is the part the Company-order feature is
+    --    waiting on, and it is the part that can be read from anywhere in the
+    --    streamed area. Each runs behind a guard so one failure still leaves
+    --    the rest of the report.
+    section("order instances", orderTrees)
+    section("board text", boardTexts)
 
     -- 1. the local answer first: what is offered here, what is underfoot, and
     --    what is close enough to be the pad. This is the part that names the
@@ -510,6 +858,8 @@ local function run()
     nearby(30)
     dropTargets()
     equipmentNear()
+    section("goods we hold", heldGoods)
+    section("seed crates + cell keys", seedData)
 
     -- 2. candidate buildings / models anywhere whose name says what this is
     say("")
@@ -577,7 +927,7 @@ local function finish()
         title.Size = UDim2.new(1, 0, 0, 26)
         title.BackgroundColor3 = Color3.fromRGB(32, 36, 42)
         title.BorderSizePixel = 0
-        title.Text = "SPUD FULFILLMENT PROBE - read-only"
+        title.Text = "SPUD FULFILLMENT PROBE - read-only, company orders"
         title.TextColor3 = Color3.fromRGB(210, 230, 210)
         title.TextSize = 14
         title.Font = Enum.Font.Code
@@ -594,6 +944,10 @@ local function finish()
         box.TextYAlignment = Enum.TextYAlignment.Top
         box.ClearTextOnFocus = false
         box.TextWrapped = false
+        -- ▸ MULTI-LINE, because the report is now long. Without it a TextBox
+        --   shows ONE line, so the whole order dump was invisible on screen and
+        --   only the clipboard carried it.
+        safe(function() box.MultiLine = true end)
         box.TextSize = 12
         box.Text = text
         safe(function() box.TextEditable = false end)

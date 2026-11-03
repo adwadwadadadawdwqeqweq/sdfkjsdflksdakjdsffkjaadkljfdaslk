@@ -14,7 +14,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
   `luau-analyze.exe`).
 - Nothing here is a library or a build system. There is no bundler, no package
-  manager, no CI. Validation is a compile check plus twenty-eight harness scripts in
+  manager, no CI. Validation is a compile check plus twenty-nine harness scripts in
   `tools/` (`python tools/run_all.py` runs the whole gate).
 
 ---
@@ -134,17 +134,17 @@ done
 PYTHONIOENCODING=utf-8 python tools/test_doctor.py
 ```
 
-All of these must exit 0 (26 `*_test.py` harnesses + `test_doctor.py`, which
+All of these must exit 0 (27 `*_test.py` harnesses + `test_doctor.py`, which
 does not match `*_test.py`). A plain `for` loop is **not** enough on its own:
 most harnesses print `FAIL` but still exit 0, so the output has to be read.
 The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 30/30 checks on v1.121
+python tools/run_all.py        # 31/31 checks on v1.121
 ```
 
-Last full run (v1.121): **30/30 checks passed** (27 harnesses + 3 gates).
+Last full run (v1.121): **31/31 checks passed** (28 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -174,6 +174,7 @@ Last full run (v1.121): **30/30 checks passed** (27 harnesses + 3 gates).
 | `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
 | `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", the run's shop-trip cap is at least the seed pass's `refill N/3` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out — and a shelf price dearer than the balance blocks the **next** trip locally (unreadable price or balance blocks nothing; the gate must sit before the trip is counted). |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
+| `fulfill_probe_test.py` | The fulfillment probe's **company-order** sections on a fake tree: every order-named instance with its value tree, the board's text read from **PlayerGui as well as workspace**, what `Stores` holds, each seed crate's `Configurations`, one field cell's full key list, and the honest grow-time verdict — a cell with only `PlantGrowth`/`GrowthMultiplier` must **not** be called a readable duration. Also pins the probe's read-only claim (no key press, no `FireServer`/`InvokeServer`, no `CFrame`/`PivotTo`, no metatable hook) and that the report reaches the panel, the multiline box and the clipboard. |
 | `test_doctor.py` | The in-script 🩺 DOCTOR report runs on stubbed world objects and reports, not crashes. |
 
 Plus the two non-test gates:
@@ -555,6 +556,15 @@ values, and the full tank always ends in a real trip:
   standing on, everything within 30 studs, `DropOffs` by distance, and nearby
   equipment. `PCGP_ContextActions.Buttons` is the whole action registry (70
   entries, no keys) and must not be used to answer "what is offered here".
+  It now also answers the **Company-order** questions: every instance whose name
+  says order / contract / request / company / cargo / shipment (with its whole
+  value tree), the board's **visible text in both `workspace` and `PlayerGui`**
+  (a ScreenGui board is invisible to a workspace-only walk), what `Stores`
+  actually holds, every seed crate's `Configurations`, and one field cell's full
+  key list plus `FieldHelper`'s exports — so "is a crop's grow time readable
+  anywhere?" gets an answer instead of a guess. Each section is `pcall`-wrapped:
+  one shape it did not expect prints `!! <section> FAILED` rather than eating the
+  report.
 
 ### 3.11 A picked farm is reached before anything is read
 
@@ -863,7 +873,10 @@ UI/key fallbacks and the three-miss switch-off.
 `SpudFieldProbe.lua` (every field's `FieldType`, its cells, what is planted
 where, seed boxes and FieldHelper's tables), `SpudFulfillProbe.lua`
 (Fulfillment / Shipment area: candidate models, unload pad parts, prompts,
-signs, live context actions, and the old sell-pad targets), `SpudRemoteProbe.lua` (remotes
+signs, live context actions, the old sell-pad targets, and the **company-order**
+sections: order-named instances with their value trees, board text in workspace
+*and* PlayerGui, what we hold, seed-crate configs and whether a cell carries a
+grow duration), `SpudRemoteProbe.lua` (remotes
 while you act by hand — milk calls plus the FIELD CALLS section for
 plow/cultivate/seed/harvest/FillSeeder), `SpudBarnProbe.lua`,
 `SpudCrateProbe.lua`, `SpudEquipProbe.lua`, `SpudFeedProbe.lua`,
@@ -2065,7 +2078,37 @@ world entries with class and path, and the honest options are the **Sell**
 boards (which `findSellSpots()` does return) or one hand-driven trip to name the
 pad for good.
 
-**Where it stands:** `rebuild v1.121 · fluent gui`, whole suite green (30/30),
+**"i want to add a feature that auto does the fufillements the company needs" →
+"well start witht the prober" (probe only, no main-script change).** The owner
+then answered the design questions: **crops only**; pick the **easiest** order by
+**seeding time and cost**, and *"if it dont got enough money to buy 1 single seed
+mox it skips and goes to a lower cost one"*; **only steer the next planting**
+(never rip out what is growing); the delivery itself is **parking the vehicle on
+the pad**, which the unload trip already does. Two more rules came out of the same
+conversation: *"it should put the tihngs or sell them before planting again bro"*
+(any load in the tank is unloaded at the stage boundary **before** planting) and,
+when the Fulfillment pad will not drain, *"try 5 more times then go to sell"*.
+None of it can be written yet, because rule 4 forbids guessing the two shapes it
+depends on: **what an order actually is** in the world (no dump has ever named one)
+and **whether a crop's grow time is readable anywhere** (the ranking key). So
+`SpudFulfillProbe.lua` was upgraded to answer exactly those, read-only: order-named
+instances with their whole value trees, the board's visible text from `workspace`
+**and** `PlayerGui`, what `Stores` holds, every seed crate's `Configurations`, and
+one field cell's full key list plus `FieldHelper`'s exports — each in a `pcall` so
+one unexpected shape prints `!! <section> FAILED` instead of eating the report.
+New `tools/fulfill_probe_test.py` (25 checks) runs the real probe against a fake
+farm and pins the read-only claim (no key press, no `FireServer`/`InvokeServer`,
+no `CFrame`/`PivotTo`, no metatable hook). It also caught its own first bug: the
+grow-time verdict matched the substring `grow` over the joined key list, so
+`PlantGrowth` and `GrowthMultiplier` made a cell with **no** duration read as
+"a time-shaped key IS on the cell" — the check now tests each key name against
+time / duration / unit / ripe / ready words. Suite **31/31** (the new harness is
+auto-discovered), headroom **10**, name audit clean **344** — `SpudFarm_Full.lua`
+was not touched, so `VERSION` stays at v1.121. **Harness green — the probe has not
+been run in game**, and until its report comes back the order feature has no
+reader.
+
+**Where it stands:** `rebuild v1.121 · fluent gui`, whole suite green (31/31),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
