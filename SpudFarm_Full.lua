@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.127 · fluent gui"
+local VERSION    = "rebuild v1.128 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5382,6 +5382,17 @@ local okBuild, errBuild = pcall(function()
         return Vector3.new(125, 142, -150)
     end
 
+    -- ▸ HOW CLOSE IS "THE SAME PAD"? The two readings of the Fulfillment drop
+    --   pad — the 2026-10-30 dump's Deposit_Warehouse PART centre (-353,138,-90)
+    --   and the owner's 2026-11-02 standing deck (-353,141,-92) — are 3.6 studs
+    --   apart. The warehouse's OTHER side is not: Withdraw_Warehouse sits 143
+    --   studs off and the Ugc.CompanyArea.WarehouseArea the world-walk handed
+    --   back on 2026-11-02 sat 142 off — and parking there drained nothing. So a
+    --   name match somewhere in the world has to land inside this band before the
+    --   trip trusts it. The miss distance is logged, so the band stays a
+    --   measurement and not a guess.
+    spudFulfillPadNear = 35
+
     -- the Fulfillment pad, read from the world — never a guessed position.
     -- Deposit_Warehouse is the drop pad; Withdraw_Warehouse is the opposite
     -- action, so it only wins when it is the only pad there. Aim at the TOP
@@ -5402,6 +5413,10 @@ local okBuild, errBuild = pcall(function()
         local stores = workspace:FindFirstChild("Stores")
         local drops = stores and stores:FindFirstChild("DropOffs")
         local best, bestScore, bestWhere = nil, nil, nil
+        -- a pad read out of the game's own Stores.DropOffs folder is the folder's
+        -- own answer; a name match picked up anywhere in the world is a much
+        -- weaker claim, so only that one has to agree with the measured deck.
+        local bestFromWalk = false
         local function scoreOf(n)
             local score = 0
             if n:find("deposit", 1, true) then score += 2 end
@@ -5474,26 +5489,25 @@ local okBuild, errBuild = pcall(function()
                         end
                     elseif score >= 2 and ((okP and isPart) or (okM and isModel))
                         and (not best or score > bestScore) then
-                        best, bestScore, bestWhere = k, score, where
+                        best, bestScore, bestWhere, bestFromWalk = k, score, where, true
                     end
                 end
             end
         end
+        -- the goto marker, if that is all the world had: the place to TRAVEL to
+        -- so the area streams in, never the place to park.
+        local function waypointSpot()
+            if not wpNode then return nil end
+            local okW, isWPart = pcall(function() return wpNode:IsA("BasePart") end)
+            if okW and isWPart then return wpNode.Position end
+            local okB, cf = pcall(function() return wpNode:GetBoundingBox() end)
+            return (okB and cf) and cf.Position or nil
+        end
         if not best then
-            local wpPos
-            if wpNode then
-                local okW, isWPart = pcall(function() return wpNode:IsA("BasePart") end)
-                if okW and isWPart then
-                    wpPos = wpNode.Position
-                else
-                    local okB, cf = pcall(function() return wpNode:GetBoundingBox() end)
-                    if okB and cf then wpPos = cf.Position end
-                end
-            end
             log(string.format("fulfillment: no unload pad to drive onto — Stores.DropOffs %s and %d instance(s) read from the world name no deposit/warehouse pad%s",
                 drops and "holds no pad part" or "is not streamed", walked,
                 #named > 0 and (" (named like one: " .. table.concat(named, ", ") .. ")") or ""))
-            return out, wpPos, wpWhere
+            return out, waypointSpot(), wpWhere
         end
         local pos, size
         local okP2, isPart = pcall(function() return best:IsA("BasePart") end)
@@ -5505,9 +5519,30 @@ local okBuild, errBuild = pcall(function()
         end
         if not pos then
             log("fulfillment: " .. tostring(bestWhere) .. " has no readable position — no unload pad to go to")
-            return out
+            return out, waypointSpot(), wpWhere
         end
         local top = pos + Vector3.new(0, (size and size.Y or 0) / 2, 0)
+        -- ▸ A NAME MATCH HAS TO BE AT THE PAD, NOT NEAR IT (owner 2026-11-02:
+        --   "when it does the farm look and i put it to furfillement it brought
+        --   me to the wrong place"). Live: the walk took
+        --   Ugc.CompanyArea.WarehouseArea — a whole district whose NAME says
+        --   warehouse, a Model, so it scored 2 and was admitted — hopped 860
+        --   studs onto its centre at (-278, 138, -212) and parked there for 16 s
+        --   with the tank unchanged. That is the withdraw side of the yard, 142
+        --   studs from the deck the owner stood on and read. So a candidate the
+        --   walk matched BY NAME is only the pad if it is ON the measured pad;
+        --   otherwise it is a landmark and the trip answers the same way it does
+        --   when the world has no pad at all: hop the marker, look again, then
+        --   park on the measured spot.
+        if bestFromWalk then
+            local pad = spudFulfillPadSpot()
+            local off = (top - pad).Magnitude
+            if off > spudFulfillPadNear then
+                log(string.format("fulfillment: %s is %.0f studs from the measured pad (%.0f, %.0f, %.0f) — a name match that far off is not the drop pad, so nothing parks on it",
+                    bestWhere, off, pad.X, pad.Y, pad.Z))
+                return out, waypointSpot(), wpWhere
+            end
+        end
         log(string.format("fulfillment pad: %s at (%.0f, %.0f, %.0f)",
             bestWhere, top.X, top.Y, top.Z))
         out[1] = { p = top, what = bestWhere, store = "Fulfillment",

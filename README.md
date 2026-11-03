@@ -255,7 +255,18 @@ Everything merged into one paste-and-run file:
   because a marker is a place to *travel to* — the seed shop already uses
   `Markers.GotoLocations.FarmCo` exactly that way. So a `Markers`/`GotoLocations`
   match comes back as the **waypoint** to hop to, and the pad is re-read once
-  that hop has streamed the area around it. The console prints
+  that hop has streamed the area around it. **A name match also has to be AT the
+  pad, not merely named like it** (v1.128, live): the very next build's walk
+  admitted `Ugc.CompanyArea.WarehouseArea` — a whole district whose name says
+  *warehouse* — the trip hopped 860 studs onto its centre at `(-278, 138, -212)`
+  and parked there **142 studs from the drop deck**, tank unchanged. So a pad the
+  walk matched by name is only trusted when it sits within `spudFulfillPadNear`
+  (35 studs) of the deck the owner measured; anything further off is a landmark,
+  the refusal is logged with its real distance, and the trip answers the way it
+  does when the world has no pad at all — hop the marker, look again, then park
+  on `-353, 141, -92`. The game's own `Stores.DropOffs` folder is never
+  second-guessed: whatever it holds is a drop-off by the game's own grouping.
+  The console prints
   `fulfillment pad: Objects.Buildings.CompanyArea.Deposit_Warehouse at (…)`,
   `drop-off 1/1: …`, then
   `✅ sold at …` or an honest `still full — none of the pads took the load`,

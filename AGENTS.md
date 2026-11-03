@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.127 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.128 ·
   fluent gui` (`VERSION`, line 15). ≈13k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 33/33 checks on v1.127
+python tools/run_all.py        # 33/33 checks on v1.128
 ```
 
-Last full run (v1.127): **33/33 checks passed** (30 harnesses + 3 gates).
+Last full run (v1.128): **33/33 checks passed** (30 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment the script contained a string with those three
@@ -178,7 +178,7 @@ exiting 0 is exactly what that scan exists to catch.
 | `equip_remote_test.py` | The equipment remotes: the seven captured calls resolve on `Modules.Larry`; spawn/store are proven by `InStorage` (or a >100-stud move for a rebuilt spawn) and fall back to the UI when ignored; enter is proven by the seat; hitch/unhitch use the captured `Components.Hitchable` + `Chassis.HitchableSocket` pair; carry/drop are proven by the hands; three misses switch one action off for the session. |
 | `row_steer_test.py` | The row decision in the wide band: `spudRowNeedsAlign` asks for ONE snap only past `spudRowAng` (15°) or `spudRowTol` (6 studs); `spudRowSteer` presses nothing inside the band; `spudRowEase` takes a step off the throttle after three steering flips (×0.7, floor 30 %) and gives one back per steady 3 s. |
 | `foreign_respawn_test.py` | `spudMayRespawn()` is false while a Farm owner is picked, and `ensureToolNearby` then never calls `respawnTool`: a stored or far-away tool is named and the pass is skipped, while `(mine)` still respawns. |
-| `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). **No pad instance and no waypoint still unloads** (v1.122, both picks since v1.126): the trip parks at the owner's 📍 Get coords readings — `spudFulfillPadSpot()` = `-353, 141, -92` and `spudCropSellSpot()` = `125, 142, -150` — fires no sell call it has no part for, and logs the spot as remembered rather than as a world part. Fulfillment presses **nothing** (auto pad); the remembered **Sell** board must keep `autoPad` false so `trySellAt`'s Q/E menu path still runs there, which is pinned. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
+| `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). **A walk match that is not AT the deck is refused too** (v1.128): the harness rebuilds the live `Ugc.CompanyArea.WarehouseArea` and asserts 0 pads, a log naming the **142-stud** miss, and the marker still returned as the waypoint — while an in-band match is still taken and logs no refusal, and the game's own `Stores.DropOffs` folder is never gated. **No pad instance and no waypoint still unloads** (v1.122, both picks since v1.126): the trip parks at the owner's 📍 Get coords readings — `spudFulfillPadSpot()` = `-353, 141, -92` and `spudCropSellSpot()` = `125, 142, -150` — fires no sell call it has no part for, and logs the spot as remembered rather than as a world part. Fulfillment presses **nothing** (auto pad); the remembered **Sell** board must keep `autoPad` false so `trySellAt`'s Q/E menu path still runs there, which is pinned. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
 | `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", the run's shop-trip cap is at least the seed pass's `refill N/3` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out — and a shelf price dearer than the balance blocks the **next** trip locally (unreadable price or balance blocks nothing; the gate must sit before the trip is counted). |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
 | `stall_stream_test.py` | The stall scan after a milk teleport, on a virtual clock: a pass that did **not** hop reads once and sleeps zero (the old behaviour), a pass that hopped re-reads until the game actually has stalls and hands those back, each try costs 0.25 s, the wait is **bounded** at 12 tries (3 s), Stop ends it between tries, the skipped count and the same plot/owner are carried through every re-read, and a barn that never streams is logged as **not streamed** (naming the farm, saying the plot reads, saying this is not "no barn") rather than as an empty answer. Plus the ties: `milkCycle` scans through `spudStallScan`, its two plot teleports each report whether they moved, and the timing stamp is taken after the scan. |
@@ -535,6 +535,20 @@ values, and the full tank always ends in a real trip:
   contains `Marker`/`GotoLocation` is now returned as the **waypoint** to hop to
   instead of the place to park, and the pad is re-read once the hop has
   streamed the area (the marker sits ~20 studs from the probed pad position).
+  **A name match has to be AT the pad, not merely named like it** (v1.128,
+  live): the next build's walk admitted `Ugc.CompanyArea.WarehouseArea` — a whole
+  district whose name says *warehouse*, a `Model`, so it scored 2 — and the trip
+  hopped 860 studs onto its centre at `-278, 138, -212` and parked **142 studs
+  from the deck the owner stood on**, `load 50` unchanged after 16 s. So a
+  candidate the walk matched by name is only the pad when its park point is
+  within `spudFulfillPadNear = 35` studs of `spudFulfillPadSpot()` (the two
+  readings of that deck — the dump's part centre and the standing one — agree
+  within 3.6 studs, while the withdraw side of the yard is 143 off); anything
+  further is a landmark: the refusal names its real miss distance, the waypoint
+  still comes back, and the trip ends the way it does when the world has no pad
+  at all — marker hop → re-read → park on the measured spot. The game's own
+  `Stores.DropOffs` folder is **not** gated: whatever it holds is a drop-off by
+  the game's own grouping.
 - **Sell** → the old `findSellSpots()` crop sell-board scan, unchanged.
 - **The call goes first, for both picks** (v1.87, owner: *"didnt you say we
   could just call the sell bro?"*). `sellHarvester` fires `EVTSellAtStore` from
@@ -1035,7 +1049,7 @@ Fulfillment pad's Y from the dump's 138 to 141.
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill` |
 | Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job**; the A* planner was deleted in v1.81 and the row driver in v1.82, so a field pass never touches a movement key |
 | Dirt line | global `milkDirtLine = 24`; `milkDirtHigh(spot)` (the single "is this dirty?" answer) |
-| Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** room less than the cells still standing), `spudFulfillSpots()` (Deposit_Warehouse top), `spudFulfillPadSpot()` (the measured `-353,141,-92`, park-only fallback), `spudCropSellSpot()` (the measured `125, 142, -150` crop board, park-only fallback for the Sell pick), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
+| Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** room less than the cells still standing), `spudFulfillSpots()` (Deposit_Warehouse top; a world-walk match has to sit within `spudFulfillPadNear` of the measured deck or it is refused and only its marker comes back), `spudFulfillPadSpot()` (the measured `-353,141,-92` — the park-only fallback *and* the point the band is measured from), global `spudFulfillPadNear = 35`, `spudCropSellSpot()` (the measured `125, 142, -150` crop board, park-only fallback for the Sell pick), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
 | Early harvest | globals `spudEarlyCut` (**on**, remembered in `spudSavedEarlyCut`) and `spudCutWatch` (the wait's spin guard); the one predicate `grownStage(s)` (v1.125, §3.14) read by `whichNeed`/`whichCells`/`spudFieldCellIds`/the census and by `waitForGrowth`, Settings toggle **Early harvest** |
 | Coordinates | Settings **📍 Get coords** (v1.125) — logs `(x, y, z)` from `HumanoidRootPart.Position` and copies the same text, so a pad the script cannot stream can still be named by the owner |
 | Clean pass | pre-pass offer watch (0.96 s) → clean watch (2.2 s); per-cow clean `≤2.25 s` |
@@ -2518,7 +2532,62 @@ would mean 3 s is not enough for that plot and the wait — not the diagnosis �
 what needs changing. The Trailer / Equipment-Manager lines in the same dump were
 a test and are deliberately untouched.
 
-**Where it stands:** `rebuild v1.127 · fluent gui`, whole suite green (33/33),
+**"when it does the farm look amd i put it to furfillement it brought me to the
+wrong place" (v1.128).** The v1.126 console the owner pasted had the answer in
+four lines:
+
+```
+fulfillment pad: Ugc.CompanyArea.WarehouseArea at (-278, 138, -212)
+arc hop: 860 studs, lifting 70 studs (Y 166 → 138)
+fulfillment pad Ugc.CompanyArea.WarehouseArea: parked — this pad unloads by itself, pressing nothing
+⚠ still full — none of the pads took the load
+```
+
+**Root cause: the world-walk accepted a district as the pad.** `scoreOf` awards
+`warehouse` +2 and the walk admits any `score >= 2` node that is a `BasePart`
+**or a `Model`** (a pad may be a model, which is all a contact-draining pad
+needs), so `Ugc.CompanyArea.WarehouseArea` — the whole yard, 60 × 2 × 60 of it —
+beat "no pad", and the trip parked on its bounding-box centre. v1.121 closed the
+same class of bug one step earlier (`Marker`/`GotoLocation` names come back as
+the waypoint, not the pad); this was the other half of the same mistake — a name
+that *sounds* like the pad is not a proof the instance **is** the pad. And the
+place it chose is the yard's other side: 142 studs from the deck the owner stood
+on, which is also the "it's going the the other pad close that deliver" symptom
+reported before any of this was wired.
+
+The fix is a distance gate keyed to the owner's own reading rather than to a new
+vocabulary (rule 4 forbids inventing names): global `spudFulfillPadNear = 35`. A
+candidate the **walk** matched by name is only the pad if its park point sits
+within 35 studs of `spudFulfillPadSpot()`; the harness reproduces the live
+`WarehouseArea` and gets **142** back. The band is not a guess either — the two
+readings of that deck (the 2026-10-30 part centre `-353,138,-90` and the
+2026-11-02 standing deck `-353,141,-92`) agree within **3.6 studs**, while the
+withdraw pad across the yard is **143** off — and the refusal prints its real
+distance, so a wrong band shows up in one run instead of becoming folklore. A
+refusal answers exactly like an empty world: the marker waypoint still comes back
+as the second value, the trip hops there, re-reads, and if the game still offers
+nothing at the deck it parks on `-353, 141, -92` (v1.126's measured spot) — the
+address the owner gave. `Stores.DropOffs` is deliberately **not** gated:
+whatever that folder holds is a drop-off by the game's own grouping, and gating
+it would mean rejecting the plain `DropOff` pad that `dropoff_test.py` check 3
+exists to keep.
+
+`dropoff_test.py` grew 6 checks (the far match returns no pad, the line names the
+path and the 142-stud miss, the waypoint still comes back, an in-band match is
+still taken and logs no refusal) plus 4 source ties, and the model-pad fixture
+moved onto the measured deck — its old `-300, 138, -60` was a stand-in written
+before 📍 Get coords existed and would itself now read as a name match 62 studs
+off. Suite **33/33**, headroom **10** (the new name is a global assignment; every
+new local is inside `spudFulfillSpots`' own prototype), name audit clean **350**
+(`spudFulfillPadNear`). **Harness green — not reloaded in game**, and the verdict
+is the next full tank on a Fulfillment pick: either
+`fulfillment: Ugc.CompanyArea.WarehouseArea is 142 studs from the measured pad
+(…) — … not the drop pad` followed by `parking on the measured spot (-353, 141,
+-92)` and a tank that drops, or a real pad path inside the band. If it parks on
+the measured deck and the tank *still* does not drop, the deck number itself is
+what needs changing — and only a live park can say by how much.
+
+**Where it stands:** `rebuild v1.128 · fluent gui`, whole suite green (33/33),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
@@ -2556,7 +2625,12 @@ have a measured park address and the Fulfillment deck is at the standing height
 rather than the part centre. **v1.127's** milk verdict is the far-farm pass: after
 `teleported to its plot` the next line should be
 `the barn streamed in N s after the hop - K stall(s)` and then real clean / herd /
-milk work — not `no stall found … in 17 ms` with 32 cows standing.
+milk work — not `no stall found … in 17 ms` with 32 cows standing. **v1.128's**
+unload verdict is the same trip read against the owner's measurement: a
+`fulfillment: Ugc.CompanyArea.WarehouseArea is 142 studs from the measured pad …`
+refusal then `parking on the measured spot (-353, 141, -92)`, or a pad path that
+really is at that deck — and either way a tank that **drops**, because `⚠ still
+full` at a landmark 142 studs away is exactly what the owner reported.
 
 ---
 

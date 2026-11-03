@@ -17,7 +17,13 @@ measured by the owner standing on it at -353,141,-92) or SELL (the crop board,
     (spudFulfillPadSpot = -353,141,-92, spudCropSellSpot = 125,142,-150),
     because a position alone is enough for a pad that drains by contact — and it
     never fires a sell call it has no part for. A skipped unload is what leaves
-    50 ripe cells standing, and it now cannot happen for either pick.
+    50 ripe cells standing, and it now cannot happen for either pick;
+  * a pad the walk matched BY NAME has to be AT that measured pad
+    (spudFulfillPadNear). Live 2026-11-02 it scored
+    Ugc.CompanyArea.WarehouseArea — a district whose name says warehouse — and
+    the trip parked on its centre 142 studs from the drop deck, tank unchanged.
+    A name match that far off is a landmark: it is refused, the marker waypoint
+    still comes back, and the measured deck is what the trip ends up parking on.
 
     python tools/dropoff_test.py [path-to-luau.exe]
 """
@@ -100,6 +106,11 @@ local function check(name, ok, detail)
     print(string.format("%-58s %s%s", name, ok and "PASS" or "FAIL",
         detail and ("  " .. detail) or ""))
 end
+
+-- the band is a script-level global; the extracted slice of spudFulfillSpots
+-- does not carry its assignment, so the harness supplies the number that
+-- main() asserts is in the source.
+spudFulfillPadNear = spudFulfillPadNear or 35
 
 -- 1. the full-tank gate follows the destination pick
 spudDropOff = "Fulfillment"
@@ -195,7 +206,8 @@ check("both places: the DropOffs folder is still first",
     spots6[1] and tostring(spots6[1].what) or nil)
 
 -- a Model pad still gives a place to park — the CLASS is what no build has
--- ever printed, and the pad may well be a model rather than a part
+-- ever printed, and the pad may well be a model rather than a part. It sits on
+-- the measured deck because a name match that is NOT there is refused (4e).
 local function detach(node, name)
     node.kids[name] = nil
     for i = #node.list, 1, -1 do
@@ -204,7 +216,7 @@ local function detach(node, name)
 end
 detach(dropsB, "Deposit_Warehouse")
 detach(companyB, "Deposit_Warehouse")
-model("Deposit_Warehouse", companyB, -300, 138, -60, 30, 4, 30)
+model("Deposit_Warehouse", companyB, -353, 138, -90, 30, 4, 30)
 local spots7 = spudFulfillSpots()
 check("model pad: a place to park comes back", #spots7 == 1, #spots7 .. " spot(s)")
 check("model pad: the park spot is the model's own top",
@@ -251,6 +263,45 @@ check("marker: a real pad beside the marker is the one returned",
     #spots10 == 1 and spots10[1].what:find("CompanyArea") ~= nil,
     spots10[1] and tostring(spots10[1].what) or "no pad")
 check("marker: with a pad found no waypoint is needed", wp10 == nil)
+
+-- 4e. A NAME MATCH IS NOT THE PAD UNLESS IT IS AT THE PAD (owner 2026-11-02:
+--     "when it does the farm look and i put it to furfillement it brought me to
+--     the wrong place"). Live: the walk admitted Ugc.CompanyArea.WarehouseArea —
+--     a Model whose NAME says warehouse, so it scored 2 — the trip hopped 860
+--     studs onto its centre (-278, 138, -212) and parked 142 studs from the drop
+--     deck the owner stood on; the tank stayed at 50 and the same trip came back
+--     every 60 s. So a walk candidate outside spudFulfillPadNear of
+--     spudFulfillPadSpot() is refused, the marker waypoint still comes back, and
+--     the trip ends on the measured deck. The game's own Stores.DropOffs folder
+--     is never second-guessed — that is check 3.
+GRID.kids["Stores"] = nil GRID.kids["Ugc"] = nil GRID.kids["Objects"] = nil
+GRID.list = {}
+local ugc2 = folder("Ugc", workspace)
+local ca2 = folder("CompanyArea", ugc2)
+model("WarehouseArea", ca2, -278, 137, -212, 60, 2, 60)
+local gt2 = folder("GotoLocations", folder("Markers", ugc2))
+part("Warehouse", gt2, -367, 138, -108, 8, 1, 8)
+logged = {}
+local spots11, wp11 = spudFulfillSpots()
+check("far name match: a district is not the pad", #spots11 == 0,
+    #spots11 .. " spot(s)")
+check("far name match: the line names what was refused",
+    loggedText():find("WarehouseArea") ~= nil, loggedText())
+check("far name match: the line names the miss distance",
+    loggedText():find("studs from the measured pad") ~= nil, loggedText())
+check("far name match: the marker waypoint still comes back",
+    wp11 ~= nil and math.abs(wp11.X + 367) < 0.01,
+    wp11 and string.format("x=%.0f", wp11.X) or "nil")
+-- a walk candidate ON the measured deck is still the pad the trip uses
+detach(ca2, "WarehouseArea")
+model("Deposit_Warehouse", ca2, -353, 139, -93, 30, 4, 30)
+logged = {}
+local spots12 = spudFulfillSpots()
+check("in-band name match: the pad is still taken from the world",
+    #spots12 == 1 and spots12[1].what:find("CompanyArea") ~= nil,
+    spots12[1] and tostring(spots12[1].what) or "no pad")
+check("in-band name match: nothing is refused",
+    loggedText():find("not the drop pad") == nil, loggedText())
 
 -- 5. the pad behaviour itself: Fulfillment presses nothing, Sell calls then
 --    falls back to Q/E, and the tank dropping is the only proof
@@ -536,6 +587,23 @@ def main() -> int:
     if not re.search(r'spudDropOff\s*=.*"Fulfillment"', src):
         print("missing the Fulfillment default (spudDropOff)")
         return 2
+    band = re.search(r"spudFulfillPadNear\s*=\s*(\d+)", src)
+    if not band:
+        print("missing the pad band (spudFulfillPadNear)")
+        return 2
+    if band.group(1) != "35":
+        print(f"the pad band is now {band.group(1)} — the live miss distances say whether that is right")
+        return 2
+    for tie, why in [
+        ("local bestFromWalk = false", "the walk no longer records that its pad came from a name match"),
+        ("bestWhere, bestFromWalk = k, score, where, true", "the walk no longer flags the candidate it matched by name"),
+        ("if bestFromWalk then", "a walk candidate is no longer checked against the measured deck"),
+        ("local pad = spudFulfillPadSpot()", "the deck the walk is measured against is not the owner's reading"),
+        ("return out, waypointSpot(), wpWhere", "a refused name match no longer hands back the marker waypoint"),
+    ]:
+        if tie not in src:
+            print("source tie broken: " + why)
+            return 2
     with tempfile.NamedTemporaryFile("w", suffix=".lua", delete=False, encoding="utf-8") as fh:
         fh.write(PRE + "\n" + "\n\n".join(parts) + "\n" + POST)
         path = fh.name
