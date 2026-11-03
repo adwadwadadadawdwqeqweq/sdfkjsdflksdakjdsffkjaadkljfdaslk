@@ -159,6 +159,9 @@ Everything merged into one paste-and-run file:
   the sprayer's own attachment. It is not part of
   **Run all** — that stays read-only — because this one sits in a machine and
   cuts a cell.
+  **It answered: `early cut — Seeded → Empty, tank 0 → 1 — TAKEN AND IT PAID`.**
+  The harvest call does not want a ripe crop, so the wait is optional — and the
+  farm loop now takes it. See **Early harvest** on the Settings tab.
   **Shop counter** repeats the seed-buy trip: it prints FarmCo's own parts and
   every `CounterAttachments` spot with its world position, carries the crate
   onto that attachment, drops it, and reads the game's context actions and
@@ -398,9 +401,23 @@ Everything merged into one paste-and-run file:
   fires first. It logs once at load
   (`anti-afk: on — a press every 45 s keeps this session awake`) and otherwise
   only when the game itself flags the session idle, so an hour-long growth wait
-  does not fill the log. Turning it off is remembered across a reload. Every
+  does not fill the log. Turning it off is remembered across a reload.
+  **Early harvest** sits beside it and is **on by default**. The game's own
+  harvest call does not want a ripe crop — the **Grow now** test cut a cell
+  straight after planting and the tank paid (`Seeded → Empty, tank 0 → 1`) — so
+  with this on a run plants a field, comes back minutes later and cuts it,
+  unloads and replants, instead of sitting out an hour of
+  `🌱 growing: 50/50 cell(s) still Seeded`. The log says which mode produced it:
+  `🌱 early cut: 50 cell(s) are cuttable now — restarting the loop instead of
+  waiting`. Turn it off and the run waits for the crops to ripen exactly the way
+  it always did, and the field census reads `standing` instead of `cuttable`.
+  **📍 Get coords** logs where you are standing as `(x, y, z)` and puts the same
+  text on the clipboard — stand on a Fulfillment or Sell pad, press it, paste it
+  in the chat, and a spot the script cannot stream becomes one it can drive to.
+  Every
   **Reload** keeps the three farm picks, the typed batch size, the seed choice,
-  the movement mode, the drop-off pick and the anti-AFK choice, and — more
+  the movement mode, the drop-off pick, the anti-AFK choice and the early-harvest
+  choice, and — more
   importantly — **stops every loop the old
   build started**. Before that, Unload
   only hid the window: the milk loop, delivery loop, webhook pump, 15-min field

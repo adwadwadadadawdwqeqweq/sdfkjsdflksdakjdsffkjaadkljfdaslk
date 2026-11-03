@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.124 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.125 ·
   fluent gui` (`VERSION`, line 15). ≈13k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,16 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 31/31 checks on v1.124
+python tools/run_all.py        # 32/32 checks on v1.125
 ```
 
-Last full run (v1.124): **31/31 checks passed** (28 harnesses + 3 gates).
+Last full run (v1.125): **32/32 checks passed** (29 harnesses + 3 gates).
+The compile row is judged by the **exit code and stderr only**: `luau-compile
+--binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
+called a build broken the moment the script contained a string with those three
+letters in it (v1.124 live: `the cell read FAILED` in a log line). Every
+harness row still reads its stdout, because a harness printing `FAIL` and
+exiting 0 is exactly what that scan exists to catch.
 
 | Script | What it actually proves |
 |---|---|
@@ -167,6 +173,7 @@ Last full run (v1.124): **31/31 checks passed** (28 harnesses + 3 gates).
 | `farm_width_test.py` | Working width and row plan: studs→tiles rounding, oriented-box union width, rotated bars, 1/2/3-wide plans (step, headland, row half-extent) and an interval-coverage proof on 100/200-stud and narrow fields; owner match rules. |
 | `equip_owner_test.py` | Whose tractor/tool is picked: the farm being worked first, mine next, an unreadable owner after that, a stranger's never; stored machines are reported for spawning; the implement distance/basis stay honest. |
 | `field_soil_test.py` | Tree/wood field types and names are never crop-harvest targets; a successful cell read with 0 cells is empty (skipped), while a failed read stays unknown (never a skip reason). |
+| `early_cut_test.py` | The one harvest predicate: with `spudEarlyCut` off a `Seeded` cell is not standing (the old behaviour, byte for byte) and with it on `Seeded` + every unknown stage are; the other jobs still aim at their own stage either way; a nil/0-cell read stays unknown; and the source ties that the growth wait restarts on a cuttable field, bounds the restart with `spudCutWatch`, the census renames the column `cuttable`, the Settings toggle remembers the pick, and **Get coords** logs/copies the position. |
 | `field_remote_test.py` | The field remotes: ids come from the game's own `GetCells` dict (numeric keys only, sorted, failed read = unknown), the tool's RaycastPart attachment is the one sent, one call per remaining cell carries `(field, {id}, {attachment})`, a full batch reports done, a partial batch hands back the remainder, an ignored batch switches that job back to driving (and fires nothing again), and `FillSeeder` falls back to V on a refusal. The Tests-tab batch: one call carries every id, a full/partial/ignored id list is judged by the stage re-read, and an ignored list never switches the job off. The single-spot fire takes a whole field from one teleport when the blade reaches 60 studs, fires one call per cell, respects the seeder budget, and takes nothing when the reach is small (4 of 8 cells called, the far ones handed to the blocks, no call at all when nothing is in reach, no frame = no filter). |
 | `equip_remote_test.py` | The equipment remotes: the seven captured calls resolve on `Modules.Larry`; spawn/store are proven by `InStorage` (or a >100-stud move for a rebuilt spawn) and fall back to the UI when ignored; enter is proven by the seat; hitch/unhitch use the captured `Components.Hitchable` + `Chassis.HitchableSocket` pair; carry/drop are proven by the hands; three misses switch one action off for the session. |
 | `row_steer_test.py` | The row decision in the wide band: `spudRowNeedsAlign` asks for ONE snap only past `spudRowAng` (15°) or `spudRowTol` (6 studs); `spudRowSteer` presses nothing inside the band; `spudRowEase` takes a step off the throttle after three steering flips (×0.7, floor 30 %) and gives one back per steady 3 s. |
@@ -765,6 +772,14 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
     matches (no guessed type name). It is **not** in Run all, which stays the two
     read-only probes; this one sits in a machine and cuts a cell. No harness —
     the live re-read is the verdict, and `Copy report` carries it.
+    **ANSWERED (the owner's run, v1.124):** `early cut — Seeded → Empty, tank
+    0 → 1 — TAKEN AND IT PAID`, so the wait is skippable and the harvest call
+    does **not** want a ripe crop. The behaviour is §3.14 (**Early harvest**,
+    on by default from v1.125); the same run named the working attachment
+    (`HarvesterAxle.AxleAttachment` — the SRC6 has no `RaycastPart`, so the
+    harvest-sounding rank wins), read `CropGrowthConfigClient → GetConfig=fn
+    SetConfig=fn`, and showed **no sprayer on this plot**, so steps (4)'s water
+    question cannot be answered here at all.
   **Copy report** (`spudTestCopy`) now also appends the last **60 farm-log
   lines** from `_G.SPUD_TRACE` (v1.85) — a Tests-only copy cannot answer "why is
   harvesting silent", and the console is the place the owner does not want to
@@ -914,6 +929,59 @@ EVTRequestToCarry(draggable) / EVTRequestToDrop()
 `equip_remote_test.py` pins the kit, the call shapes, the effect proofs, the
 UI/key fallbacks and the three-miss switch-off.
 
+### 3.14 A crop does not have to be ripe to be cut (the early harvest)
+
+**Answered live by the owner's own run of Tests → Grow now (v1.124):**
+
+```
+test: growth: early cut — Seeded → Empty, tank 0 → 1 — TAKEN AND IT PAID:
+a crop can be harvested before it is ripe — the wait can be skipped
+```
+
+So the growth wait is optional, and the farm loop now takes it. Global
+`spudEarlyCut` (**on** by default, remembered in `spudSavedEarlyCut`, Settings
+toggle **Early harvest**) makes a `Seeded` cell count as a standing crop in the
+**one** predicate every harvest decision reads — `grownStage(s)`, used by
+`whichNeed(JOBS[4])`, `whichCells`, `spudFieldCellIds` and the per-field census —
+so the tour, the cell ids, the tank gate and the wait cannot disagree about what
+"cuttable" means. A cycle is then: plow → cultivate → seed → harvest (the same
+field, minutes later) → sell → replant, and an hour of standing in
+`🌱 growing: 50/50 cell(s) still Seeded` becomes one restart line,
+`🌱 early cut: 50 cell(s) are cuttable now — restarting the loop instead of
+waiting`.
+
+Three things this deliberately does **not** change:
+
+- **Off means the old build.** With the toggle off, `Seeded` is again not
+  standing, the wait waits, and the census column reads `standing` instead of
+  `cuttable` — `early_cut_test.py` pins both halves, plus that the plow,
+  cultivate and seed jobs aim at their own stage name either way.
+- **Unreadable is still not empty** (rule 7): a nil read or a `total = 0` read
+  returns `nil` from `whichNeed`, so no pick turns an unreadable field into a
+  finished one. (`whichNeed` used to compute `total − the four known names`,
+  which threw on a table with no `total`; it now sums the stage names through
+  the predicate, which cannot.)
+- **The restart is bounded.** `spudCutWatch` (a global table) remembers the last
+  cuttable count: the **same number twice in a row** means the harvest pass took
+  nothing — no harvester on a picked foreign farm, a refused call — so from the
+  third read on `waitForGrowth` waits like a normal cycle instead of restarting
+  on a dime and hammering `GetCells` in a hot loop.
+
+The attachment that made this measurable is also the one the loop now uses:
+`spudToolAttachment(SRC6)` ranks **RaycastPart → harvest-sounding part →
+Seed/Detect → any**, and the SRC6 has no `RaycastPart` at all, so it picks
+`HarvesterAxle.AxleAttachment` (the probe prints `attachment: SRC6 →
+HarvesterAxle.AxleAttachment (harvest)`). That is the v1.89 wheel-strut failure
+closed with a live take, not with another guess.
+
+**Get coords** (Settings, 📍) exists because the pad positions this build parks
+on came out of the owner standing somewhere and typing the numbers into the chat.
+It reads `HumanoidRootPart.Position`, logs `(x, y, z)` rounded to whole studs and
+puts the same text on the clipboard (`coords: (…) — copied, paste it in the
+chat`, or the honest `the copy was refused, read it above`). Stand on a pad, press
+it, paste it here: that is how a spot the script cannot stream becomes a spot it
+can drive to.
+
 ---
 
 ## 4. Code map (names, not line numbers — they move)
@@ -931,6 +999,8 @@ UI/key fallbacks and the three-miss switch-off.
 | Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job**; the A* planner was deleted in v1.81 and the row driver in v1.82, so a field pass never touches a movement key |
 | Dirt line | global `milkDirtLine = 24`; `milkDirtHigh(spot)` (the single "is this dirty?" answer) |
 | Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** room less than the cells still standing), `spudFulfillSpots()` (Deposit_Warehouse top), `spudFulfillPadSpot()` (the dumped `-353,138,-90`, park-only fallback), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
+| Early harvest | globals `spudEarlyCut` (**on**, remembered in `spudSavedEarlyCut`) and `spudCutWatch` (the wait's spin guard); the one predicate `grownStage(s)` (v1.125, §3.14) read by `whichNeed`/`whichCells`/`spudFieldCellIds`/the census and by `waitForGrowth`, Settings toggle **Early harvest** |
+| Coordinates | Settings **📍 Get coords** (v1.125) — logs `(x, y, z)` from `HumanoidRootPart.Position` and copies the same text, so a pad the script cannot stream can still be named by the owner |
 | Clean pass | pre-pass offer watch (0.96 s) → clean watch (2.2 s); per-cow clean `≤2.25 s` |
 | Herd | `milkHerdBatch(stalls, cows)`, `milkHerdTargets`, `milkHerdSend`, ordering nearest-barn-first, `milkHerdArm` |
 | Farm choice | `milkFarmReadyCount(who)`, `milkFarmSwitch(want, owner, readyHere, parkedHere)` |
@@ -2285,7 +2355,60 @@ global, no new build-closure local: Suite **31/31**, headroom **10**, name audit
 clean **345**. **Harness green — not reloaded in game**, and the instant-growth
 verdict still needs the one button this run did not press: **Tests → Grow now**.
 
-**Where it stands:** `rebuild v1.124 · fluent gui`, whole suite green (31/31),
+**"bro it havested" — the wait is optional (v1.125).** The owner pressed **Tests
+→ Grow now** and pasted the console, which answered the instant-growth question
+outright: `growth: early cut — Seeded → Empty, tank 0 → 1 — TAKEN AND IT PAID: a
+crop can be harvested before it is ripe — the wait can be skipped`. Same report:
+the census read `Field — Seeded ×50 [growth 2012, mult 1, watered false, seed
+Tomato]` (so `PlantGrowth` counts **up** from planting; the ripe number stayed
+unknown because nothing was standing to compare against), the picker named the
+harvest point (`attachment: SRC6 → HarvesterAxle.AxleAttachment (harvest)` — the
+SRC6 has no `RaycastPart`, so the harvest-sounding rank wins, which is the v1.89
+wheel-strut failure closed with a live take), the equipment remotes worked from a
+probe (`Spawn SRC6 via spawn (no UI)`, `✅ mounted SRC6 (FNCEnterEquipment)`,
+`Store SRC6 via store (no UI)`), and **there is no sprayer on this plot**
+(`KADL=Planter, Trailer=Transport, S4204=Plow, KQF3000=Cultivator, SRC6=Harvester,
+R150=Truck, ZM80=Tractor`), so water-vs-growth cannot be measured here at all —
+the run says so instead of leaving the v1.66 `no change` to be read as a verdict.
+
+The follow-up is the behaviour, not another probe: **Early harvest** (Settings,
+**on** by default, remembered in `spudSavedEarlyCut`, §3.14). One predicate —
+`grownStage` — now treats a `Seeded` cell as a standing crop, and because the
+census, `whichNeed`, the cell-id list, the field tour and the growth wait all read
+that same predicate, a run plants and cuts the field on the same cycle instead of
+sitting in `🌱 growing: 50/50 cell(s) still Seeded` for an hour. Off is the old
+build, byte for byte. `waitForGrowth` restarts on a cuttable field, bounded by
+`spudCutWatch`: the **same count twice in a row** means the harvest pass is taking
+nothing (no harvester on a picked farm, a refused call), so the third read waits
+like a normal cycle instead of spinning. The census column renames itself
+(`%d cuttable` vs `%d standing`) so a log line never hides which mode produced it.
+Two side fixes came out of the same report rather than a hunt: the growth leg now
+calls a config **getter** with no arguments when a module exposes one (`GetConfig()`
+— an error names the shape it wants instead of us inventing one; live it found
+`CropGrowthConfigClient → GetConfig=fn SetConfig=fn`, a client crop-growth config
+with a setter we have never called), and the ten-minute `🌱 no field readable yet`
+silence the owner's own console showed at 87 studs now says **which** field could
+not be read — the call failed, or `GetCells` answered 0 cells — with its distance
+(rule 7: unreadable is never empty, so it gets named, not assumed away). New
+`tools/early_cut_test.py` (21 checks + 12 source ties) pins the predicate
+agreement and the ties; `tools/run_all.py`'s compile row was also lying — it
+grepped `FAIL` out of the **bytecode** `luau-compile` writes to stdout, so the
+build read broken the moment a log string contained those letters (the new
+`the cell read FAILED` line was the first to hit it). The compile row is judged by
+the exit code and stderr now; every harness row still reads its stdout, because a
+harness printing `FAIL` and exiting 0 is exactly what that scan exists for. Also
+**📍 Get coords** (Settings), at the owner's ask: it logs and copies
+`(x, y, z)` from the character, so a pad the script cannot stream can still be
+named by somebody standing on it — which is how `-353, 138, -90` got into this
+file in the first place. Suite **32/32** (the new harness is auto-discovered),
+headroom **10** (no build-closure local: the pick and the spin guard are globals),
+name audit clean **347**. **Harness green — not reloaded in game**, and the first
+live run of the pick is the verdict: a field planted and cut inside one cycle, or
+the honest `early cut: N cell(s) still read cuttable after 2 restart(s) that took
+nothing`, which would mean the single cell the probe cut does not generalize to a
+whole field.
+
+**Where it stands:** `rebuild v1.125 · fluent gui`, whole suite green (32/32),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner
@@ -2310,10 +2433,15 @@ for this session`), and the equipment lines (`✅ mounted … (FNCEnterEquipment
 `✅ <seed> bought via FNCRequestStorePurchase`) or their honest fallback lines
 (`equipment: store didn't Store the KADL — using the Equipment Manager`,
 `seed shop: FNCRequestStorePurchase didn't buy anything — clicking the menu`).
-On top of all that, **one press of Tests → Grow now** is the whole answer to the
-instant-growth question: its `growth:` lines name the stage census, whether a
-`Seeded` cell takes the harvest call, whether the tank gains from it, and whether
-a forged `PlantGrowth` survives a fresh `GetCells`.
+On top of all that, **Early harvest is now the default** (v1.125) and its live
+verdict is one of two lines: a field that is planted **and** cut inside the same
+cycle (`🌱 early cut: N cell(s) are cuttable now — restarting the loop instead of
+waiting`, then a harvest pass that takes them), or the honest
+`early cut: N cell(s) still read cuttable after 2 restart(s) that took nothing`,
+which would mean the single tile **Grow now** cut does not generalize to a whole
+field. **📍 Get coords** is the other new line: press it standing on a pad and
+paste the `(x, y, z)` here, and a spot the script cannot stream becomes one it
+can drive to.
 
 ---
 
@@ -2436,6 +2564,14 @@ a forged `PlantGrowth` survives a fresh `GetCells`.
    and should keep saying so. The probes are louder than the farm script (they
    hook `__namecall`); don't run them on an account you care about.
 5. **Codes are disabled** in-game (mid-2026); any "working codes" list is fake.
+6. **The early cut is proven on ONE cell, not on a field.** **Grow now** took a
+   `Seeded` tile and the tank paid (`0 → 1`), so `spudEarlyCut` (v1.125) plants
+   and cuts on the same cycle — but one planted tile cut from inside the seat is
+   not a 50-cell field swept by the blocks. The first live run answers it: either
+   `🌱 early cut: N cell(s) are cuttable now — restarting the loop` followed by a
+   harvest pass that takes them, or the bounded
+   `still read cuttable after 2 restart(s) that took nothing`, which means the
+   server pays only for the cell it was shown, not for the field.
 
 ---
 

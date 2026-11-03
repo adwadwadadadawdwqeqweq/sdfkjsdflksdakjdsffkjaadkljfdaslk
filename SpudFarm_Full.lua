@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.124 · fluent gui"
+local VERSION    = "rebuild v1.125 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -2522,18 +2522,36 @@ local okBuild, errBuild = pcall(function()
     --   crop is standing here" = any stage that is NOT one of the four we
     --   know — the per-field log prints every stage it sees, so the real
     --   name shows up in the Console after one run.
+    -- ▸ EARLY CUT (owner 2026-11-02, proven live by Tests → Grow now on
+    --   v1.124: `early cut — Seeded → Empty, tank 0 → 1 — TAKEN AND IT PAID`).
+    --   The harvest call does not want a ripe crop, so the growth wait is
+    --   optional: with this ON a Seeded cell counts as a standing crop in every
+    --   place the harvest job decides — the census, the cell ids, the field tour
+    --   and the growth wait all read this one predicate, so they cannot disagree
+    --   about what "cuttable" means. A run then plants, cuts and sells on the
+    --   same cycle instead of sitting out an hour. ON by default, remembered in
+    --   spudSavedEarlyCut; the Settings toggle switches it back off.
+    spudEarlyCut = (spudSavedEarlyCut == nil) or (spudSavedEarlyCut == true)
+    -- the growth wait's spin guard: the same cuttable count twice in a row means
+    -- the harvest pass is taking nothing, so it stops restarting on a dime.
+    spudCutWatch = { left = nil, stuck = 0 }
     local KNOWN_STAGES = {
         Empty = true, Plowed = true, Cultivated = true, Seeded = true,
     }
-    local function grownStage(s) return not KNOWN_STAGES[s] end
+    local function grownStage(s)
+        if s == "Seeded" then return spudEarlyCut == true end
+        return not KNOWN_STAGES[s]
+    end
 
     -- how many cells in `st` still need `job` (nil when counts unknown)
     local function whichNeed(job, st)
         if not st or st.total == 0 then return nil end
         if job.grown then
-            local left = st.total
-            for name in pairs(KNOWN_STAGES) do
-                left -= (st[name] or 0)
+            -- summed through grownStage rather than "total minus the four known
+            -- names", so the early cut has exactly one place to answer.
+            local left = 0
+            for name, n in pairs(st) do
+                if name ~= "total" and grownStage(name) then left += n end
             end
             return left
         end
@@ -3199,8 +3217,9 @@ local okBuild, errBuild = pcall(function()
                 end
                 table.sort(parts)
                 log(string.format(
-                    "%s: %d bare, %d plowed, %d cultivated, %d seeded, %d standing, %d total cells  [%s]",
-                    m.d.Name, bare, plowedN, cultN, seedN, grownN, st.total,
+                    "%s: %d bare, %d plowed, %d cultivated, %d seeded, %d %s, %d total cells  [%s]",
+                    m.d.Name, bare, plowedN, cultN, seedN, grownN,
+                    spudEarlyCut and "cuttable" or "standing", st.total,
                     table.concat(parts, " ")))
                 if bare > 0 then needPlow = true end
                 if plowedN > 0 then needCult = true end
@@ -6008,7 +6027,46 @@ local okBuild, errBuild = pcall(function()
                 --   crop-growth config, so a client-side copy of the per-crop times
                 --   may exist. Modules is walked for the names that could hold it
                 --   and each is required inside pcall — what prints is what the game
-                --   actually calls it, not a guess (rule 4). Nothing is written.
+                --   actually calls it, not a guess (rule 4). Nothing is written and
+                --   no setter is called: only a getter whose name says
+                --   config/growth/crop/time is invoked, with NO arguments, so an
+                --   error names the shape it wants instead of us inventing one.
+                local function renderCfg(tbl, capKeys, deep)
+                    local keys = {}
+                    for k in pairs(tbl) do keys[#keys + 1] = k end
+                    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+                    local show = {}
+                    for j = 1, math.min(#keys, capKeys) do
+                        local v = tbl[keys[j]]
+                        if type(v) ~= "table" then
+                            show[#show + 1] = tostring(keys[j]) .. "="
+                                .. (type(v) == "function" and "fn" or tostring(v))
+                        elseif deep then
+                            local sub, cnt = {}, 0
+                            for sk, sv in pairs(v) do
+                                cnt += 1
+                                if cnt <= 6 then
+                                    sub[#sub + 1] = tostring(sk) .. "="
+                                        .. (type(sv) == "table" and "{" .. tostring(#sv) .. "}"
+                                            or (type(sv) == "function" and "fn" or tostring(sv)))
+                                end
+                            end
+                            show[#show + 1] = tostring(keys[j]) .. "={" .. table.concat(sub, " ")
+                                .. (cnt > 6 and " …+" .. tostring(cnt - 6) or "") .. "}"
+                        else
+                            local sub, cnt = {}, 0
+                            for sk in pairs(v) do
+                                cnt += 1
+                                if cnt <= 8 then sub[#sub + 1] = tostring(sk) end
+                            end
+                            table.sort(sub)
+                            show[#show + 1] = tostring(keys[j]) .. "={" .. table.concat(sub, ",")
+                                .. (cnt > 8 and "…" or "") .. "}"
+                        end
+                    end
+                    return table.concat(show, "  ")
+                        .. (#keys > capKeys and ("  (+" .. tostring(#keys - capKeys) .. " more)") or "")
+                end
                 local grows = {}
                 if mods then
                     for _, m in ipairs(mods:GetChildren()) do
@@ -6031,30 +6089,30 @@ local okBuild, errBuild = pcall(function()
                             elseif type(t) ~= "table" then
                                 spudTestSay("growth: " .. m.Name .. " is a " .. type(t) .. ", not a table")
                             else
-                                local keys = {}
-                                for k in pairs(t) do keys[#keys + 1] = k end
-                                table.sort(keys, function(a, b)
-                                    return tostring(a) < tostring(b)
-                                end)
-                                local show = {}
-                                for j = 1, math.min(#keys, 14) do
-                                    local v = t[keys[j]]
-                                    if type(v) == "table" then
-                                        local sub, cnt = {}, 0
-                                        for sk in pairs(v) do
-                                            cnt += 1
-                                            if cnt <= 8 then sub[#sub + 1] = tostring(sk) end
+                                spudTestSay("growth: " .. m.Name .. " → " .. renderCfg(t, 14, false))
+                                -- a getter is the copy itself: GrowConfig(), GetConfig()…
+                                local tries = 0
+                                for k, v in pairs(t) do
+                                    if type(k) == "string" and type(v) == "function" then
+                                        local lk = k:lower()
+                                        if lk:sub(1, 3) == "get" and (lk:find("config", 1, true)
+                                            or lk:find("grow", 1, true) or lk:find("crop", 1, true)
+                                            or lk:find("time", 1, true)) and tries < 3 then
+                                            tries += 1
+                                            local okC, cfg = pcall(v)
+                                            if not okC then
+                                                spudTestSay("growth: " .. m.Name .. "." .. k
+                                                    .. "() refused: " .. tostring(cfg))
+                                            elseif type(cfg) == "table" then
+                                                spudTestSay("growth: " .. m.Name .. "." .. k
+                                                    .. "() → " .. renderCfg(cfg, 14, true))
+                                            else
+                                                spudTestSay("growth: " .. m.Name .. "." .. k
+                                                    .. "() → " .. tostring(cfg))
+                                            end
                                         end
-                                        table.sort(sub)
-                                        show[#show + 1] = keys[j] .. "={" .. table.concat(sub, ",")
-                                            .. (cnt > 8 and "…" or "") .. "}"
-                                    else
-                                        show[#show + 1] = keys[j] .. "="
-                                            .. (type(v) == "function" and "fn" or tostring(v))
                                     end
                                 end
-                                spudTestSay("growth: " .. m.Name .. " → " .. table.concat(show, "  ")
-                                    .. (#keys > 14 and ("  (+" .. tostring(#keys - 14) .. " more)") or ""))
                             end
                         end
                     end
@@ -7796,9 +7854,26 @@ local okBuild, errBuild = pcall(function()
             local root = ch and ch:FindFirstChild("HumanoidRootPart")
             local crops = findMyFields(root and root.Position or Vector3.zero)
             local seeded, grown, total, seen = 0, 0, 0, {}
+            -- v1.124 live: this sat on "no field readable yet" for ten minutes
+            -- while findMyFields printed the field 87 studs away, and the census
+            -- inside the SAME session read 50 Seeded cells. Rule 7 says an
+            -- unreadable field is not an empty one, so say WHICH it was — the
+            -- call failed, or it answered with nothing — with the distance that
+            -- went with it.
+            local unread = nil
             for _, m in ipairs(crops) do
                 local st = countStages(m.d)
-                if st and st.total > 0 and not spudTreeField(m.typeName, m.d.Name) then
+                if not st then
+                    if not unread then
+                        unread = string.format("%s at %.0f studs — the cell read FAILED",
+                            m.d.Name, m.dist or -1)
+                    end
+                elseif st.total == 0 then
+                    if not unread then
+                        unread = string.format("%s at %.0f studs — GetCells answered 0 cell(s)",
+                            m.d.Name, m.dist or -1)
+                    end
+                elseif not spudTreeField(m.typeName, m.d.Name) then
                     total += st.total
                     seeded += (st.Seeded or 0)
                     grown += (whichNeed(JOBS[4], st) or 0)
@@ -7809,6 +7884,31 @@ local okBuild, errBuild = pcall(function()
             end
             local elapsed = os.clock() - t0
             if seeded > 0 then sawSeeded = true end
+            -- ▸ EARLY CUT ON = NOTHING TO WAIT FOR. A Seeded cell reads as
+            --   cuttable (the harvest call takes it and the tank pays — proven
+            --   live on v1.124), so hand the run straight back to the harvester
+            --   instead of sitting out the growth. spudCutWatch bounds it: the
+            --   SAME count twice in a row means the harvest pass took nothing
+            --   (no harvester, a refused call), so from the third read on this
+            --   waits like a normal cycle instead of restarting on a dime.
+            if spudEarlyCut and grown > 0 then
+                if spudCutWatch.left == grown then
+                    spudCutWatch.stuck += 1
+                else
+                    spudCutWatch.left, spudCutWatch.stuck = grown, 0
+                end
+                if spudCutWatch.stuck < 2 then
+                    log(string.format(
+                        "🌱 early cut: %d cell(s) are cuttable now — restarting the loop instead of waiting",
+                        grown))
+                    growthQuiet = false
+                    farmResting = false
+                    return true
+                end
+                log(string.format(
+                    "🌱 early cut: %d cell(s) still read cuttable after %d restart(s) that took nothing — waiting like a normal cycle",
+                    grown, spudCutWatch.stuck))
+            end
             if total > 0 and seeded == 0 then
                 if sawSeeded or elapsed >= GROWTH_SOAK then
                     log(string.format("🌱 all %d cell(s) are done growing (%d standing) after %dm %ds — restarting the loop",
@@ -7831,7 +7931,9 @@ local okBuild, errBuild = pcall(function()
                 for name, n in pairs(seen) do parts[#parts + 1] = string.format("%s=%d", name, n) end
                 table.sort(parts)
                 if total == 0 then
-                    log("🌱 no field readable yet — retrying in a minute")
+                    log("🌱 no field readable yet — " .. #crops .. " field(s) found, "
+                        .. (unread or "none of them even answered")
+                        .. " — retrying in a minute")
                 else
                     log(string.format("🌱 growing: %d/%d cell(s) still Seeded, %d grown · %s · waiting",
                         seeded, total, grown, table.concat(parts, " ")))
@@ -12947,6 +13049,29 @@ local okBuild, errBuild = pcall(function()
     })
 
     Tabs.Settings:CreateButton({
+        -- ▸ GET COORDS (owner 2026-11-02: "add a simple get coords button that
+        --   gives me coords and i can give them to you to put to sertant things
+        --   like the furfill or sell"). Stand where the pad is, press it, and the
+        --   number is on the clipboard and in the console — a spot the script
+        --   cannot read becomes a spot the owner measured, which is how the
+        --   Fulfillment pad got its -353, 138, -90 in the first place.
+        Title = "📍 Get coords",
+        Callback = function()
+            local ch = LocalPlayer.Character
+            local root = ch and ch:FindFirstChild("HumanoidRootPart")
+            if not root then
+                log("coords: no character to read")
+                return
+            end
+            local p = root.Position
+            local text = string.format("(%.0f, %.0f, %.0f)", p.X, p.Y, p.Z)
+            local ok = pcall(function() setclipboard(text) end)
+            log("coords: " .. text .. (ok and " — copied, paste it in the chat"
+                or " — the copy was refused, read it above"))
+        end,
+    })
+
+    Tabs.Settings:CreateButton({
         Title = "⏏ Unload",
         Callback = function()
             loopThread = nil -- stopping() flips true → a running loop dies
@@ -13044,6 +13169,25 @@ local okBuild, errBuild = pcall(function()
     if spudAntiAfk then
         log("anti-afk: on — a press every 45 s keeps this session awake")
     end
+
+    -- ▸ EARLY HARVEST (owner 2026-11-02, proven by Tests → Grow now on v1.124:
+    --   a harvest call at a Seeded cell gave `Seeded → Empty, tank 0 → 1`). The
+    --   game does not want a ripe crop, so the growth wait is a choice: on, a
+    --   just-planted cell is cut the same cycle and the field is replanted right
+    --   after; off, the run waits for the crops the old way. ON by default and
+    --   remembered, and it is one predicate — the census, the cell ids, the tour
+    --   and the wait all read spudEarlyCut.
+    Tabs.Settings:CreateToggle("earlyCut", {
+        Title = "Early harvest",
+        Default = spudEarlyCut,
+        Callback = function(on)
+            spudEarlyCut = on == true
+            spudSavedEarlyCut = spudEarlyCut -- survives a reload
+            log("early harvest: " .. (spudEarlyCut
+                and "on — a cell is cut as soon as it is planted, no growth wait"
+                or "off — the run waits for the crops to ripen"))
+        end,
+    })
 
     -- ▸ FPS METER (user: "im still on 8-9 fps so something is eating my fps
     --   big time"). NOTHING in this script runs every frame except this one

@@ -20,15 +20,17 @@ EXE = BASE / "luau.exe"
 COMPILE = BASE / "luau-compile.exe"
 
 
-def run(label: str, cmd: list[str]) -> bool:
+def run(label: str, cmd: list[str], scan_stdout: bool = True) -> bool:
     out = subprocess.run(cmd, cwd=ROOT, capture_output=True, encoding="utf-8", errors="replace")
-    text = out.stdout + out.stderr
     # the harnesses print PASS/FAIL and mostly exit 0, so a return code alone
-    # would call a failing suite "OK"
-    ok = out.returncode == 0 and "FAIL" not in out.stdout
+    # would call a failing suite "OK". luau-compile is the exception: its stdout
+    # is the compiled bytecode, so a "FAIL" inside any string constant in the
+    # script would read as a broken build -- for it the exit code and stderr are
+    # the whole verdict.
+    ok = out.returncode == 0 and (not scan_stdout or "FAIL" not in out.stdout)
     print(f"{'OK  ' if ok else 'FAIL'} {label}")
     if not ok:
-        print(text.strip())
+        print((out.stdout + out.stderr).strip() if scan_stdout else out.stderr.strip())
     return ok
 
 
@@ -39,7 +41,7 @@ def main() -> int:
         return 2
 
     checks = [
-        ("compile SpudFarm_Full.lua", [str(COMPILE), "--binary", "SpudFarm_Full.lua"]),
+        ("compile SpudFarm_Full.lua", [str(COMPILE), "--binary", "SpudFarm_Full.lua"], False),
         ("register budget", [sys.executable, "tools/local_budget.py"]),
         ("name audit", [sys.executable, "tools/name_audit.py"]),
     ]
@@ -48,7 +50,7 @@ def main() -> int:
     for t in tests:
         checks.append((t.name, [sys.executable, str(t), str(EXE)]))
 
-    results = [run(label, cmd) for label, cmd in checks]
+    results = [run(*c) for c in checks]
     failed = results.count(False)
     print(f"\n{len(results) - failed}/{len(results)} checks passed")
     return 0 if failed == 0 else 1
