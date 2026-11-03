@@ -626,8 +626,19 @@ Everything merged into one paste-and-run file:
   only hid the window: the milk loop, delivery loop, webhook pump, 15-min field
   scan and FPS meter kept running, and each reload added another copy of each.
   The guard is a generation counter each build captures
-  ([tools/lifecycle_test.py](tools/lifecycle_test.py) runs the real one and
-  proves an old loop stops, including after Unload-then-Reload).
+  **in the table the executor shares across executions** (`getgenv()`), and every
+  loop asks it, not just its own thread id. A bare global was not enough: the
+  live client ran **two** builds side by side — two `still working` streams and
+  two FPS streams, each naming the same frozen stage — because every build
+  bumped and passed its own copy. An autostarted build and a hand-run one do not
+  necessarily share an environment; they do share `getgenv()`. Unload bumps that
+  same counter, a clobbered one stops every loop rather than letting a build that
+  cannot prove it owns the session keep driving, and 🩺 DOCTOR prints
+  `session 3 — GHOST BUILD (a newer one owns the session)` so the pair of streams
+  is visible in one report instead of only in the console timing
+  ([tools/lifecycle_test.py](tools/lifecycle_test.py) runs the real block against
+  a shared table and proves an old loop stops, including after
+  Unload-then-Reload).
 - **Per-pass timing** — the status paragraph ends with
   `pass: scan 0 ms · clean 1.9s · herd 3.1s · milk 4.0s · store 0.2s · 7 tp`, and
   the Doctor shows the same line plus the live dirt line, batch, delivery state,

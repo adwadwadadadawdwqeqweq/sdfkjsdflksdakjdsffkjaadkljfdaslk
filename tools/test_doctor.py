@@ -49,6 +49,15 @@ local NOTIFY = nil
 Fluent = { Notify = function(_, opts) NOTIFY = opts end }
 getgenv = function() return GENV end
 
+-- ▸ v1.136: the report now says WHO owns the session, so the stub world needs
+--   the same two names the build closure has — the shared table and the
+--   per-build token check. SPUD_OWN is the switch the harness flips to prove
+--   the report also says when this build is a ghost (live 2026-11-03: two
+--   builds were driving at once and nothing on screen could tell them apart).
+SPUD_OWN = true
+spudEnv = { spudGen = 4 }
+spudAlive = function() return SPUD_OWN and true or false end
+
 local CHAR = { HumanoidRootPart = { Position = Vector3.new(10, 5, 20) } }
 function CHAR.FindFirstChild(self, k)
   if k == "HumanoidRootPart" then return self.HumanoidRootPart end
@@ -232,6 +241,19 @@ has("fields (yours):", "fields header")
 has("sell pads (ranked", "pads header")
 hasNot("Field_9", "another player's field")
 assert(#LOGS >= 1 and LOGS[#LOGS]:find("doctor:", 1, true), "console tell missing")
+
+-- ── v1.136: the report says who owns the session, and says so when it is not
+--   this build. The live defect was two builds driving the same tractor with
+--   nothing in any report that could tell them apart. ─────────────────────────
+has("session 4", "the shared counter is in the report")
+hasNot("GHOST BUILD", "an owning build is not called a ghost")
+SPUD_OWN = false
+BTN.Callback()
+has("GHOST BUILD", "a superseded build names itself")
+has("session 4", "a ghost still prints the counter it lost")
+SPUD_OWN = true
+BTN.Callback()
+hasNot("GHOST BUILD", "and stops when the token comes back")
 
 -- ── cooldown is reported while it is in the future ───────────────────────
 sellCooldownUntil = os.clock() + 41

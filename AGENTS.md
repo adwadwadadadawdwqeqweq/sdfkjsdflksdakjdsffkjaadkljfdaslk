@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.135 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.136 ·
   fluent gui` (`VERSION`, line 15). ≈14k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -73,7 +73,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 
 13. **Luau's 200-local limit is real** (it was 2 away from the practical
     ceiling until the path engine was deleted in v1.81). Run
-    `python tools/local_budget.py`. As of v1.135:
+    `python tools/local_budget.py`. As of v1.136:
     `4-space locals before milkCycle: 180 (practical ceiling 185)`,
     whole body `187 / 200`, **headroom 5** (v1.129's four `*_STEMS` word tables
     are four build-closure locals — every name the equipment rewrite, the tow
@@ -82,7 +82,9 @@ description — it is the long-form manual and it is kept in sync with behaviour
     budget did not move, because they were globals. v1.135 spent **one**: the
     three new name/hitch names are globals, but `hitchPoint` had to be a
     `local function` because it is read by `lineUpHitch`, which is itself a
-    build-closure local and therefore closes over it). Do **not**
+    build-closure local and therefore closes over it. v1.136 spent **nothing**:
+    the shared session table is the global `spudEnv`, and the two new names
+    inside `destroyUI` are locals of that function). Do **not**
     add a `local` inside the main build closure. Reuse an existing local,
     convert the feature to a **global** (the established pattern), or
     restructure — and re-run the budget.
@@ -148,17 +150,17 @@ done
 PYTHONIOENCODING=utf-8 python tools/test_doctor.py
 ```
 
-All of these must exit 0 (29 `*_test.py` harnesses + `test_doctor.py`, which
+All of these must exit 0 (31 `*_test.py` harnesses + `test_doctor.py`, which
 does not match `*_test.py`). A plain `for` loop is **not** enough on its own:
 most harnesses print `FAIL` but still exit 0, so the output has to be read.
 The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 35/35 checks on v1.135
+python tools/run_all.py        # 35/35 checks on v1.136
 ```
 
-Last full run (v1.135): **35/35 checks passed** (32 harnesses + 3 gates).
+Last full run (v1.136): **35/35 checks passed** (32 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment the script contained a string with those three
@@ -171,7 +173,11 @@ exiting 0 is exactly what that scan exists to catch.
 | `barn_lock_test.py` | The barn lock survives a stream-out/stream-in (matched by name + position, not identity). |
 | `clean_visit_test.py` | Dirt is read without moving: clean barn = 0 hops, one dirty stall = 1, unreadable = 0, attribute/nested/visible-mesh/nested-value shapes all found, the meter line learns and stops, a 2.0 s clean is waited for exactly once, and a refusing stall is backed off on the next pass. |
 | `cow_in_stall_test.py` | The per-cow clean path: a nil first read of the Clean offer still cleans (the poll fix), a clean stall is never pressed again, and an unreadable offer costs ≤0.5 s and no key — then the milk and gate still happen. |
-| `lifecycle_test.py` | The generation guard: a reload stops the old build's loops, Unload stops the current ones, and a later build cannot revive them (captures the global-vs-local `spudAlive` trap). |
+| `lifecycle_test.py` | The generation guard: a reload stops the old build's loops, Unload stops the current ones, and a later build cannot revive them (captures the global-vs-local `spudAlive` trap). **The counter is in the SHARED table** (v1.136): the harness hands the block a `getgenv()` that is deliberately **not** `_G`, so it proves the bump landed in the executor's table (`shared 2` after two builds), that **nothing** was written to a bare `spudGen`, and that a bare-global bump cannot end or fake-end a session; plus Unload through the shared table, a clobbered `spudEnv` failing CLOSED (the live build reports dead and its loops stop), and a restored env letting the owning build run again. Eight source ties: **both** stop-tests ask the token (`stopping()` for the farm
+loop, `milkStopping()` for the milk loop and the delivery thread), the run
+heartbeat is `while beat and spudAlive()`, `destroyUI` bumps `env.spudGen`,
+**no** bare `spudGen =` assignment survives anywhere, and the Doctor names a
+ghost build. |
 | `webhook_test.py` | A webhook URL must be Discord's own host + `/api/webhooks/` path; "contains the word discord" is rejected, and blank means off. |
 | `drop_scope_test.py` | A jug appearing elsewhere in the world during the 10 s milk wait is not counted as "this cow gave milk". |
 | `farm_batch_test.py` | Herd-batch arithmetic: who fills a batch, who hands over. |
@@ -199,7 +205,7 @@ exiting 0 is exactly what that scan exists to catch.
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
 | `stall_stream_test.py` | The stall scan after a milk teleport, on a virtual clock: a pass that did **not** hop reads once and sleeps zero (the old behaviour), a pass that hopped re-reads until the game actually has stalls and hands those back, each try costs 0.25 s, the wait is **bounded** at 12 tries (3 s), Stop ends it between tries, the skipped count and the same plot/owner are carried through every re-read, and a barn that never streams is logged as **not streamed** (naming the farm, saying the plot reads, saying this is not "no barn") rather than as an empty answer. Plus the ties: `milkCycle` scans through `spudStallScan`, its two plot teleports each report whether they moved, and the timing stamp is taken after the scan. |
 | `fulfill_probe_test.py` | The fulfillment probe's **company-order** sections on a fake tree: every order-named instance with its value tree, the board's text read from **PlayerGui as well as workspace**, what `Stores` holds, each seed crate's `Configurations`, one field cell's full key list, and the honest grow-time verdict — a cell with only `PlantGrowth`/`GrowthMultiplier` must **not** be called a readable duration. Also pins the probe's read-only claim (no key press, no `FireServer`/`InvokeServer`, no `CFrame`/`PivotTo`, no metatable hook) and that the report reaches the panel, the multiline box and the clipboard. |
-| `test_doctor.py` | The in-script 🩺 DOCTOR report runs on stubbed world objects and reports, not crashes. |
+| `test_doctor.py` | The in-script 🩺 DOCTOR report runs on stubbed world objects and reports, not crashes. Since v1.136 it also asserts the **session** line: the report carries the shared counter (`session 4`), an owning build is **not** called a ghost, a superseded one names itself `GHOST BUILD` while still printing the number it lost, and it stops claiming that when the token comes back (§3.16). |
 
 Plus the two non-test gates:
 
@@ -1347,6 +1353,61 @@ resets the count, so a field that is genuinely progressing is never cut off. The
 end is a decision made on a **count**, not a guess, and the cells are left
 standing for the next pass rather than eaten by an infinite loop.
 
+### 3.16 One session, one build: the token lives in the shared env
+
+Every long-lived thread asks `spudAlive()` and stops when the menu that started
+it is gone. That is the whole Unload/Reload story (§5, v1.24) — and until v1.136
+the counter it compared against was a **bare global**, which is only as shared as
+the environment the executor happened to run the file in. The emulator proved what
+that costs (owner's build, live 2026-11-03, while a run sat on
+`Equipment Manager: spawning ChallengerMT9`):
+
+```
+11-03 11:17:15.855 | … still working (Equipment Manager: spawning ChallengerMT9)
+11-03 11:17:19.788 | … still working (Equipment Manager: spawning ChallengerMT9)
+11-03 11:17:26.603 | fps 24 · …
+11-03 11:17:28.044 | fps 24 · …
+```
+
+Two independent ~10 s heartbeat streams with a constant ~1.44 s offset, and two
+independent 30 s fps streams: **two builds of the script were alive in the same
+client at the same time** — an autostarted one and a hand-run one, each passing
+its own token check, each driving the same tractor. That is also why the stall
+looked unbounded: `beat` only cleared at the **end** of the run body, so a
+superseded build printed "still working (spawning ChallengerMT9)" forever next to
+the real one.
+
+v1.136 puts the counter where the executor keeps it — `spudEnv = (getgenv and
+getgenv()) or _G` (the same shared table the build already uses to expose
+`spudDoctor`) — and then makes **every** stop-test consult it:
+
+- `stopping()` and `milkStopping()` each start with `if not spudAlive() then
+  return true end`. A ghost's own `loopThread`/`milkThread` still points at its
+  own thread, so the thread id alone can never say "I am a ghost"; the token can.
+  Folding it into those two functions gives it to the hundreds of call sites for
+  free, in both loops and in the automatic delivery thread.
+- The run heartbeat is `while beat and spudAlive()` (and the same guard inside),
+  so a build that no longer owns the session has nothing to report.
+- `destroyUI` bumps **the shared** counter (`local env = spudEnv or _G`), so
+  Unload ends every loop across executions rather than only the ones reading this
+  environment's copy.
+- The guarded read **fails CLOSED**: `((spudEnv and spudEnv.spudGen) or 0) ==
+  myGen`, so a clobbered `spudEnv` stops every loop instead of letting a build
+  that cannot prove ownership keep driving.
+- **`spudAlive` stays `local`.** A global one gets overwritten by the next build,
+  and the old loop — looking it up by name — would read the new token as "alive".
+- 🩺 DOCTOR prints `session N` and, when this closure does not own N, says
+  `GHOST BUILD (a newer one owns the session)` — so two builds on one client are
+  visible in a report, not only in logcat timing.
+
+The 11-minute spawn stall itself is a **disconnect** (Roblox Error 273, *"Same
+account launched experience from different device"*): while the client is off the
+server, a blocking remote never resumes. Every wait on that path is bounded (3×8 s
+respawn poll, 40×0.25 s card poll, 2×8×0.25 s click poll), so the honest reading of
+a frozen stage line is "the client is not talking to the server", and the ghost
+heartbeat is what made it look like a loop that never ends. Reconnecting is the
+owner's call — it evicts the other device.
+
 ---
 
 ## 4. Code map (names, not line numbers — they move)
@@ -1354,6 +1415,7 @@ standing for the next pass rather than eaten by an infinite loop.
 | Area | Function / thing |
 |---|---|
 | Build identity | `VERSION` at the top of the file (`rebuild vX.YY · fluent gui`) |
+| Session token | global `spudEnv` (**`getgenv()` or `_G`**) holding `spudGen`; build-closure `local myGen` and the **local** `spudAlive()` that compares them (fails closed, §3.16); consulted by `stopping()`, `milkStopping()`, the run heartbeat, `destroyUI`'s bump and the DOCTOR `session N` / `GHOST BUILD` line |
 | Farm width / owner | top-level `SpudFarm` (`widthTiles`, `widthFromParts`, `rowPlan`, `ownerWanted`, `workTiles`, `partBoxes`, `declaredWidth`), `spudOwnerChoices`, global `farmOwnerPick`, `spudFarmOwnerDrop`; `sweepField` plans rows from `rowPlan` |
 | Go to the farm | global `spudFarmHop(here, plotPos)` (nil+reason, or centre +5 Y and distance), `milkStorePlotOf(who)`, `milkStandUp(who)` (default `"milk"`); wired at the top of `runFarmingBody` |
 | Whose machine | global `equipOwnerRank(m)` (farm being worked → mine → no readable owner → never another account), used by `findTractor` / `findImplement`; owner tag read by `milkStoreOwnerOf`. **What** it is: globals `spudEquipTypeKey(m)` (the game's `EquipmentType`, letters only), `spudEquipIs(m, STEMS)` (stem match), `spudEquipSeat(m)` (`VehicleSeat`/`Seat`), `spudEquipTows(m)` (`Components.Hitchable`), `spudEquipHereText()` (the world's `Name=Type (stored)` list); build-closure tables `HARVEST_STEMS` / `TRACTOR_STEMS` / `HAULER_STEMS` / `TOOL_STEMS` / `TYPE_STEMS` / `TYPE_MODEL`. **The name the game draws is not the name the model has**: globals `spudNameKey(s)` (drop a `#9` serial, drop every non-alphanumeric, lowercase — `%W`, never `%A`, because the digits ARE the machine) and `spudSameEquipName(a, b)` (same key, and **never** true on an empty pair) fold `Tempo L16` and `TempoL16` together; every equipment comparison in the build reads them, so a card, a HUD slot, a stale label and a park decision can never disagree over a space (§3.13) |
@@ -3408,7 +3470,78 @@ default cp1252 stream cannot encode that arrow, so the harness died in its own
 by hand), because a gate that fails on its own console encoding reads as a broken
 build — and the compile row has an exactly symmetrical history of that (§2.2).
 
-**Where it stands:** `rebuild v1.135 · fluent gui`, whole suite green (35/35),
+**"it's making the wheels glitch … patch the bugs and keep it bug free" — the
+ghost build (v1.136).** The v1.135 reload never happened, because the client is
+disconnected (Roblox Error 273, *"Same account launched experience from different
+device"*), and tapping **Reconnect** would evict the other device — the owner's
+call, not mine. What the buffer from before that **does** contain is an 11-minute
+stall on `Equipment Manager: spawning ChallengerMT9`, and reading it against the
+code closed two things at once.
+
+**The stall is not an unbounded wait.** Every wait on that path is bounded (3×8 s
+respawn poll, 40×0.25 s card poll, 2×8×0.25 s click poll), so a frozen stage line
+means the client stopped talking to the server, not that a loop lost its exit.
+What made it look endless is the second finding:
+
+```
+11-03 11:17:15.855 | … still working (Equipment Manager: spawning ChallengerMT9)
+11-03 11:17:19.788 | … still working (Equipment Manager: spawning ChallengerMT9)
+11-03 11:17:26.603 | fps …
+11-03 11:17:28.044 | fps …
+```
+
+Two ~10 s heartbeat streams at a constant ~1.44 s offset, and two ~30 s fps
+streams: **two builds were alive in one client**, an autostarted one and a
+hand-run one, each driving the same tractor. The reason is rule 14's own family —
+the session counter was a **bare global**, and a bare global is only as shared as
+the environment the executor ran the file in, so each build bumped and passed its
+own token. `spudEnv = (getgenv and getgenv()) or _G` now holds it (the same
+shared table the build already uses to expose `spudDoctor`), and the token is
+consulted everywhere a loop asks whether it may keep going (§3.16): `stopping()`
+and `milkStopping()` each start with `if not spudAlive() then return true end` —
+a ghost's own `loopThread`/`milkThread` still points at its own thread, so the
+thread id can never answer this — which folds the guard into hundreds of call
+sites in both loops and the delivery thread; the run heartbeat is
+`while beat and spudAlive()`, because `beat` only cleared at the **end** of the
+body and a superseded build printed "still working" forever; `destroyUI` bumps
+**the shared** counter, so Unload ends loops across executions rather than only
+this environment's; the read **fails closed** (`((spudEnv and spudEnv.spudGen) or
+0) == myGen`); and 🩺 DOCTOR prints `session N` with ` — GHOST BUILD (a newer one
+owns the session)` when this closure does not own N, so the pair of streams is
+visible in one report instead of only in logcat timing. `spudAlive` stays
+**`local`** — that is the trap `lifecycle_test.py` has pinned since v1.24, and a
+global one would let the old loop read the new token as "alive".
+
+`tools/lifecycle_test.py` was rewritten around the real block: it runs the slice
+against a **shared** table behind a stubbed `getgenv`, and the checks now include
+that every build bumped the *shared* counter, that **no** build wrote a bare
+global `spudGen`, that bumping a bare global cannot end a session, that unloading
+through the shared env stops the live build's loops, and that a **clobbered**
+shared env stops everything while a restored one lets the owning build run again
+(8 checks on top of the old 7, plus 8 source ties: the token block, both
+stop-tests asking the token, the heartbeat's two guards, the shared bump in
+`destroyUI`, no `^\s*spudGen\s*=` left anywhere, the `getgenv` line, and the
+`GHOST BUILD` string). `tools/test_doctor.py` lost no coverage and gained six
+assertions — the report carries `session 4`, an owning build is not called a
+ghost, a superseded one names itself, it still prints the counter it lost, and it
+stops claiming to be a ghost when the token comes back. (Writing that tie caught
+its own bug first: the sliced `doctorReport` calls the build-closure local
+`spudAlive`, which the stub world did not define, so the harness failed with
+`attempt to call a nil value` — the same class of "a slice needs its locals" as
+every other harness here.)
+
+Compile OK, suite **35/35** (32 harnesses + 3 gates), headroom **5** (unchanged:
+the shared table is the global `spudEnv`, `spudAlive` was already a local, and the
+two new names in `destroyUI` are locals of that function), name audit clean **377**
+(net zero — `spudEnv` replaces the bare `spudGen` in the top-level list). **Harness
+green — not reloaded in game**, and three of its verdicts need a client that is
+connected: **one** heartbeat stream and **one** fps stream per run (not two at a
+constant offset), a DOCTOR `session N` line, and loops that actually stop on
+Unload/Reload across executions. `No ghost build` is what the next console should
+look like; a second stream would mean the executor gives the autostart and the
+hand-run a `getgenv()` each, and the honest answer then is one build per client.
+
+**Where it stands:** `rebuild v1.136 · fluent gui`, whole suite green (35/35),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **v1.134 was reloaded and driven in MuMu by the assistant** (the
 `[spud]` logcat quoted through §5 is that session), and what it showed is *not*
@@ -3418,7 +3551,9 @@ the weld verdict: the run never reached a field pass — it died on
 still unverified**, and the four defects that same session exposed are what
 v1.135 fixes (the spaced display names, the tab-filtered card list, the ride
 that answers `tractor=none`, the seed round that cannot end). v1.135's own
-verdicts are the five lines at the end of its entry. **v1.129 was reloaded in game and crashed** (the ordering bug above);
+verdicts are the five lines at the end of its entry; **neither v1.135 nor v1.136
+has been reloaded**, because after the v1.134 session the client took Roblox's
+Error 273 disconnect and reconnecting is the owner's call. **v1.129 was reloaded in game and crashed** (the ordering bug above);
 **v1.130 fixed that and was run in game** — the owner's console opens
 `rebuild v1.130`, gets past `— seed check —` into the field, and never prints
 `⚠ farming loop error`, so the crash verdict is closed. What that same run

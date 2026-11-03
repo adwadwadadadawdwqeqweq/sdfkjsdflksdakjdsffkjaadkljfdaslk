@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.135 · fluent gui"
+local VERSION    = "rebuild v1.136 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -384,18 +384,31 @@ local okBuild, errBuild = pcall(function()
     end
     -- ▸ SESSION TOKEN (Unload / Reload). Every long-lived thread asks
     --   spudAlive() and stops when the menu that started it is gone. Bumping
-    --   the global counter is how destroyUI stops ALL of them at once; each
+    --   the counter is how destroyUI stops ALL of them at once; each
     --   build captured its own myGen, so a newer build can never revive an
     --   old loop. Before this, Unload left the milk loop, the delivery loop,
     --   the webhook pump, the 15-min field scan and the FPS meter running with
     --   no UI, and every reload added another copy of each.
-    spudGen = (spudGen or 0) + 1
-    local myGen = spudGen
+    -- ▸ THE COUNTER LIVES IN THE SHARED ENV, NOT IN A BARE GLOBAL (live
+    --   2026-11-03: TWO builds were running at the same time — one 10 s
+    --   heartbeat stream and one 30 s fps stream PER BUILD, both printing the
+    --   same frozen stage, each passing its own token check). A bare `spudGen`
+    --   is only as shared as the environment the executor ran the file in, and
+    --   an autostarted build and a hand-run one do not necessarily get the
+    --   same one — which is exactly how a second farm loop ended up driving
+    --   alongside the first. getgenv() is the table the executor keeps across
+    --   executions, so the token goes there. `spudEnv` itself may stay a
+    --   per-execution global: it is only a pointer to that shared table.
+    spudEnv = (getgenv and getgenv()) or _G
+    spudEnv.spudGen = (spudEnv.spudGen or 0) + 1
+    local myGen = spudEnv.spudGen
     -- LOCAL on purpose: a reload overwrites the global namespace, and an old
     -- loop that looked the function up by name would find the NEW build's
     -- version (whose token matches) and never stop. Captured lexically, the
-    -- old loop keeps its own check, and the bumped global is what ends it.
-    local function spudAlive() return spudGen == myGen end
+    -- old loop keeps its own check, and the bumped shared counter ends it. The
+    -- guarded read fails CLOSED: a clobbered spudEnv stops every loop rather
+    -- than letting a build that cannot prove it owns the session keep driving.
+    local function spudAlive() return ((spudEnv and spudEnv.spudGen) or 0) == myGen end
 
     do -- a remembered URL must pass the same check as a pasted one (another
        -- script could have written the file; the console is mirrored to it)
@@ -535,8 +548,15 @@ local okBuild, errBuild = pcall(function()
     -- coroutine identity (not just a bool) so a zombie loop can never be
     -- revived by turning the toggle back on for a NEW loop.
     loopThread = nil -- the live farming-loop thread (nil = no loop running)
+    -- ▸ spudAlive() IS PART OF THE ANSWER (live 2026-11-03, two builds at
+    --   once): a superseded build's own `loopThread` still points at its own
+    --   thread, so its body's every `if stopping()` read false and it kept
+    --   driving the tractor beside the new build's loop. The token is the only
+    --   thing that says THIS build still owns the session, and every one of
+    --   the hundreds of stopping() checks in the build now gets it for free.
     stopping = function()
         if not loopThread then return true end
+        if not spudAlive() then return true end
         return coroutine.running() ~= loopThread
     end
 
@@ -8774,11 +8794,19 @@ local okBuild, errBuild = pcall(function()
         -- ▸ HEARTBEAT — the run can no longer go quiet without saying where
         --   it is. NOTE: stopping() is false only on the loop thread itself,
         --   so the watcher uses its own flag.
+        -- ▸ THE TOKEN IS IN THAT FLAG'S CONDITION TOO (live 2026-11-03: two
+        --   builds were printing "still working" about twelve seconds apart,
+        --   both naming the SAME frozen stage). `beat` is only cleared at the
+        --   END of the body below, so a superseded build — or one hung inside
+        --   a call that never returns — prints this line for ever, and two of
+        --   them read as one run that has been spawning the same machine for
+        --   eleven minutes. A build that no longer owns the session has
+        --   nothing to report.
         local beat = true
         task.spawn(function()
-            while beat do
+            while beat and spudAlive() do
                 task.wait(10)
-                if beat then
+                if beat and spudAlive() then
                     log("… still working (" .. runStage .. ")")
                 end
             end
@@ -9096,9 +9124,16 @@ local okBuild, errBuild = pcall(function()
             tostring(milkBatchWanted and milkBatchWanted() or "?"),
             milkStoreAuto and "on" or "off"))
         add("last milk pass: " .. tostring(milkTiming or "not run yet"))
-        add(string.format("webhook: %s · session %s · teleports %s",
+        -- ▸ the session number is the SHARED counter, and the second half of
+        --   the line says whether THIS build owns it. A live build printed two
+        --   heartbeat streams naming one frozen stage, and the only way to see
+        --   that from a report — rather than from logcat timing — is to ask the
+        --   shared table who is in charge and compare it with this closure.
+        add(string.format("webhook: %s · session %s%s · teleports %s",
             hookURL ~= "" and "on" or "off",
-            tostring(spudGen or 0), tostring(spudTeleports or 0)))
+            tostring((spudEnv and spudEnv.spudGen) or 0),
+            spudAlive() and "" or " — GHOST BUILD (a newer one owns the session)",
+            tostring(spudTeleports or 0)))
         add(string.format("you: %s at (%.0f, %.0f, %.0f)%s", LocalPlayer.Name,
             here.X, here.Y, here.Z, char and "" or " — NO CHARACTER"))
         if not char then problem("no character — every distance below is measured from 0,0,0") end
@@ -9318,6 +9353,13 @@ local okBuild, errBuild = pcall(function()
     -- and a milk thread would read it as "stopped" on its very first tick.
     milkThread = nil
     milkStopping = function()
+        -- ▸ the same token rule as stopping() (live 2026-11-03: a superseded
+        --   build's OWN milkThread still pointed at its OWN thread, so its
+        --   every milkStopping() read false and it kept herding and milking
+        --   beside the build that actually owns the session). The thread id
+        --   says whose loop this is; only the token says whether this build is
+        --   still the one the menu started.
+        if not spudAlive() then return true end
         -- the automatic delivery runs in its OWN thread: it is not the milk
         -- loop, so it must not read as "stopped" on its first tick
         if milkStoreThread and coroutine.running() == milkStoreThread then
@@ -13763,7 +13805,13 @@ local okBuild, errBuild = pcall(function()
         --   the FPS meter alive with no UI, and every reload stacked another
         --   copy of each (the FPS that kept getting worse). Bumping the
         --   session generation stops every loop this build started.
-        spudGen = (spudGen or 0) + 1
+        -- ▸ the counter is the SHARED one — the same table buildUI wrote on
+        --   entry. Bumping a bare `spudGen` here would end only the loops that
+        --   happen to read this environment's copy, which is what let a ghost
+        --   build keep driving after Unload. The `_G` fallback is so a clobbered
+        --   pointer cannot make Unload itself throw halfway through.
+        local env = spudEnv or _G
+        env.spudGen = (env.spudGen or 0) + 1
         milkThread = nil
         milkStoreAuto = false
         milkStoreThread = nil
