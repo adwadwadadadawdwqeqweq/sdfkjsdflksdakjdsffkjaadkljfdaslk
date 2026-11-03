@@ -1166,6 +1166,27 @@ time the game has named them): `FNCGetOrderProgress`, `FNCAcceptOrder`,
 applies: the arguments are unknown until a probe reads them**, which is what
 `SpudFulfillProbe.lua` was built to answer.
 
+**v1.138 re-read (the owner's `Run all`, 2026-11-03).** `342 found … (3004 nodes
+walked, CAP 3000 REACHED — this list is cut short)`, so the tail past the last
+printed name (`FNCUpdateStructure`) is still unread — honest, and not a blocker,
+because every door the order feature needs is in the printed part **with its
+class now**: `FNCGetOrderProgress (RemoteFunction)`, `FNCGetAvailableBoxes
+(RemoteFunction)` and `FNCAcceptOrder (RemoteFunction)`. That means the new
+probe's `ClassName == "RemoteFunction"` gate will really fire its two getters,
+and that `FNCAcceptOrder` is a function rather than an event — the one door the
+leg refuses to touch. The task/goal family is all present (`EVTCompleteTask`,
+`EVTLoadNewTasks`, `EVTRefillTasks`, `EVTSendTasksToPlayer`, `EVTUpdateTasks`,
+`FNCSelectGoal`), and the deposit/factory doors are named here for the first
+time (`EVTDepositProduce`, `EVTDepositOntoInputStack`, `EVTGrabFromOutputStack`,
+`EVTTakeFromOutputStack`, `EVTHarvesterPipeDump`, `EVTWarehouseDepositAnimation`,
+`EVTTransferCropsFromSilo`, `EVTPullFactoryLever`, `EVTRunFactoryPistons`,
+`EVTJuicery.*`, `EVTSawmill.*`, `EVTSpindle.*`). None is wired (rule 16); that
+list is what the factory question will need next. The same report also says
+`(tool none)` — no implement in `Objects.Equipment` at all right now — and its
+log tail is `milk store: (no trailer or silo found)` five times, so neither the
+sprayer question nor v1.137's liquid-deck sale has anything to read against on
+this client yet.
+
 **Is a tile forceable?** No — and the last candidate is closed too.
 `EVTFieldPacket` is the server telling clients which cells changed: live packets
 are a **4-byte header + 6-byte cell records** (`CellToBuffer` is the 6 bytes; the
@@ -3829,16 +3850,24 @@ check that failed is what pinned it.
 Compile OK, suite **37/37** (34 harnesses + 3 gates), headroom **5** (unchanged —
 the leg is another branch of the existing **global** `spudTestWork`, so its ~15
 new names are locals of that function's own prototype and the build closure never
-sees them), name audit clean **380** (no new top-level name). **Harness green —
-not reloaded in game**, and the whole point is the live report: the four answers
-this build ships without are what §6 now asks. Until **Tests → Company orders**
-has been pressed once, the auto-contract reader stays unbuilt on purpose — the
-alternative is a feature whose order-shape, reward field and grow time are all
-invented.
+sees them), name audit clean **380** (no new top-level name). **Harness green,
+and the build is IN GAME** — the owner's **Copy report** header reads
+`rebuild v1.138`, and **Run all** ran the two read-only probes on it (their
+answers are the v1.138 remote re-read in §3.12, plus a `fieldremotes` leg that
+again carried `(tool none)` because `Objects.Equipment` holds no implement on
+this plot right now). What has **not** happened is the one press this entry
+exists for: **Tests → Company orders** has its own button precisely because it
+breaks the "Run all stays read-only" rule, so the four answers §6 asks are still
+open. Until it is pressed once, the auto-contract reader stays unbuilt on
+purpose — the alternative is a feature whose order-shape, reward field and grow
+time are all invented.
 
 **Where it stands:** `rebuild v1.138 · fluent gui`, whole suite green (37/37),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
-above). **v1.134 was reloaded and driven in MuMu by the assistant** (the
+above). **The client now runs v1.138** — the owner's **Copy report** header reads
+`rebuild v1.138 · fluent gui`, and **Run all** ran on it — so every verdict below
+that was waiting on a *reload* is now waiting on a *run*, not on a load. **v1.134
+was reloaded and driven in MuMu by the assistant** (the
 `[spud]` logcat quoted through §5 is that session), and what it showed is *not*
 the weld verdict: the run never reached a field pass — it died on
 `no card for ChallengerMT9` and on ten seed rounds against 2,300 cells — so
@@ -3855,9 +3884,13 @@ loses the line-up now says so with the client's own count — `tool HorschJoker 
 no hitch point (308 instance(s) read)` — which is exactly v1.135's rule-7 line, and
 it names a build whose ride answered `tractor=none` in the previous session. Still
 **unobserved** from that entry: `seed default: Tomato`, the `All`-tab card rescue,
-`lined up … (the game's socket)`, and a bounded seed round; and **v1.136 has not
-been reloaded** either, so its single-heartbeat and DOCTOR `session N` verdicts are
-still open. **v1.129 was reloaded in game and crashed** (the ordering bug above);
+`lined up … (the game's socket)`, and a bounded seed round. v1.136 and v1.137 are
+now **in the client** too (the report header is v1.138), but neither verdict is
+in it: a 60-line tail cannot tell one heartbeat stream from two, and its milk
+lines are `milk store: (no trailer or silo found)` five times over — so v1.137's
+liquid-deck sale has no carrier to drain yet, which is the same reason the
+`fieldremotes` leg reads `(tool none)`: this plot currently has no implement in
+`Objects.Equipment` either. **v1.129 was reloaded in game and crashed** (the ordering bug above);
 **v1.130 fixed that and was run in game** — the owner's console opens
 `rebuild v1.130`, gets past `— seed check —` into the field, and never prints
 `⚠ farming loop error`, so the crash verdict is closed. What that same run
