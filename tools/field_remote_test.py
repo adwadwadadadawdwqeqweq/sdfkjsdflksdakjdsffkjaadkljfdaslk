@@ -42,6 +42,9 @@ WANTED = [
     "spudFieldRemotePass",
     "spudFillSeederRemote",
     "spudHarvestFull",
+    "spudToolTrail",
+    "spudWaitTool",
+    "spudToolExtraTiles",
 ]
 
 PRE = r"""
@@ -85,6 +88,10 @@ function require(x) return x end
 grownStage = function(s) return s == "Grown" end
 spudFieldRemoteState = { kit = nil, off = {} }
 spudFieldReach = 24
+-- the tow-settle gate's own numbers (a stubbed blade moves with the ride, so
+-- every hop reads as already settled and the existing counts stay valid)
+spudToolSwing = 3
+spudToolFar = 90
 
 -- ▸ vectors/CFrames for the hop fixtures (cellsAtStage + spudHopCells)
 local V = {}
@@ -613,7 +620,7 @@ check("radial: one teleport per stop, no tween", rides - rj0 == 2,
 check("radial: a full seeder means not dry", dryR == false, tostring(dryR))
 check("radial: the log says what it did",
     loggedText():find("from 2 stop") ~= nil
-        and loggedText():find("9 per stop") ~= nil)
+        and loggedText():find("3x3 per stop") ~= nil)
 
 -- a seeder can only fire as many calls as it holds seeds
 capVal.Value = 4
@@ -784,6 +791,96 @@ resetCells()
 mode.atCell = false
 acceptR = 2
 
+-- 14. THE TOW SETTLES BEFORE THE NEXT JUMP (owner 2026-11-02: "when it tp's the
+--     tools make the whole thing glitch and it falls out the map, make it wait
+--     for the tool to be behind the tractor before tping again")
+check("settle: no readable tool is nothing to wait for",
+    (spudWaitTool(hopRide, nil, "seed")) == "none")
+RIDE_POS = Vector3.new(0, 0, 0)
+ATTPARENT.Position = Vector3.new(0, 0, -5)
+check("settle: a tool parked behind the ride is settled",
+    (spudWaitTool(hopRide, hopAtt, "seed")) == "settled")
+ATTPARENT.Position = Vector3.new(300, 0, 0)
+local farHow, farDist = spudWaitTool(hopRide, hopAtt, "seed")
+check("settle: a tool 300 studs off the hitch is FLUNG, not towed",
+    farHow == "far" and farDist > 90, tostring(farHow) .. " " .. tostring(farDist))
+
+-- a blade that keeps moving never settles: the wait is bounded, and the verdict
+-- is "swinging" so the caller logs it instead of teleporting forever
+local OSC = 0
+local oscRide = {}
+function oscRide:GetPivot() return setmetatable({ Position = RIDE_POS }, CF) end
+function oscRide:PivotTo(cf) RIDE_POS = cf.pos end
+RIDE_POS = Vector3.new(0, 0, 0)
+ATTPARENT.Position = Vector3.new(12, 0, 0)
+local realWait = task.wait
+task.wait = function(_)
+    OSC = OSC + 1
+    -- the pendulum: a different spot on every beat, so it never settles
+    ATTPARENT.Position = Vector3.new(OSC % 2 == 0 and 12 or 28, 0, 0)
+    return realWait(_)
+end
+local swingHow, swingDist = spudWaitTool(oscRide, hopAtt, "seed")
+task.wait = realWait
+check("settle: a swinging tool is named, and the wait is bounded",
+    swingHow == "swinging" and OSC == 30,
+    tostring(swingHow) .. " after " .. OSC .. " beat(s) at " .. tostring(swingDist))
+
+-- the grid stops rather than dragging a flung implement across the map
+acceptR = 60
+mode.seed = "all"
+mode.atCell = false
+spudBatchRemotes = false
+sweepGrid()
+RIDE_POS = Vector3.new(0, 0, 0)
+ATTPARENT.Position = Vector3.new(400, 0, 0)   -- not on the hitch any more
+local gridRides = rides
+resetState()
+local gj0 = seedRemote.invokeCalls
+local tookFar = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+check("flung tool: the grid fires nothing and stops",
+    seedRemote.invokeCalls - gj0 == 0 and rides == gridRides,
+    (seedRemote.invokeCalls - gj0) .. " call(s), " .. (rides - gridRides) .. " jump(s)")
+check("flung tool: the pass says the implement is off the hitch",
+    loggedText():find("not on the hitch any more") ~= nil)
+
+-- 15. BIGGER TOOL, BIGGER BURST (owner: "if the tool is bigger cant the burst
+--     things also be bigger?") — the extra is the implement's OWN width past one
+--     tile; unreadable parts must give 0 and keep the measured 3x3 / 24 studs
+SpudFarm = {
+    partBoxes = function() return { { x = 0, z = 0, sx = 40, sy = 1, sz = 10,
+        r = { 1, 0, 0 }, u = { 0, 1, 0 }, l = { 0, 0, 1 } } } end,
+    widthFromParts = function(parts, step)
+        return (step and step.X and step.X > 0) and 40 or 10
+    end,
+    widthTiles = function(w) return math.ceil(w / 10) end,
+}
+check("wide tool: the extra tiles are the width past one",
+    spudToolExtraTiles(tool) == 3, tostring(spudToolExtraTiles(tool)))
+check("no tool at all adds no reach", spudToolExtraTiles(nil) == 0)
+SpudFarm.partBoxes = function() error("no such API") end
+check("a build that will not answer keeps the measured 3x3",
+    spudToolExtraTiles(tool) == 0, tostring(spudToolExtraTiles(tool)))
+
+SpudFarm = {
+    partBoxes = function() return { { x = 0, z = 0, sx = 40, sy = 1, sz = 10,
+        r = { 1, 0, 0 }, u = { 0, 1, 0 }, l = { 0, 0, 1 } } } end,
+    widthFromParts = function(parts, step)
+        return (step and step.X and step.X > 0) and 40 or 10
+    end,
+    widthTiles = function(w) return math.ceil(w / 10) end,
+}
+RIDE_POS = Vector3.new(80, 0, 80)
+ATTPARENT.Position = RIDE_POS + Vector3.new(0, 0, -5)
+sweepGrid()
+resetState()
+local tookWide = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+check("wide tool: the block grows with the implement",
+    loggedText():find("6x6 per stop") ~= nil,
+    "took " .. tostring(tookWide))
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 """
 
@@ -806,6 +903,20 @@ def main() -> int:
     if not re.search(r"^    spudFieldReach = 24\b", src, re.M):
         print("spudFieldReach is no longer 24 — update this harness")
         return 2
+    for const in ("spudToolSwing = 3", "spudToolFar = 90"):
+        if not re.search(r"^    " + const + r"\b", src, re.M):
+            print("the tow-settle gate no longer declares " + const
+                  + " — update this harness")
+            return 2
+    # the gate has to sit BEFORE each teleport, not after it
+    for fn in ("spudRadialFire", "spudHopCells"):
+        body = extract(src, fn)
+        if "spudWaitTool(ride, att" not in body:
+            print(fn + " teleports without waiting for the tow to settle")
+            return 2
+        if body.index("spudWaitTool(ride, att") > body.index(":PivotTo("):
+            print(fn + " waits for the tow only AFTER its first PivotTo")
+            return 2
     parts = []
     for name in WANTED:
         code = extract(src, name)

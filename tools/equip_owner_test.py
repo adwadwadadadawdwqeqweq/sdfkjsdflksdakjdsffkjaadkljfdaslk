@@ -1,11 +1,24 @@
-"""Whose tractor/tool does a farming pass use? (equipOwnerRank)
+"""Whose tractor/tool does a farming pass use, and HOW does it know what a
+machine is? (equipOwnerRank + the game's own EquipmentType word)
 
-The sweep found the NEAREST machine in Objects.Equipment, whoever owned it.
-Working another account's field therefore grabbed that account's tractor only
-by luck - a nearer stranger's ZM80 won. The probe proved every machine carries
-Configurations.Owner (ZM80/SRC6 = oksimba_1, LH150/MTS/UH = Miou2251), so the
-pick is now the selected farm owner's machine first, an unowned/unreadable
-machine second, and another account's machine never.
+Two rules are pinned here.
+
+WHOSE: the sweep used to take the NEAREST machine in Objects.Equipment, whoever
+owned it, so working another account's field borrowed that account's tractor
+whenever a stranger's happened to be closer. Every machine carries
+Configurations.Owner, so the pick is the selected farm owner's machine first,
+an unowned/unreadable machine second, and another account's machine never.
+
+WHAT: the pick used to be a table of MODEL NAMES (Cultivator="KQF3000",
+Planter="KADL", HARVEST={SRC6}) that won outright, so a machine the game itself
+tags "Harvester" but names JDS790 - or a Planter named anything new - lost to
+an old one every time. Owner 2026-11-02: "make it use the games build in
+scripts to know what is a harvester and what is what". The game's own
+EquipmentType WORD (matched by stem) is the key now; a driver seat plus
+Components.Hitchable is the structural answer when the build ships no word at
+all, and a model name is only the last resort. A hauler or a harvester is never
+pressed into being the tractor, and a refusal names the type words the world
+actually holds.
 
     python tools/equip_owner_test.py [path-to-luau.exe]
 """
@@ -26,10 +39,20 @@ WANTED = [
     "milkStoreOwnerOf",
     "equipTypeOf",
     "equipInStorage",
+    "spudEquipTypeKey",
+    "spudEquipIs",
+    "spudEquipSeat",
+    "spudEquipTows",
+    "spudEquipHereText",
     "equipOwnerRank",
     "findTractor",
     "findImplement",
 ]
+
+# the real stem tables, read out of the build rather than re-typed here, so a
+# quieter word list in the script fails this harness instead of hiding in it
+TABLES = ["HARVEST_STEMS", "TRACTOR_STEMS", "HAULER_STEMS", "TOOL_STEMS",
+          "TYPE_STEMS", "TYPE_MODEL"]
 
 PRE = r"""
 local V = {}
@@ -98,8 +121,9 @@ local function node(name, parent, cls)
 end
 
 -- a machine the way the live build exposes it: EquipmentType/InStorage
--- attributes, a Configurations.Owner tag, a painted name and one seat
-local function machine(name, etype, x, owner, stored)
+-- attributes, a Configurations.Owner tag, a painted name, one seat and (for a
+-- ride) the captured Components.Hitchable the game builds onto a tractor
+local function machine(name, etype, x, owner, stored, hitch)
     local m = node(name, nil, "Model")
     m._attrs = { EquipmentType = etype, InStorage = stored == true }
     m._pos = vec(x, 0, 0)
@@ -109,6 +133,10 @@ local function machine(name, etype, x, owner, stored)
     if owner then
         local o = node("Owner", conf, "ObjectValue")
         o.Value = { Name = owner }
+    end
+    if hitch then
+        local comp = node("Components", m)
+        node("Hitchable", comp, "Attachment")
     end
     return m
 end
@@ -137,6 +165,12 @@ function equipmentFolder()
     local objects = WORKSPACE:FindFirstChild("Objects")
     return objects and objects:FindFirstChild("Equipment")
 end
+
+-- the build closure's log; the loose-tractor line is the proof the structural
+-- path ran, so keep the last message readable from POST
+local LOGS = {}
+function log(msg) LOGS[#LOGS + 1] = tostring(msg) end
+function lastLog() return LOGS[#LOGS] end
 """
 
 POST = r"""
@@ -217,7 +251,8 @@ check("implement: mine wins over a nearer stranger's",
     impl and impl._pos.X == 100, impl and ("x=" .. impl._pos.X .. " via " .. tostring(basis)) or "none")
 check("implement: the distance returned is the real one", math.abs((dist or -1) - 100) < 0.01,
     tostring(dist))
-check("implement: the basis still names the model", basis == "model name KQF3000", tostring(basis))
+check("implement: the basis names the WORD the game wrote, not the model",
+    basis == "EquipmentType Cultivator", tostring(basis))
 
 world({ machine("KQF3000", "Cultivator", 1, "bob") })
 impl = findImplement("Cultivator", vec(0, 0, 0), nil)
@@ -232,8 +267,8 @@ check("implement: the picked farm gets its own tool", impl and impl._pos.X == 1,
 
 world({ machine("GENERIC", "Cultivator", 50, "simba") })
 impl, dist, basis = findImplement("Cultivator", vec(0, 0, 0), nil)
-check("implement: EquipmentType fallback still works", impl ~= nil and basis == "EquipmentType",
-    tostring(basis))
+check("implement: an unknown model name still works off the type alone",
+    impl ~= nil and basis == "EquipmentType Cultivator", tostring(basis))
 
 world({ machine("KQF3000", "Cultivator", 5, "simba", true) })
 impl = findImplement("Cultivator", vec(0, 0, 0), nil)
@@ -244,6 +279,78 @@ check("implement: the respawn check can still see it", impl ~= nil and impl._pos
 world({ machine("KQF3000", "Cultivator", 5, nil) })
 impl = findImplement("Cultivator", vec(0, 0, 0), nil)
 check("implement: an unreadable owner is still usable", impl ~= nil and impl._pos.X == 5)
+
+-- ── 4. the game's own WORD decides what a machine is ───────────────────────
+world({})
+local jd = machine("JDS790", "Harvester", 10, "simba")
+check("word: a brand-new harvester model name is still a harvester",
+    spudEquipIs(jd, HARVEST_STEMS) == true, tostring(spudEquipTypeKey(jd)))
+local odd = machine("Weird Thing", "  Skid-Steer ", 20, "simba")
+check("word: case and punctuation are stripped, never guessed around",
+    spudEquipTypeKey(odd) == "skidsteer", tostring(spudEquipTypeKey(odd)))
+check("word: a machine with no attribute has no key at all",
+    spudEquipTypeKey(machine("X", nil, 30, "simba")) == nil)
+check("word: an empty word is no key (unreadable is not a type)",
+    spudEquipTypeKey(machine("Y", "   ", 40, "simba")) == nil)
+
+world({ machine("KADL", "Cultivator", 1, "simba"),
+        machine("PDRILL22", "Planter", 100, "simba") })
+impl = findImplement("Planter", vec(0, 0, 0), nil)
+check("implement: the game's word beats the script's old name table",
+    impl ~= nil and impl.Name == "PDRILL22", impl and impl.Name or "none")
+
+world({ machine("KADL", nil, 40, "simba") })
+impl, dist, basis = findImplement("Planter", vec(0, 0, 0), nil)
+check("implement: a build with NO attribute still falls back to the model name",
+    impl ~= nil and basis == "model name KADL", tostring(basis))
+
+world({ machine("OLDKADL", nil, 5, "simba") })
+impl = findImplement("Planter", vec(0, 0, 0), nil)
+check("implement: a name-matched tool is never invented for a new type", impl == nil)
+
+-- ── 5. a ride the game does not call a Tractor is still a ride ─────────────
+world({ machine("BIGBEAR", nil, 5, "simba", false, true) })
+tr = findTractor()
+check("tractor: a seat plus a Hitchable makes it a ride with no type word",
+    tr ~= nil and tr.Name == "BIGBEAR", tr and tr.Name or "none")
+check("tractor: taking the structural ride is said out loud",
+    lastLog() ~= nil and lastLog():find("driver seat and a Hitchable") ~= nil, tostring(lastLog()))
+
+world({ machine("BIGBEAR", nil, 5, "simba", false, true),
+        machine("ZM80", "Tractor", 100, "simba") })
+tr = findTractor()
+check("tractor: a machine the game CALLS a Tractor outranks the structural one",
+    tr and tr._pos.X == 100, tr and ("x=" .. tr._pos.X) or "none")
+
+world({ machine("HAYHaul", "Truck", 5, "simba", false, true) })
+tr = findTractor()
+check("tractor: a hauler with a seat and a hitch is never the ride", tr == nil,
+    tr and tr.Name or "none")
+
+world({ machine("SRC6", "Harvester", 5, "simba", false, true) })
+tr = findTractor()
+check("tractor: a harvester is not pressed into being the tractor", tr == nil,
+    tr and tr.Name or "none")
+
+world({ machine("KQF3000", "Cultivator", 5, "simba", false, true) })
+tr = findTractor()
+check("tractor: a tool is never the ride", tr == nil, tr and tr.Name or "none")
+
+world({ machine("SEATONLY", nil, 5, "simba", false, false) })
+tr = findTractor()
+check("tractor: a seat with no hitch is not a tractor either", tr == nil,
+    tr and tr.Name or "none")
+
+-- ── 6. a refusal names the world it looked in ──────────────────────────────
+world({ machine("JDS790", "Harvester", 5, "simba"),
+        machine("MTS12", nil, 9, "simba", true) })
+local here = spudEquipHereText()
+check("here: the list carries the real type words and the stored flag",
+    here:find("JDS790=Harvester", 1, false) ~= nil
+    and here:find("MTS12=no type %(stored%)", 1, false) ~= nil, here)
+world({})
+check("here: an empty world says so instead of returning nothing",
+    spudEquipHereText():find("no machine readable") ~= nil, spudEquipHereText())
 
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 """
@@ -263,6 +370,23 @@ def extract(text: str, name: str) -> str:
     return dedent(block)
 
 
+def extract_table(text: str, name: str) -> str:
+    """The real `local NAME = { ... }` block, braces counted, so the harness
+    runs the build's own word lists instead of a copy that can drift."""
+    m = re.search(r"^    local " + name + r" = \{", text, re.M)
+    if not m:
+        return ""
+    depth, i = 0, text.index("{", m.start())
+    for j in range(i, len(text)):
+        if text[j] == "{":
+            depth += 1
+        elif text[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return dedent(text[m.start():text.index("\n", j)])
+    return ""
+
+
 def module(text: str) -> str:
     a, b = text.find(START), text.find(END)
     if a < 0 or b <= a:
@@ -279,6 +403,12 @@ def main() -> int:
     if not mod:
         print("missing SPUD FARM MODULE markers in SpudFarm_Full.lua")
         return 2
+    for name in TABLES:
+        code = extract_table(src, name)
+        if not code:
+            print("missing local " + name)
+            return 2
+        parts.append(code)
     for name in WANTED:
         code = extract(src, name)
         if not code:

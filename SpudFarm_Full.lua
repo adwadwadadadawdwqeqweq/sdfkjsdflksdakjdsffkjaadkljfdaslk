@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.128 · fluent gui"
+local VERSION    = "rebuild v1.129 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -562,11 +562,23 @@ local okBuild, errBuild = pcall(function()
     --   steers itself off the row; a full tank never sells). The dump's own
     --   model name and the caller's intent are fallbacks, and the first
     --   decision is logged so one line says which one matched.
-    -- ▸ WHAT IS A MACHINE? The equip probe settled it: EVERY model in
-    --   Objects.Equipment carries an EquipmentType attribute (Tractor /
-    --   Harvester / Plow / Planter / Cultivator / Transport / Truck), so the
-    --   game's own word is the answer and a model NAME is only a fallback for
-    --   the rare server that ships no attribute.
+    -- ▸ WHAT IS A MACHINE? The game says so on the model itself, and since
+    --   v1.129 that is the only thing the pick reads (owner: "it's not detecting
+    --   my new harvesters and tractors, make it use the games build in scripts to
+    --   know what is a harvester and what is what"). Three sources, all the
+    --   game's own:
+    --     · the EquipmentType attribute — the live DOCTOR dump reads it on every
+    --       model in Objects.Equipment (ZM80=Tractor, JDS790=Harvester,
+    --       KADL=Planter, KQF3000=Cultivator, S4204=Plow, R150=Truck,
+    --       Trailer=Transport), so the WORD the game wrote is the answer and it
+    --       is matched by stem, not by one exact spelling learned from one dump
+    --       ("Forage Harvester" and "Combine Harvester" both answer to harvest);
+    --     · a driver seat — a VehicleSeat/Seat descendant is the game's own
+    --       "you can drive this";
+    --     · the hitch pair the capture proved — Components.Hitchable on the ride
+    --       that pulls, Chassis.HitchableSocket on the tool it tows.
+    --   A model NAME is only a last resort for a build that ships no attribute,
+    --   and it can never veto what the game itself says a machine is.
     --   ▸ InStorage=true means parked in the garage: no seat, no live position,
     --   hitching to it fails — so lookups skip it and SAY how many were
     --   skipped instead of silently deciding there is no tractor.
@@ -580,6 +592,65 @@ local okBuild, errBuild = pcall(function()
     function equipInStorage(m)
         local ok, v = pcall(function() return m:GetAttribute("InStorage") end)
         return ok and v == true
+    end
+
+    -- the game's own type word for a machine, lowercased and with everything that
+    -- is not a letter out, so "Forage Harvester" and "Harvester" are one key.
+    -- nil means this build put no EquipmentType on the model at all.
+    function spudEquipTypeKey(m)
+        local t = equipTypeOf(m)
+        if t == nil then return nil end
+        local s = tostring(t):lower():gsub("[^%a]", "")
+        if s == "" then return nil end
+        return s
+    end
+
+    -- does the word the GAME wrote for this machine contain any of these stems?
+    -- A table of stems, because every job has more than one spelling that means
+    -- the same thing, and a build that renames a machine still says what it does.
+    function spudEquipIs(m, stems)
+        local k = spudEquipTypeKey(m)
+        if not k or type(stems) ~= "table" then return false end
+        for _, stem in ipairs(stems) do
+            if k:find(stem, 1, true) then return true end
+        end
+        return false
+    end
+
+    -- the game's own "you can drive this": its seat, wherever it built it
+    function spudEquipSeat(m)
+        local ok, s = pcall(function()
+            return m:FindFirstChildWhichIsA("VehicleSeat", true)
+                or m:FindFirstChildWhichIsA("Seat", true)
+        end)
+        return (ok and s) or nil
+    end
+
+    -- the game's own "this pulls implements" — the exact instance the captured
+    -- FNCAttemptHitch takes as its first argument (ride.Components.Hitchable)
+    function spudEquipTows(m)
+        local ok, h = pcall(function()
+            local c = m:FindFirstChild("Components")
+            return c and c:FindFirstChild("Hitchable") or nil
+        end)
+        return ok and h ~= nil
+    end
+
+    -- what the world actually holds, for an honest "none found" line: the next
+    -- run names the game's own type words instead of this build guessing them
+    function spudEquipHereText()
+        local folder = equipmentFolder()
+        local out, shown = {}, 0
+        for _, d in ipairs(folder and folder:GetChildren() or {}) do
+            if d:IsA("Model") and shown < 8 then
+                shown += 1
+                local t = equipTypeOf(d)
+                out[#out + 1] = d.Name .. "=" .. tostring(t ~= nil and t or "no type")
+                    .. (equipInStorage(d) and " (stored)" or "")
+            end
+        end
+        if #out == 0 then return "no machine readable in Objects.Equipment" end
+        return table.concat(out, ", ")
     end
 
     -- ▸ WHOSE TOOL (user: "make it use the farm owners tools"): the probe
@@ -601,7 +672,14 @@ local okBuild, errBuild = pcall(function()
     end
 
     -- ── harvest detection stays separate from the owner rank
-    local HARVEST_MODEL_NAMES = { SRC6 = true }
+    -- ▸ the game's own type WORDS, matched as stems (v1.129). A machine named
+    --   anything still says what it does in EquipmentType, and a build that
+    --   renames "Harvester" to "Forage Harvester" keeps answering to "harvest".
+    local HARVEST_STEMS = { "harvest", "combine", "forage" }
+    local TRACTOR_STEMS = { "tractor" }
+    local HAULER_STEMS = { "truck", "transport", "trailer", "hauler", "cart" }
+    local TOOL_STEMS = { "plow", "plough", "cultivat", "plant", "seed", "drill",
+        "sower", "spray", "sprinkler", "irrig", "mower", "baler", "tine", "harrow" }
     local harvestDetectLogged = false
     local function isHarvester(tr, impl)
         if not tr then return false end
@@ -610,18 +688,20 @@ local okBuild, errBuild = pcall(function()
         if impl and impl == tr then
             how = "this pass drives the tool itself"
         else
-            local okT, etype = pcall(function() return tr:GetAttribute("EquipmentType") end)
-            if okT and etype ~= nil then
-                -- ▸ THE ATTRIBUTE IS THE ANSWER, EVEN WHEN IT SAYS NO. The old
-                --   chain fell through to the name table whenever the value
-                --   wasn't "Harvester", and that table listed ZM80 — the
-                --   TRACTOR (dump: ZM80=Tractor, SRC6=Harvester). So every
-                --   tractor route ran on the harvester's PivotTo tween: the
-                --   align mover was never started, nothing followed the A*
-                --   line, and the tractor (with the plow towed behind it)
-                --   was swept straight through gear and barns.
-                if etype == "Harvester" then how = "EquipmentType attribute" end
-            elseif HARVEST_MODEL_NAMES[tostring(tr.Name)] then
+            -- ▸ THE GAME'S WORD IS THE ANSWER, EVEN WHEN IT SAYS NO. The old
+            --   chain fell through to a name table whenever the value wasn't the
+            --   exact string "Harvester", and that table listed ZM80 — the
+            --   TRACTOR (dump: ZM80=Tractor, SRC6=Harvester). So every
+            --   tractor route ran on the harvester's PivotTo tween: the
+            --   align mover was never started, nothing followed the A*
+            --   line, and the tractor (with the plow towed behind it)
+            --   was swept straight through gear and barns.
+            local key = spudEquipTypeKey(tr)
+            if key ~= nil then
+                if spudEquipIs(tr, HARVEST_STEMS) then
+                    how = "EquipmentType " .. tostring(equipTypeOf(tr))
+                end
+            elseif tr.Name == "SRC6" then
                 -- attribute missing entirely — fall back to the dump's model
                 how = "model name " .. tostring(tr.Name)
             end
@@ -692,24 +772,35 @@ local okBuild, errBuild = pcall(function()
         local objects = workspace:FindFirstChild("Objects")
         local folder = objects and objects:FindFirstChild("Equipment")
         local list = folder and folder:GetChildren() or workspace:GetDescendants()
-        local function scan(tier)
+        local function scan(tier, loose)
             local best, bestDist, bestSeat, stashed, stashedModel = nil, nil, nil, 0, nil
             for _, d in ipairs(list) do
                 if d:IsA("Model") then
                     local etype = equipTypeOf(d)
-                    -- attribute first (probe: ZM80=Tractor); name only when the
-                    -- attribute is missing entirely, never as a veto
-                    local isTractor = (etype == "Tractor")
-                    if not isTractor and etype == nil then
-                        isTractor = d.Name:lower():find("zm80", 1, true) ~= nil
+                    -- the game's own word first (live: ZM80=Tractor, and a new
+                    -- machine says what it is too); a model name only when this
+                    -- build ships no attribute at all — never a veto
+                    local isIt = spudEquipIs(d, TRACTOR_STEMS)
+                    if not isIt and etype == nil then
+                        isIt = d.Name:lower():find("zm80", 1, true) ~= nil
                     end
-                    if isTractor and equipOwnerRank(d) == tier then
+                    if not isIt and loose and not equipInStorage(d) then
+                        -- nothing the game calls a Tractor is out at this rank, so
+                        -- ask the game's STRUCTURE instead: a machine it built with
+                        -- a driver seat AND a Hitchable pulls implements, whatever
+                        -- it is named. Haulers and harvesters are excluded by the
+                        -- game's own word.
+                        isIt = spudEquipSeat(d) ~= nil and spudEquipTows(d)
+                            and not spudEquipIs(d, HAULER_STEMS)
+                            and not spudEquipIs(d, HARVEST_STEMS)
+                            and not spudEquipIs(d, TOOL_STEMS)
+                    end
+                    if isIt and equipOwnerRank(d) == tier then
                         if equipInStorage(d) then
                             stashed += 1
                             stashedModel = stashedModel or d -- for auto-spawn
                         else
-                            local seat = d:FindFirstChildWhichIsA("VehicleSeat", true)
-                                or d:FindFirstChildWhichIsA("Seat", true)
+                            local seat = spudEquipSeat(d)
                             if seat and hrp then
                                 local dist = (seat.Position - hrp.Position).Magnitude
                                 if not bestDist or dist < bestDist then
@@ -725,7 +816,14 @@ local okBuild, errBuild = pcall(function()
         -- the farm being worked first, then my own machines, then an
         -- unreadable owner. Another account's is never returned.
         for tier = 0, 2 do
-            local best, bestDist, bestSeat, stashedModel, stashed = scan(tier)
+            local best, bestDist, bestSeat, stashedModel, stashed = scan(tier, false)
+            if not best and not stashedModel then
+                best, bestDist, bestSeat, stashedModel, stashed = scan(tier, true)
+                if best then
+                    log(string.format("tractor: no machine the game calls a Tractor is out — using %s (%s), which the game gives a driver seat and a Hitchable",
+                        best.Name, tostring(equipTypeOf(best) or "no EquipmentType")))
+                end
+            end
             if best or stashedModel then
                 return best, bestDist, bestSeat, stashedModel, stashed
             end
@@ -779,19 +877,31 @@ local okBuild, errBuild = pcall(function()
           remote = "unknown (the harvest event isn't in the dumps)" },
     }
 
-    -- dump-named MODEL per type — user-corrected live: the KQF3000 (the
-    -- yellow disc bar in the user's screenshot) IS THE CULTIVATOR; the
-    -- dump's labels were swapped (KADL carries the "Fill Seeder" GUI =
-    -- it's the SEEDER — both the raw EquipmentType match and a KADL name
-    -- preference kept hitching it). The name match wins outright; the
-    -- type attribute is only a fallback, and the wrong-tool guards in
-    -- runPass still catch a neighbor grab. Returns impl, dist, basis.
+    -- ▸ THE GAME'S OWN WORD PER JOB (owner 2026-11-02: "it's not detecting my new
+    --   harvesters and tractors, make it use the games build in scripts to know
+    --   what is a harvester and what is what"). This used to be a table of MODEL
+    --   NAMES (Cultivator="KQF3000", Planter="KADL") that won outright, so a
+    --   machine the game itself tags "Cultivator" but names something new lost to
+    --   an old one every time — and the old one is what the run then respawned and
+    --   hitched. The EquipmentType word the game wrote is the key now; a model
+    --   name is only the last resort for a build with no attribute at all.
+    local TYPE_STEMS = {
+        Plow = { "plow", "plough" },
+        Cultivator = { "cultivat", "tine", "harrow" },
+        Planter = { "plant", "seed", "drill", "sower" },
+        Harvester = HARVEST_STEMS,
+    }
     local TYPE_MODEL = { Cultivator = "KQF3000", Planter = "KADL" }
     local function findImplement(typeName, nearPos, tractorModel, includeStored)
         local folder = equipmentFolder()
+        local stems = TYPE_STEMS[typeName] or { tostring(typeName):lower() }
         local wantName = TYPE_MODEL[typeName]
+        local function matches(d)
+            if spudEquipTypeKey(d) ~= nil then return spudEquipIs(d, stems) end
+            return wantName ~= nil and d.Name == wantName
+        end
         local function scan(tier)
-            local byName, nameDist, byType, typeDist
+            local best, bestDist
             for _, d in ipairs(folder and folder:GetChildren() or {}) do
                 -- a stored implement sits in the garage with no live hitch: towing
                 -- it is impossible, so it is never a drive/hitch candidate (probe:
@@ -799,26 +909,25 @@ local okBuild, errBuild = pcall(function()
                 -- check can SEE the parked one and bring it out.
                 if d:IsA("Model") and d ~= tractorModel
                     and (includeStored or not equipInStorage(d))
-                    and equipOwnerRank(d) == tier then
+                    and equipOwnerRank(d) == tier and matches(d) then
                     local dist = (d:GetPivot().Position - nearPos).Magnitude
-                    if wantName and d.Name == wantName then
-                        if not nameDist or dist < nameDist then
-                            byName, nameDist = d, dist
-                        end
-                    elseif d:GetAttribute("EquipmentType") == typeName then
-                        if not typeDist or dist < typeDist then
-                            byType, typeDist = d, dist
-                        end
+                    if not bestDist or dist < bestDist then
+                        best, bestDist = d, dist
                     end
                 end
             end
-            return byName, nameDist, byType, typeDist
+            return best, bestDist
         end
         -- same owner rule as the tractor
         for tier = 0, 2 do
-            local byName, nameDist, byType, typeDist = scan(tier)
-            if byName then return byName, nameDist, "model name " .. wantName end
-            if byType then return byType, typeDist, "EquipmentType" end
+            local best, bestDist = scan(tier)
+            if best then
+                -- the basis names WHICH rule won, so a live run can tell an
+                -- attribute match from the last-resort model name
+                local w = equipTypeOf(best)
+                return best, bestDist,
+                    (w ~= nil and "EquipmentType " or "model name ") .. tostring(w or best.Name)
+            end
         end
         return nil
     end
@@ -1326,7 +1435,7 @@ local okBuild, errBuild = pcall(function()
             findImplement(typeName, tr:GetPivot().Position, tr, true)
         if not impl then
             log("no " .. typeName .. " for " .. (farmOwnerPick or "you")
-                .. " found — the owner tags in the equipment list above show what is here")
+                .. " found — this world holds: " .. spudEquipHereText())
             return nil
         end
         local stored = impl:GetAttribute("InStorage")
@@ -2583,6 +2692,26 @@ local okBuild, errBuild = pcall(function()
     --   runs): the blade 20 studs to the side of a cell takes it, 30 refuses,
     --   and any height up to +80 is free — so the band is ~2 tiles sideways.
     spudFieldReach = 24
+    -- ▸ BIGGER TOOL, BIGGER BURST (owner 2026-11-02: "if the tool is bigger
+    --   cant the burst things also be bigger?"). That 24 is the band around the
+    --   BLADE, and a one-tile plow puts its blade at one point — so the grid got
+    --   3x3 cells a stop and the corner pass got 24 studs. A wide implement
+    --   already covers several tiles of ground wherever it sits, so every cell
+    --   within 20 studs of the nearest edge of that footprint is inside the SAME
+    --   measured rule; the tool is simply reaching farther. The extra is the
+    --   implement's own width past one tile, and both the burst block and the
+    --   corner reach grow by it. Unreadable parts give 0 extra, which is exactly
+    --   the old 3x3 and 24 studs — never a bigger guess.
+    function spudToolExtraTiles(impl)
+        if impl == nil then return 0 end
+        local ok, tiles = pcall(function()
+            local boxes = SpudFarm.partBoxes(impl)
+            return math.max(SpudFarm.widthFromParts(boxes, Vector3.new(1, 0, 0)),
+                SpudFarm.widthFromParts(boxes, Vector3.new(0, 0, 1)))
+        end)
+        if not ok or not tiles or tiles <= 0 then return 0 end
+        return math.clamp(SpudFarm.widthTiles(tiles) - 1, 0, 6)
+    end
     -- ▸ TESTS · the captured shape is a LIST of one id ({1=129}), so the server
     --   may loop the list. With this on, a field job first fires ONE call
     --   carrying every remaining id; the stage re-read is the only proof, and
@@ -2763,6 +2892,54 @@ local okBuild, errBuild = pcall(function()
         return ok
     end
 
+    -- ▸ THE TOW IS A PENDULUM (owner 2026-11-02: "when it tp's the tools make
+    --   the whole thing glitch and it falls out the map, make it wait for the
+    --   tool to be behind the tractor before tping again"). Every field pass is
+    --   a chain of ride teleports and the towed implement is never moved by one
+    --   of them — it is dragged by its own Constraint, so a second jump while it
+    --   is still catching up adds to its velocity instead of replacing it. Two
+    --   jumps in a row on a swinging tool is what throws it through the ground.
+    --   The signal is the tool's own motion, not a guessed sleep: two reads 50 ms
+    --   apart that land within spudToolSwing studs of each other mean it has
+    --   stopped, and only then is the next jump allowed. A tool further than
+    --   spudToolFar from the ride is not being towed any more — it is flung — and
+    --   teleporting again only sends it farther, so the pass stops and says so.
+    --   No readable tool position is NOT "settled fast": it means there is
+    --   nothing here to wait for (an unhitched/self-propelled ride), so the hop
+    --   runs exactly as before.
+    spudToolSwing = 3
+    spudToolFar = 90
+
+    -- the tool's flat distance from the ride plus its own position (nil = unreadable)
+    function spudToolTrail(ride, att)
+        local d = att and att.Parent
+        if not d then return nil end
+        local ok, dist, pos = pcall(function()
+            local bp, rp = d.Position, ride:GetPivot().Position
+            return Vector3.new(bp.X - rp.X, 0, bp.Z - rp.Z).Magnitude, bp
+        end)
+        if ok and dist ~= nil then return dist, pos end
+        return nil
+    end
+
+    -- returns "none" | "far" | "settled" | "swinging" | "stop" and the distance
+    function spudWaitTool(ride, att, who)
+        local dist, pos = spudToolTrail(ride, att)
+        if dist == nil then return "none", nil end
+        if dist > spudToolFar then return "far", dist end
+        for _ = 1, 30 do
+            if stopping() then return "stop", dist end
+            task.wait(0.05)
+            local d, p = spudToolTrail(ride, att)
+            if d == nil then return "gone", nil end
+            if d > spudToolFar then return "far", d end
+            local moved = (Vector3.new(p.X - pos.X, 0, p.Z - pos.Z)).Magnitude
+            if moved <= spudToolSwing then return "settled", d end
+            dist, pos = d, p
+        end
+        return "swinging", dist
+    end
+
     -- fire the game's own call for every cell still needing `job`, then
     -- re-read the field. Returns done, left:
     --   true, 0  = every cell took the call (no block or hop needed)
@@ -2895,7 +3072,8 @@ local okBuild, errBuild = pcall(function()
             local pts = cellsAtStage(field, stage, baseCF, baseSize)
             if not pts then return list, 0 end
             local bx, bz = att.Position.X, att.Position.Z
-            local r2 = spudFieldReach * spudFieldReach
+            local reach = spudFieldReach + spudToolExtraTiles(impl) * 5
+            local r2 = reach * reach
             local keep, dropped = {}, 0
             for _, p in ipairs(pts) do
                 if not p.id then return list, 0 end
@@ -2911,8 +3089,9 @@ local okBuild, errBuild = pcall(function()
         end
         local near, far = reachable(ids)
         if #near == 0 and far > 0 then
-            log(string.format("remote %s: %d cell(s) need it but none is within %d studs of the blade — going straight to the blocks",
-                job.verb, before, spudFieldReach))
+            log(string.format("remote %s: %d cell(s) need it but none is within %d studs of the blade (%d measured + the %s's own width) — going straight to the blocks",
+                job.verb, before, spudFieldReach + spudToolExtraTiles(impl) * 5,
+                spudFieldReach, tostring(impl and impl.Name or "tool")))
             return true, before, false
         end
         for _, id in ipairs(near) do
@@ -3657,7 +3836,8 @@ local okBuild, errBuild = pcall(function()
             local cPart = crate and crate:FindFirstChildWhichIsA("BasePart", true)
             local seeder2 = findImplement("Planter", r2.Position, nil)
             if not seeder2 then
-                log("seeder fill: no seeder (KADL) found — the " .. tostring(seedName)
+                log("seeder fill: no seeder (nothing here the game calls a Planter) found — "
+                    .. spudEquipHereText() .. " — the " .. tostring(seedName)
                     .. " crate is with you; fill the seeder by hand (V)")
                 return true
             end
@@ -4332,8 +4512,8 @@ local okBuild, errBuild = pcall(function()
             end
             log("seeder is EMPTY: " .. label .. " — " .. exitIntent)
         elseif not seeder then
-            log("no seeder (Planter/KADL) found — seed state unknown — " ..
-                exitIntent)
+            log("no seeder the game calls a Planter is readable (" .. spudEquipHereText()
+                .. ") — seed state unknown — " .. exitIntent)
         else
             log("seed state unreadable (" .. tostring(basis) ..
                 ") — treating as empty — " .. exitIntent)
@@ -6729,6 +6909,7 @@ local okBuild, errBuild = pcall(function()
             return false
         end
         local fired = 0
+        local swungLogged = false
         for _, c in ipairs(pts) do
             if stopping() then break end
             if c.id then
@@ -6746,13 +6927,26 @@ local okBuild, errBuild = pcall(function()
                 else
                     target = Vector3.new(c.X, c.Y + 2, c.Z)
                 end
+                -- ▸ let the tow catch up BEFORE this jump (owner 2026-11-02: the
+                --   chained teleports were what threw the implement off the map)
+                local howT, trail = spudWaitTool(ride, att, job.verb)
+                if howT == "far" then
+                    log(string.format("remote %s: the %s is %.0f studs from the ride — it is not on the hitch any more, stopping this hop pass instead of dragging it further",
+                        job.verb, tostring(impl and impl.Name or "tool"), trail or 0))
+                    break
+                elseif howT == "swinging" and not swungLogged then
+                    swungLogged = true
+                    log(string.format("remote %s: the %s is still moving %.0f studs behind the ride — waiting 1.5 s per cell is all it will give, taking the jumps",
+                        job.verb, tostring(impl and impl.Name or "tool"), trail or 0))
+                end
                 ride:PivotTo(CFrame.new(target) * rot)
                 local settled = bladeOn(c, 8, 20)
                 if not settled then
                     -- the tool was still swinging: park once more from where it
-                    -- actually is, then give it another second
+                    -- actually is, but only once it has stopped moving
                     local b1 = bladePos()
-                    if b1 then
+                    local again = b1 and spudWaitTool(ride, att, job.verb)
+                    if b1 and (again == "settled" or again == "none" or again == "swinging") then
                         ride:PivotTo(CFrame.new(Vector3.new(c.X, c.Y, c.Z) - (b1 - ride:GetPivot().Position)) * rot)
                         settled = bladeOn(c, 8, 20)
                     end
@@ -6832,22 +7026,26 @@ local okBuild, errBuild = pcall(function()
             table.sort(r.cells, function(a, b) return a.X < b.X end)
         end
         local stops = {}
+        -- ▸ the block is 3x3 for a one-tile tool (the owner's "tp to a spot, do
+        --   the closest 9 areas") and grows with the implement's own width,
+        --   because that width is ground the blade already covers.
+        local side = 3 + spudToolExtraTiles(impl)
         local flip = false
-        for band = 1, #rows, 3 do
+        for band = 1, #rows, side do
             local bandRows = {}
-            for k = band, math.min(band + 2, #rows) do
+            for k = band, math.min(band + side - 1, #rows) do
                 bandRows[#bandRows + 1] = rows[k].cells
             end
             local ncols = 0
             for _, cs in ipairs(bandRows) do
                 if #cs > ncols then ncols = #cs end
             end
-            local chunks = math.max(1, math.ceil(ncols / 3))
+            local chunks = math.max(1, math.ceil(ncols / side))
             for ci = 1, chunks do
                 local idx = flip and (chunks - ci + 1) or ci
                 local block, sx, sz = {}, 0, 0
                 for _, cs in ipairs(bandRows) do
-                    for col = (idx - 1) * 3 + 1, math.min(idx * 3, #cs) do
+                    for col = (idx - 1) * side + 1, math.min(idx * side, #cs) do
                         local c = cs[col]
                         if c then
                             block[#block + 1] = c
@@ -6911,8 +7109,26 @@ local okBuild, errBuild = pcall(function()
             end
             return false
         end
+        local swungLogged = false
+        -- a wider block means the stop's own centre sits farther from its edge
+        -- cells, so the arrival tolerance and the "off the block" warning grow
+        -- with it; for a one-tile tool these are the measured 12 and 20.
+        local blockTol, blockOff = 4 * side, 20 + (side - 3) * 10
         for i, stop in ipairs(stops) do
             if stopping() then break end
+            -- ▸ let the tow settle BEFORE this jump — the re-park below plus the
+            --   next stop used to fire teleports at a tool still mid-swing, and
+            --   that is what throws the implement through the map.
+            local howT, trail = spudWaitTool(ride, att, job.verb)
+            if howT == "far" then
+                log(string.format("remote %s: the %s is %.0f studs from the ride — it is not on the hitch any more, stopping the grid instead of dragging it further",
+                    job.verb, tostring(impl and impl.Name or "tool"), trail or 0))
+                break
+            elseif howT == "swinging" and not swungLogged then
+                swungLogged = true
+                log(string.format("remote %s: the %s is still moving %.0f studs behind the ride — waiting 1.5 s per stop is all it will give, taking the jumps",
+                    job.verb, tostring(impl and impl.Name or "tool"), trail or 0))
+            end
             local parked = pcall(function()
                 local b0 = bladePos()
                 if b0 then off = b0 - ride:GetPivot().Position end
@@ -6920,15 +7136,16 @@ local okBuild, errBuild = pcall(function()
             end)
             if not parked then break end
             -- the first stop follows a long ride, the rest are short trips
-            local settled = bladeOn(stop, 12, i == 1 and 40 or 30)
+            local settled = bladeOn(stop, blockTol, i == 1 and 40 or 30)
             if not settled then
                 local b1 = bladePos()
-                if b1 then
+                local again = b1 and spudWaitTool(ride, att, job.verb)
+                if b1 and (again == "settled" or again == "none" or again == "swinging") then
                     pcall(function()
                         ride:PivotTo(CFrame.new(Vector3.new(stop.x, sy, stop.z)
                             - (b1 - ride:GetPivot().Position)) * rot)
                     end)
-                    settled = bladeOn(stop, 12, 24)
+                    settled = bladeOn(stop, blockTol, 24)
                 end
             end
             -- what we read is the CLIENT's blade; the server sees it a beat
@@ -6937,7 +7154,7 @@ local okBuild, errBuild = pcall(function()
             local bs = bladePos()
             if bs then
                 local away = (Vector3.new(bs.X, sy, bs.Z) - Vector3.new(stop.x, sy, stop.z)).Magnitude
-                if away > 20 then
+                if away > blockOff then
                     log(string.format("remote %s: the blade is %.0f studs off stop %d — firing anyway", job.verb, away, i))
                 end
                 off = bs - ride:GetPivot().Position
@@ -6967,8 +7184,8 @@ local okBuild, errBuild = pcall(function()
         local left = after and #after or nil
         local took = left and math.max(0, before - left) or 0
         log(string.format(
-            "remote %s: fired %d of %d cell(s) from %d stop(s), 9 per stop — %d took, %s left",
-            job.verb, fired, before, #stops, took,
+            "remote %s: fired %d of %d cell(s) from %d stop(s), %dx%d per stop — %d took, %s left",
+            job.verb, fired, before, #stops, side, side, took,
             left and tostring(left) or "unreadable"))
         return took, dry
     end
@@ -7557,6 +7774,16 @@ local okBuild, errBuild = pcall(function()
                             return false
                         end
                         log("arc hop to the " .. m.d.Name .. " corner")
+                        -- ▸ the arc is a chain of 30-ms teleports too: with a tool
+                        --   still swinging off the hitch it drags it the whole
+                        --   800 studs and drops it outside the map.
+                        local attH = impl and spudToolAttachment(impl) or nil
+                        local howH, trailH = spudWaitTool(ride, attH, job.verb)
+                        if howH == "far" then
+                            log(string.format("%s: the %s is %.0f studs from the ride — it is not on the hitch any more, leaving the field alone rather than dragging it off the map",
+                                job.verb, tostring(impl and impl.Name or "tool"), trailH or 0))
+                            return false
+                        end
                         arrived = hopTo(ride, goal, SELL_HOP_SPEED) and true or false
                         how = "arc hop"
                         if stopping() then return false end

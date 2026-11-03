@@ -80,18 +80,25 @@ Everything merged into one paste-and-run file:
   reach, then another 9 s retrying the same 44 out-of-band cells from the same
   pose). The corner pass now fires only the ids within `spudFieldReach = 24`
   studs of the tool's own attachment — the measured band is 20 to the side taken,
-  30 refused — and hands the rest to the 3×3 blocks, which park the blade on
-  them. A field with nothing in reach says
-  `remote seed: 50 cell(s) need it but none is within 24 studs of the blade —
-  going straight to the blocks` and costs **no** call at all. That is what
+  30 refused — and hands the rest to the blocks, which park the blade on
+  them. **A wider tool gets a wider band** (the band is measured around the
+  *blade*, and a 3-wide implement's own ground is inside it): the filter is
+  `24 + the tool's tiles past one × 5`, so a 4-wide tool reads cells 39 studs off
+  the corner. A field with nothing in reach says
+  `remote seed: 50 cell(s) need it but none is within 24 studs of the blade (24
+  measured + the KQF3000's own width) — going straight to the blocks` and costs
+  **no** call at all. That is what
   removes the ~10 s pause before every tool pass. A field whose frame, cell
   positions or ids cannot be read keeps the unfiltered pass — an unreadable
-  reach never skips a call. After the call pass there is a
-  **3×3 block grid**: the remaining cells are grouped into rows, three rows at
-  a time are cut into three-column blocks, and each block gets one stop at its
+  reach never skips a call, and a tool whose parts cannot be read adds **no**
+  reach. After the call pass there is a
+  **block grid**: the remaining cells are grouped into rows, `side` rows at
+  a time are cut into `side`-column blocks (`side` is **3** for a one-tile tool —
+  the owner's "tp to a spot, do the closest 9 areas" — and grows with the
+  implement's own width), and each block gets one stop at its
   own centre — the ride parks with the **blade** on it (the tool trails behind
   the tractor, so the ride goes to `stop − blade offset`), fires that block's
-  **nine cells** 40 ms apart, then walks **forward** to the next block (each
+  cells 40 ms apart, then walks **forward** to the next block (each
   band alternates direction). Every cell belongs to exactly one block, so
   nothing is skipped and nothing is fired twice; a 50-cell field is **8
   teleports** of nine calls each. The band it relies on was measured live: a
@@ -103,8 +110,21 @@ Everything merged into one paste-and-run file:
   fires once the blade is actually on the block (re-parking once if it is
   still swinging) — the first call after a long ride is routinely refused while the
   server still holds the old pose — and only then ends
-  (`remote seed: fired 46 of 46 cell(s) from 8 stop(s), 9 per stop — 46 took,
-  0 left`). Whatever it misses is then **hopped**: one
+  (`remote seed: fired 46 of 46 cell(s) from 8 stop(s), 3x3 per stop — 46 took,
+  0 left`). **And it waits for the tow before it jumps at all** (owner: *"when it
+  tp's the tools make the whole thing glitch and it falls out the map, make it
+  wait for the tool to be behind the tractor before tping again"*): a second
+  teleport while the implement is still swinging adds velocity to it rather than
+  turning it, which is what threw tools off the map. `spudWaitTool` samples the
+  tool's distance behind the ride twice 50 ms apart — ≤3 studs of movement is
+  settled, more than **90** means it is no longer on the hitch, and 30 beats is
+  all the wait ever gives — and it runs before **every** jump: each grid stop,
+  each per-cell hop, and the field-to-field arc. A tool that reads flung ends the
+  pass where it stands (`remote seed: the KADL is 312 studs from the ride — it is
+  not on the hitch any more, stopping this hop pass instead of dragging it
+  further`) and the arc refuses the field outright rather than towing it 800
+  studs off the map; a tool still swinging is named **once** per pass and the
+  work continues. Whatever it misses is then **hopped**: one
   teleport per remaining cell with the blade on it. Anything still standing
   after the hop is **retried**: grid → hop again, round after round, until the
   field reports none of that stage left (Stop ends it). Two rounds that take
@@ -342,6 +362,24 @@ Everything merged into one paste-and-run file:
   The tour log names each field's owner, so a wrong pick is visible. If the
   game refuses an action, the sweep says so
   (`field belongs to <name> — check worker permissions`).
+- **What a machine is** — the **game** already says it, and that is what the
+  pick reads (owner: *"make it use the games build in scripts to know what is a
+  harvester and what is what"*). Every model in `Objects.Equipment` carries an
+  `EquipmentType` attribute in the live build (`ZM80=Tractor`, `JDS790=Harvester`,
+  `KADL=Planter`, `KQF3000=Cultivator`, `S4204=Plow`, `R150=Truck`,
+  `Trailer=Transport`), so the word the game wrote is matched by **stem** —
+  `harvest`, `combine`, `forage` all mean the harvester, `cultivat` the
+  cultivator, `plant`/`seed`/`drill` the planter — and a machine named anything
+  at all is still found. A model name (`SRC6`, `KQF3000`, `ZM80`) is only a
+  fallback for a build that ships **no** attribute, and it can never overrule
+  what the game says the machine is. If a build ships no word for a ride at all,
+  the game's own **structure** answers: a model with a driver **seat** and a
+  `Components.Hitchable` pulls implements, and one it calls a Truck / Transport /
+  Harvester / tool does not. A machine parked in the garage (`InStorage`) has no
+  seat and no position, so it is skipped and counted, never silently treated as
+  "no tractor". Every "not found" line ends by naming what the world actually
+  holds — `no Harvester for you found — this world holds: JDS790=Harvester
+  (stored), KADL=Planter, …`.
 - **Go to the farm** — with a Farm owner picked, the run **teleports to that
   owner's plot first** (only when it is more than 60 studs away; the character
   is stood up first, because a teleport while seated does not travel). It then
