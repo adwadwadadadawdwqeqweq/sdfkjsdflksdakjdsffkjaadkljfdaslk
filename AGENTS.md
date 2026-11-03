@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.123 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.124 ·
   fluent gui` (`VERSION`, line 15). ≈13k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -141,10 +141,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 31/31 checks on v1.123
+python tools/run_all.py        # 31/31 checks on v1.124
 ```
 
-Last full run (v1.123): **31/31 checks passed** (28 harnesses + 3 gates).
+Last full run (v1.124): **31/31 checks passed** (28 harnesses + 3 gates).
 
 | Script | What it actually proves |
 |---|---|
@@ -709,10 +709,11 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   `setclipboard`):
   - **Remote list** (v1.59, user: *"we need to find another way of forcing the
     seeding and plowing"*) — read-only. Walks `ReplicatedStorage` (Modules
-    first, depth 4, 600 nodes) and lists every `RemoteEvent`/`RemoteFunction`/
-    `UnreliableRemoteEvent` by path. The per-cell field calls are only the ones
-    the game fired by hand; a bulk/field door that was never fired would show
-    up here and nowhere else.
+    first, depth 4, 3000 nodes — v1.124: the cap was 600, so the v1.123 report's
+    "339 found (601 nodes walked)" was a **truncated** list that did not say so;
+    it now names `CAP 3000 REACHED` when it runs out). The per-cell field calls
+    are only the ones the game fired by hand; a bulk/field door that was never
+    fired would show up here and nowhere else.
   - **Field remotes** (v1.66) — the three field calls the capture never fired.
     `FNCSprayFieldCell(field, {id}, {att})` is tried with the plow/seed shape and
     judged on `IsWatered` / `PlantGrowth` / `Stage`; `FNCEditField()` and
@@ -720,13 +721,27 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
     the shape they demand — an error names it, and nothing that could rebuild
     the field is handed to them. Live (2026-10-31, twice): the spray call runs
     and the cell does **not** change (Empty and Plowed both), `FNCEditField()`
-    returns a **table** (a reader, not a setter) and
+    returns a **table** (a reader, not a setter — still just an address, which is
+    what v1.124's config read inside **Grow now** exists to dump) and
     `FNCConvertRundownField()` refuses with
     `ConstructionHandler:686: attempt to index nil with 'Name'` — it wants an
-    instance, so it is not a free field reset.
+    instance, so it is not a free field reset. **The spray leg was lying (v1.124).**
+    The v1.123 run reached a real crop (`cell 518 is Seeded, watered false,
+    growth 1170 (tool none)`) and still said `no change from here`, because
+    `spudToolAttachment` had found no implement, the third slot got a bare `nil`
+    instead of the captured `{att}` **list**, and an empty request was reported as
+    a verdict. It now sends `{ att }`, names the attachment it sent (or says no
+    implement exists and that a `no change` **answers nothing**), and points at
+    **Grow now** for the sprayer-by-name test. So **water on a growing cell is
+    still unmeasured.**
   - **Grow now** (v1.123, owner: *"is there a exploit that we can make the croops
     grow instalntly"*) — the instant-growth question, asked of the four things
-    that were never measured. It (1) prints **every stage name on one of our
+    that were never measured. It (0) walks `Modules` for a `ModuleScript` named
+    **grow / crop / config** and requires each inside `pcall`, printing the table
+    one level deep (v1.124, because the v1.123 remote list names
+    `EVTUpdateCropGrowthConfig` — a broadcast config means a client copy may
+    exist, and the per-crop **grow time** is the number both this question and the
+    owner's order-ranking rule need); (1) prints **every stage name on one of our
     fields with the cell's own `PlantGrowth` / `GrowthMultiplier` / `IsWatered` /
     `SeedType`**, which is also the only way to see whether the harvest job's
     "any stage we do not know is a standing crop" rule is being handed an
@@ -742,8 +757,9 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
     "a fresh `GetCells` dropped the write" (the cell table is a copy, nothing to
     patch) from "the mirror now reads ripe" (re-fire the cut and see whether the
     server consults it); (4) fires `FNCSprayFieldCell` with the **sprayer's own**
-    attachment at that cell — the v1.66 run sprayed an *Empty* one, so
-    water-vs-growth was never actually tested on a planted cell — and finds the
+    attachment at that cell — neither the v1.66 run (an *Empty* tile) nor the
+    v1.123 one (a `Seeded` tile, but `(tool none)` — the call carried **no**
+    attachment) measured water-vs-growth on a growing crop — and finds the
     sprayer by walking `Objects.Equipment` for a spray/sprinkler/water/irrig
     name, printing every machine with its real `EquipmentType` when none
     matches (no guessed type name). It is **not** in Run all, which stays the two
@@ -790,6 +806,22 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
 `EVTSellAtAnimalCo`, `FNCForceRespawnEquipment`, `FNCSetEquipmentHome`. Those
 are the next candidates for the milk/barn/feed/gate/deposit steps that still
 press keys or drive the UI.
+
+**v1.124 re-read (the 339 that came back after the cap was raised).** Same
+`Modules.Larry` home, and it names two doors the open questions were waiting on.
+**Growth**: `EVTUpdateCropGrowthConfig` (the server broadcasts a crop-growth
+config — so a client copy may be readable, which is what **Grow now**'s config
+walk asks), plus `EVTWatered`, `EVTHireCropduster` / `EVTHireFreeCropDuster` /
+`EVTUsedFreeCropDuster` (a hired duster waters a whole field — never probed) and
+`EVTSendOfflineGrowthSummary`. **Company orders** (task #6, and this is the first
+time the game has named them): `FNCGetOrderProgress`, `FNCAcceptOrder`,
+`EVTRefreshOrders` / `EVTFreeRefreshOrders`, `EVTOrderDepositProgress`,
+`EVTOrderFulfilledFX`, `EVTWithdrawOrderFX`, `EVTDepositIntoTrainCar`,
+`EVTTrainOrderDeposited`, `EVTCompleteTask` / `EVTLoadNewTasks` / `EVTRefillTasks`
+/ `EVTSendTasksToPlayer` / `EVTUpdateTasks` / `FNCSelectGoal`, and
+`FNCGetAvailableBoxes`. None is wired and none has been fired — **rule 4 still
+applies: the arguments are unknown until a probe reads them**, which is what
+`SpudFulfillProbe.lua` was built to answer.
 
 **Is a tile forceable?** No — and the last candidate is closed too.
 `EVTFieldPacket` is the server telling clients which cells changed: live packets
@@ -2183,7 +2215,10 @@ question is not "can we hurry the clock" but "can we skip the wait":
 nothing), the client cell mirror is writable but the server never reads it (a
 forged `Cultivated` sat there and read back `Cultivated`, no update arrived),
 `FieldHelper` exports **no setter**, and `FNCSprayFieldCell` changed nothing on the
-one cell the v1.66 run happened to aim at. What had never been asked is the only
+one cell the v1.66 run happened to aim at. (v1.124 note: that spray line is weaker
+than it reads — the cell was an *Empty* tile **and** the call carried no
+attachment, so water was never measured at all; see below.) What had never been
+asked is the only
 thing left, so the answer is a new Tests-tab probe rather than a guess: **Grow
 now** (`spudTestWork("growth")`) prints the field's **stage census with each
 cell's own `PlantGrowth` / `GrowthMultiplier` / `IsWatered` / `SeedType`** (which
@@ -2212,7 +2247,45 @@ headroom **10**, name audit clean **345** — no new global, every local is insi
 `spudTestWork`'s own scope. **Harness green — not reloaded in game**, and the whole
 answer is in the `growth:` lines of one `Copy report`.
 
-**Where it stands:** `rebuild v1.123 · fluent gui`, whole suite green (31/31),
+**The v1.123 report, read (v1.124).** The owner ran **Run all** on the live build,
+and the report corrected three things about our own evidence rather than about the
+game. **(1)** `remotes: 339 found under ReplicatedStorage (601 nodes walked)` —
+the walk's cap was **600**, so it aborted *inside* `Modules.Larry` and the list was
+cut short while claiming to be complete. The cap is now 3000 and the line says
+`CAP 3000 REACHED — this list is cut short` when it trips (the record had counted
+334 before, so 339 was already the tail of a truncated read, not a growth). Even
+truncated it named doors never probed: **`EVTUpdateCropGrowthConfig`** (the server
+broadcasts a crop-growth config ⇒ a client copy of the per-crop times may exist),
+and the Company-order family **`FNCGetOrderProgress` / `FNCAcceptOrder` /
+`EVTRefreshOrders` / `EVTFreeRefreshOrders` / `EVTOrderDepositProgress` /
+`EVTOrderFulfilledFX` / `EVTWithdrawOrderFX` / `EVTTrainOrderDeposited` /
+`EVTDepositIntoTrainCar`** — which is the door task #6 was waiting on a probe to
+name. **(2)** `fieldremotes: cell 518 is Seeded, watered false, growth 1170 (tool
+none)` then `after spray — … no change from here`. `(tool none)` means
+`spudToolAttachment` had nothing: the call went out with **no attachment at all**
+(worse, in the third slot rather than the captured `{att}` **list**), so that
+`no change` measured an empty request, not water — water on a growing cell is
+**still unmeasured**, and the §5 line above that said "the v1.66 run happened to
+aim at an Empty cell" was only half the reason. The leg now passes `{ att }`, prints
+which attachment (`the call carries <part>.<attachment>`) or says outright that no
+implement exists to spray with and that a `no change` below **answers nothing**, and
+points at **Grow now**, which finds the sprayer by name. **(3)** A real growth
+number is now on the record: a `Seeded` cell reads `PlantGrowth 1170`, so the
+"census" line has something concrete to compare a `Harvestable` cell against — and
+`FNCEditField()`'s returned table (live: `table: 0x2b526078eb43ec6f`) is still just
+an address, which is why **Grow now** gained a reader: it walks `Modules` for a
+`ModuleScript` named grow/crop/config, requires each inside `pcall` and prints the
+table one level (`Wheat={…}` per key, values for scalars, `fn` for functions, 14
+keys + a `(+N more)`), or says no such client copy is sitting there to read. That
+serves the owner's order-ranking rule too (*"it chooses the easyest one by seeding
+time and cost"* — the time half was never readable anywhere we looked). **Run all**
+stays the two read-only probes; the config read lives inside **Grow now** with the
+rest of the growth questions. No harness (a live read is the only verdict), no new
+global, no new build-closure local: Suite **31/31**, headroom **10**, name audit
+clean **345**. **Harness green — not reloaded in game**, and the instant-growth
+verdict still needs the one button this run did not press: **Tests → Grow now**.
+
+**Where it stands:** `rebuild v1.124 · fluent gui`, whole suite green (31/31),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **Not yet reloaded in game** after v1.22–v1.46 — the next real
 test is a live pass watching the arc hop on **every** job (no `field corner

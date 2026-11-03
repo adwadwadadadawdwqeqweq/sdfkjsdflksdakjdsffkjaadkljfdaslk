@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.123 · fluent gui"
+local VERSION    = "rebuild v1.124 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5925,11 +5925,18 @@ local okBuild, errBuild = pcall(function()
             local bS, bW, bG = tostring(cell.Stage), tostring(cell.IsWatered), tostring(cell.PlantGrowth)
             spudTestSay(string.format("fieldremotes: cell %d is %s, watered %s, growth %s (tool %s)",
                 id, bS, bW, bG, impl and impl.Name or "none"))
+            -- v1.123 live: this ran with "(tool none)" and answered "no change",
+            -- which reads like "water does nothing" and is not what happened — the
+            -- third slot carried no attachment at all. Say which shape went out.
+            spudTestSay(att
+                and ("fieldremotes: the call carries " .. tostring(att.Name)
+                    .. " on " .. tostring(att.Parent and att.Parent.Name))
+                or "fieldremotes: NO implement is in the equipment folder to spray with, so the call carries no attachment — a 'no change' below does NOT answer whether water works; Tests → Grow now is the leg that finds the sprayer by name")
             local spray = larry:FindFirstChild("FNCSprayFieldCell")
             if not spray then
                 spudTestSay("fieldremotes: FNCSprayFieldCell is missing")
             else
-                local ok, err = pcall(function() spray:InvokeServer(f.d, { id }, att) end)
+                local ok, err = pcall(function() spray:InvokeServer(f.d, { id }, { att }) end)
                 spudTestSay("fieldremotes: FNCSprayFieldCell(field, {id}, {att}) — "
                     .. (ok and "ran" or ("refused: " .. tostring(err))))
                 task.wait(1.5)
@@ -5941,7 +5948,8 @@ local okBuild, errBuild = pcall(function()
                     "fieldremotes: after spray — stage %s, watered %s, growth %s — %s",
                     aS, aW, aG,
                     (aS ~= bS or aW ~= bW or aG ~= bG) and "TAKEN: the cell changed"
-                        or "no change from here"))
+                        or (att and "no change from here"
+                            or "no change — but this call carried no attachment, so it answers nothing")))
             end
             for _, name in ipairs({ "FNCEditField", "FNCConvertRundownField" }) do
                 local fn = larry:FindFirstChild(name)
@@ -5995,6 +6003,62 @@ local okBuild, errBuild = pcall(function()
                 spudTestSay(#knobs > 0
                     and ("growth: FieldHelper exports growth-shaped names: " .. table.concat(knobs, ", "))
                     or "growth: FieldHelper exports nothing growth-shaped — no client table holds a grow time")
+                -- ▸ THE GROW TABLE. The v1.123 remote list names
+                --   EVTUpdateCropGrowthConfig, which means the server BROADCASTS a
+                --   crop-growth config, so a client-side copy of the per-crop times
+                --   may exist. Modules is walked for the names that could hold it
+                --   and each is required inside pcall — what prints is what the game
+                --   actually calls it, not a guess (rule 4). Nothing is written.
+                local grows = {}
+                if mods then
+                    for _, m in ipairs(mods:GetChildren()) do
+                        local hay = m.Name:lower()
+                        if m:IsA("ModuleScript")
+                            and (hay:find("grow", 1, true) or hay:find("crop", 1, true)
+                                or hay:find("config", 1, true)) then
+                            grows[#grows + 1] = m
+                        end
+                    end
+                end
+                if #grows == 0 then
+                    spudTestSay("growth: no Modules script is named growth/crop/config — no client copy of the grow table is sitting there to read")
+                else
+                    for _, m in ipairs(grows) do
+                        if #grows <= 8 or m.Name:lower():find("grow", 1, true) then
+                            local okM, t = pcall(require, m)
+                            if not okM then
+                                spudTestSay("growth: require(" .. m.Name .. ") refused: " .. tostring(t))
+                            elseif type(t) ~= "table" then
+                                spudTestSay("growth: " .. m.Name .. " is a " .. type(t) .. ", not a table")
+                            else
+                                local keys = {}
+                                for k in pairs(t) do keys[#keys + 1] = k end
+                                table.sort(keys, function(a, b)
+                                    return tostring(a) < tostring(b)
+                                end)
+                                local show = {}
+                                for j = 1, math.min(#keys, 14) do
+                                    local v = t[keys[j]]
+                                    if type(v) == "table" then
+                                        local sub, cnt = {}, 0
+                                        for sk in pairs(v) do
+                                            cnt += 1
+                                            if cnt <= 8 then sub[#sub + 1] = tostring(sk) end
+                                        end
+                                        table.sort(sub)
+                                        show[#show + 1] = keys[j] .. "={" .. table.concat(sub, ",")
+                                            .. (cnt > 8 and "…" or "") .. "}"
+                                    else
+                                        show[#show + 1] = keys[j] .. "="
+                                            .. (type(v) == "function" and "fn" or tostring(v))
+                                    end
+                                end
+                                spudTestSay("growth: " .. m.Name .. " → " .. table.concat(show, "  ")
+                                    .. (#keys > 14 and ("  (+" .. tostring(#keys - 14) .. " more)") or ""))
+                            end
+                        end
+                    end
+                end
                 local f = fields[1]
                 if not f then spudTestSay("growth: no field of ours is streamed") return end
                 local baseCF, baseSize = fieldFrame(f.d)
@@ -6448,13 +6512,19 @@ local okBuild, errBuild = pcall(function()
         --   see. The field calls we know are the ones the game fired by hand;
         --   a bulk/field door that was never fired would only show up here.
         if kind == "remotes" then
-            local out, n, seen, seenPath = {}, 0, 0, {}
+            -- live v1.123 said "339 found (601 nodes walked)" — the walk ran out
+            -- of budget, so the list below was NOT the whole door inventory and
+            -- said nothing about it. The cap is the evidence's own ceiling, so it
+            -- is roomy and the line reports whether it was reached.
+            local CAP = 3000
+            local out, n, seen, seenPath, cut = {}, 0, 0, {}, false
             local ok, err = pcall(function()
                 local function walk(node, depth, prefix)
-                    if depth > 4 or seen > 600 then return end
+                    if depth > 4 then return end
+                    if seen > CAP then cut = true return end
                     for _, c in ipairs(node:GetChildren()) do
                         seen += 1
-                        if seen > 600 then return end
+                        if seen > CAP then cut = true return end
                         local path = prefix .. c.Name
                         if seenPath[path] then continue end
                         seenPath[path] = true
@@ -6474,8 +6544,9 @@ local okBuild, errBuild = pcall(function()
                 walk(rs, 0, "")
             end)
             table.sort(out)
-            spudTestSay(string.format("remotes: %d found under ReplicatedStorage (%d nodes walked)%s",
-                n, seen, ok and "" or (" — stopped: " .. tostring(err))))
+            spudTestSay(string.format("remotes: %d found under ReplicatedStorage (%d nodes walked%s)%s",
+                n, seen, cut and ", CAP 3000 REACHED — this list is cut short" or "",
+                ok and "" or (" — stopped: " .. tostring(err))))
             for i = 1, #out, 5 do
                 local chunk = {}
                 for j = i, math.min(#out, i + 4) do chunk[#chunk + 1] = out[j] end

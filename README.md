@@ -123,10 +123,16 @@ Everything merged into one paste-and-run file:
   **On by default** (since v1.88): it costs one ignored call and its 1.2 s
   stage read per field, and it can never switch a job off.
   **Remote list** prints every `RemoteEvent`/`RemoteFunction` the client can
-  see — a bulk field door we never fired would only show up there.
+  see — a bulk field door we never fired would only show up there. It walks up to
+  **3000** nodes and says so if it runs out (v1.124: the old limit was 600, so a
+  report of "339 found (601 nodes walked)" was a **cut-off** list presented as a
+  complete one).
   **Field remotes** fires
   `FNCSprayFieldCell(field, {id}, {att})` and reports `IsWatered` /
-  `PlantGrowth` / `Stage`, then invokes `FNCEditField()` and
+  `PlantGrowth` / `Stage`, naming the attachment that actually went out — or
+  saying plainly that **no implement was found**, so the call carried nothing and
+  a "no change" is not an answer about water (v1.124: the last live run read
+  exactly that way and looked like a verdict). Then it invokes `FNCEditField()` and
   `FNCConvertRundownField()` with **no arguments** just to read the shape they
   demand (an error names it; nothing that could rebuild the field is handed to
   them).
@@ -134,7 +140,12 @@ Everything merged into one paste-and-run file:
   itself is not reachable — the game's field packets only run server→client, the
   cell table the client can see is not what the server reads, and `FieldHelper`
   has no setter — so this asks the one question that could still skip the wait.
-  It prints every stage name on your field with the cell's own growth numbers,
+  First it reads the **grow table**: the remote list names
+  `EVTUpdateCropGrowthConfig`, which means the server broadcasts a crop-growth
+  config, so anything in `Modules` named grow / crop / config is required and
+  printed as the game calls it — the per-crop grow time is what both this question
+  and the order-ranking want. It prints every stage name on your field with the
+  cell's own growth numbers,
   then **gets into the harvester** (bringing it out of storage if it is parked),
   puts the blade on a `Seeded` cell and fires the harvest call at it, reading
   both the cell and the tank: a cell that is cut early **and** puts something in
@@ -143,8 +154,9 @@ Everything merged into one paste-and-run file:
   wants a ripe crop. If it refuses, the button then rewrites that cell's growth
   to the ripe number the game itself just printed and re-fires, to say whether
   the server ever consults the number the client can see. Last it tries water on
-  a cell that actually holds a crop (the old test sprayed an empty tile, so this
-  was never really measured) with the sprayer's own attachment. It is not part of
+  a cell that actually holds a crop (the old tests sprayed an empty tile, then a
+  planted one with no attachment at all, so this was never really measured) with
+  the sprayer's own attachment. It is not part of
   **Run all** — that stays read-only — because this one sits in a machine and
   cuts a cell.
   **Shop counter** repeats the seed-buy trip: it prints FarmCo's own parts and
