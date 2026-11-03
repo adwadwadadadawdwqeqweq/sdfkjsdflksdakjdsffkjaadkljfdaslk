@@ -8,13 +8,13 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.136 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.137 ·
   fluent gui` (`VERSION`, line 15). ≈14k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
   `luau-analyze.exe`).
 - Nothing here is a library or a build system. There is no bundler, no package
-  manager, no CI. Validation is a compile check plus thirty-two harness scripts in
+  manager, no CI. Validation is a compile check plus thirty-three harness scripts in
   `tools/` (`python tools/run_all.py` runs the whole gate).
 
 ---
@@ -73,7 +73,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 
 13. **Luau's 200-local limit is real** (it was 2 away from the practical
     ceiling until the path engine was deleted in v1.81). Run
-    `python tools/local_budget.py`. As of v1.136:
+    `python tools/local_budget.py`. As of v1.137:
     `4-space locals before milkCycle: 180 (practical ceiling 185)`,
     whole body `187 / 200`, **headroom 5** (v1.129's four `*_STEMS` word tables
     are four build-closure locals — every name the equipment rewrite, the tow
@@ -84,7 +84,11 @@ description — it is the long-form manual and it is kept in sync with behaviour
     `local function` because it is read by `lineUpHitch`, which is itself a
     build-closure local and therefore closes over it. v1.136 spent **nothing**:
     the shared session table is the global `spudEnv`, and the two new names
-    inside `destroyUI` are locals of that function). Do **not**
+    inside `destroyUI` are locals of that function. v1.137 spent **nothing**
+    either: the liquid-deck trip is a global `function milkSellLiquidCarrier`
+    (a 4-space assignment, so no register) beside two new globals
+    (`spudLiquidSellSpot`, `spudLiquidDeckNear`), and its five helpers are
+    locals of its own prototype). Do **not**
     add a `local` inside the main build closure. Reuse an existing local,
     convert the feature to a **global** (the established pattern), or
     restructure — and re-run the budget.
@@ -150,17 +154,17 @@ done
 PYTHONIOENCODING=utf-8 python tools/test_doctor.py
 ```
 
-All of these must exit 0 (31 `*_test.py` harnesses + `test_doctor.py`, which
+All of these must exit 0 (32 `*_test.py` harnesses + `test_doctor.py`, which
 does not match `*_test.py`). A plain `for` loop is **not** enough on its own:
 most harnesses print `FAIL` but still exit 0, so the output has to be read.
 The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 35/35 checks on v1.136
+python tools/run_all.py        # 36/36 checks on v1.137
 ```
 
-Last full run (v1.136): **35/35 checks passed** (32 harnesses + 3 gates).
+Last full run (v1.137): **36/36 checks passed** (33 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment the script contained a string with those three
@@ -180,6 +184,7 @@ heartbeat is `while beat and spudAlive()`, `destroyUI` bumps `env.spudGen`,
 ghost build. |
 | `webhook_test.py` | A webhook URL must be Discord's own host + `/api/webhooks/` path; "contains the word discord" is rejected, and blank means off. |
 | `drop_scope_test.py` | A jug appearing elsewhere in the world during the 10 s milk wait is not counted as "this cow gave milk". |
+| `liquid_deck_test.py` | The full-carrier drain trip runs for real on a fake world (v1.137): a machine the game calls a **Silo** (or one that lives under `Buildings`) is refused **before the first teleport**, with no Equipment Manager call and the refusal rate-limited; the farm loop owning the body, a carrier that left the world and a deck already switched off each cost zero teleports; a carrier already inside the band pays no spawn; a deck that drains a parked tanker is a sale with **zero presses** and the line says `pressing nothing`; an offer list with no unload in it presses nothing and prints its **verbatim** list; the game's own unload is driven through `milkStorePress` and the line names the button; a press that leaves the readout alone is **not** a sale; a spawn that never brings the carrier names the real distance left and costs one miss; three misses switch the deck off, and a sale resets the count; a spaced label (`Milk Tanker`) finds the model it was folded from and the sale is read off **that** instance; and a character position that cannot be read still sells without a phantom teleport home. Fifteen source ties: the deck stays the owner's measured `86, 141, -288`, the band is the constant at every call site, **no** `:PivotTo` / `pressKey` / `FireServer` / `InvokeServer` / `EVTSellAtStore` / `Mouse` anywhere in the trip, the live offer comes from `milkStoreActs()` + `milkStorePress` (never a raw `PCGP_ContextActions` walk), the readout is the only proof, the no-input park is tried **before** any button, `home()` is declared before the `noSale()` that closes over it (rule 14), every refusal goes through the one counter, `milkStoreDeposit`'s FULL branch calls the trip and keeps the honest `empty it` line as its else, and the learned state is reset per build. |
 | `farm_batch_test.py` | Herd-batch arithmetic: who fills a batch, who hands over. |
 | `farm_hop_test.py` | The go-to-the-farm hop: no plot or no position answers with a reason, a plot within 60 studs is left alone, a far plot targets its centre +5 Y, and the reported distance is the real one. |
 | `farm_rotate_test.py` | Three-farm rotation order and wrap-around. |
@@ -230,10 +235,13 @@ logic, arithmetic, and "did I break the shape" — it does **not** prove the liv
 game exposes those fields, that a GUI appears, or that an action is accepted.
 Anything touching the game's own menus must be confirmed in game after a reload.
 
-Known gaps: the **store deposit** and **feed top-up** paths have no harness (they
-need a fake carrier + dispenser), and nothing in the suite proves the live game
-exposes these fields. The per-cow clean path is covered by
-`cow_in_stall_test.py`.
+Known gaps: the **jug-carry / Fill** half of the store deposit and the **feed
+top-up** path have no harness (they need a fake carrier + dispenser); the
+**drain** half — a full carrier taken to the liquid deck — has run for real in
+`liquid_deck_test.py` since v1.137, but nothing in the suite proves the live deck
+drains a parked tanker, that the owner's `86, 141, -288` is still the sell-liquid
+spot, or which action that spot actually offers. The per-cow clean path is
+covered by `cow_in_stall_test.py`.
 
 ### 2.4 Reading a live run from the emulator (no copy-paste)
 
@@ -695,7 +703,7 @@ values, and the full tank always ends in a real trip:
   |---|---|---|
   | Fulfillment (warehouse drop pad) | `-353, 141, -92` | `spudFulfillPadSpot()` — the park-only Fulfillment fallback |
   | Sell crops (FarmCo board) | `125, 142, -150` | `spudCropSellSpot()` — the park-only Sell fallback |
-  | Sell liquid | `86, 141, -288` | **no consumer yet** — the milk loop fills a carrier and only reports `store: <carrier> is FULL (n/m) — empty it or pick another`; a drain trip to this spot is the unbuilt half of that |
+  | Sell liquid | `86, 141, -288` | `spudLiquidSellSpot()` — **the milk loop's drain trip** (v1.137, §3.17): a FULL carrier is spawned onto this deck and the sale is proven by its own readout dropping |
   | Sell logs and planks (LumberCo) | `232, 141, -232` | **no consumer yet** — the script harvests no wood (§3.8 refuses tree soil outright) |
 
   The old `-353, 138, -90` came from the `Deposit_Warehouse` **part centre** in
@@ -1408,6 +1416,68 @@ a frozen stage line is "the client is not talking to the server", and the ghost
 heartbeat is what made it look like a loop that never ends. Reconnecting is the
 owner's call — it evicts the other device.
 
+### 3.17 A full liquid carrier is driven to the deck that pays for it
+
+The fourth town address in §3.10 — **sell liquid, `86, 141, -288`** — had no
+consumer for eleven builds: the milk loop filled a carrier, the carrier filled
+up, and the loop said `store: <carrier> is FULL (n/m) — empty it or pick another
+carrier` and ended the pass. The owner's 2026-11-03 ask closes that half:
+*"finnishe the milk loop"*. Now a full carrier is **sold**, and the pass carries
+on filling the next jug against the fresh readout.
+
+The rule is the same one v1.41/v1.122 established for the Fulfillment deck, and
+nothing here invents a mechanism the game has not already shown (rule 4):
+
+- **Only the character moves.** The trip is `milkTp(deck + (0,3,0))` — the same
+  hop the deposit pass already uses to reach a trailer — and never a `PivotTo` on
+  a loaded tanker, because a 600-unit carrier flung across town is the exact
+  "falls out the map" history §3.12 is written around. The **machine** only moves
+  through the game's own `managerAction(name, "Spawn")`, the same call the top of
+  `milkStoreDeposit` already uses to bring a stored carrier out; a full carrier
+  costs nothing to relocate, since it cannot accept a jug anyway.
+- **The readout is the only proof.** `milkStoreAmount(dest)` dropping below what
+  it read before the trip is the sale. A key press, a remote's return value and
+  "the button lit up" are not proof, and none of them ends the trip.
+- **No input is tried first.** The build has one measured precedent for a deck
+  that drains a parked vehicle by itself (the Fulfillment pad), so the park is
+  held for 8 s with **zero** presses. Only when the tank refuses to move does it
+  read what the game actually renders — `milkStoreActs()` (the visible
+  `PCGP_ContextActions` offers, not the whole ~70-entry registry) — and drives one
+  whose own name says unload / sell / empty / offload / deposit through
+  `milkStorePress`, i.e. the game's connected handlers, then `:Activate()`. **No
+  mouse, no invented remote** — in particular `EVTSellAtStore` is *not* fired here,
+  because its captured shape is `(ride, pad)` and this deck has no pad part to put
+  in slot two; firing it at a measured position would be an invented use.
+- **A band, logged so it can be tuned**: global `spudLiquidDeckNear = 45` — wider
+  than `spudFulfillPadNear = 35` because a tanker is a long vehicle whose trigger
+  runs along its body, and because no build has ever printed what this deck
+  offers. The distance is measured flat (XZ), so the +3 Y of the hop cannot fake
+  a miss.
+- **Three misses switch the trip off** for the session (`milkLiquidOff`, counted
+  by `milkLiquidTries`, reset by any sale and by every build — the same shape as
+  `spudEquipRemoteMiss`), because a sale that never lands is a town teleport and
+  an 8 s wait, once per pass, forever.
+- **A silo is refused outright** (its `EquipmentType` says silo, or it lives in
+  `Objects.Buildings`): it has no wheels and no Garage card, so the only way to
+  "drive it to the deck" is a teleport that would strand a building. The refusal
+  is rate-limited to one line per 120 s.
+- **Every exit returns to the plot.** `home()` hops the character back within 3
+  frames, and it is declared *before* `noSale()` (rule 14 — both are locals of the
+  trip's own prototype, and the later one calls the earlier). Without it the
+  automatic delivery thread would sit in town reading
+  `no milk jugs waiting at this plot` and go idle far from its own barn.
+
+The failure line is the probe: a sale that does not happen prints
+`liquid deck: <carrier> still reads <n>/<cap> after being parked there — what the
+spot offers: <verbatim list>`, so the first run that cannot sell is the run that
+names the deck's real offers — which is the number this feature had to ship
+without guessing.
+
+Deliberately **not** built (rule 16): no mid-loop trip to town while jugs are
+still filling, no spawn-back of the carrier after the sale, and no drain attempt
+for a carrier that is only partly full (there is nothing to sell, and a
+half-empty tanker is still a valid destination for the next jug).
+
 ---
 
 ## 4. Code map (names, not line numbers — they move)
@@ -1437,7 +1507,7 @@ owner's call — it evicts the other device.
 | Barn lock | name + position, resolved by spot — see `milkBarnLive` / `milkBarnFor` |
 | Stall scan | `milkStalls` (narrow walk + whole-map fallback), global `spudStallScan(owner, cf, size, hopped)` (the re-read that waits for a just-hopped barn to stream — §3.4); `milkFarmReadyCount` reads `milkStalls` directly, no wait, since it is looking at a farm it is NOT standing on |
 | Cow reads | `milkCows`, `milkOwnerOf`, `milkPercentOf`, `milkStateOf`, `milkDrops` |
-| Store | `milkStoreAmount`, `milkStoreDeposit`, `milkPollFor`, `milkFrame`; remotes `EVTRequestToCarry`, `EVTFillLiquidCarrier` (key path is the fallback) |
+| Store | `milkStoreAmount`, `milkStoreDeposit`, `milkPollFor`, `milkFrame`; remotes `EVTRequestToCarry`, `EVTFillLiquidCarrier` (key path is the fallback). **The drain trip** (v1.137, §3.17): global `milkSellLiquidCarrier(dest)` — character-only hop to `spudLiquidSellSpot()` (`86, 141, -288`), the carrier moved only by the game's own `managerAction(name, "spawn")` if it is outside global `spudLiquidDeckNear = 45`, parked **pressing nothing** first, then only the offers `milkStoreActs()` actually renders driven through `milkStorePress`, and the **only** proof is `milkStoreAmount` dropping; `milkLiquidOff` / `milkLiquidTries` switch it off for the build after three misses, a silo is refused outright, and every exit calls `home()` (declared before `noSale(`, rule 14). Wired in `milkStoreDeposit`'s FULL branch, which carries on with the fresh carrier instead of ending the pass |
 | GUI | Fluent shell, RIGHT SHIFT, 📡 webhook, 🥔 overlay; `spud-gui-preview.html` is a browser mock |
 
 **Read-only probes** (run in game, paste the report): `SpudStallProbe.lua`
@@ -3541,7 +3611,82 @@ Unload/Reload across executions. `No ghost build` is what the next console shoul
 look like; a second stream would mean the executor gives the autostart and the
 hand-run a `getgenv()` each, and the honest answer then is one build per client.
 
-**Where it stands:** `rebuild v1.136 · fluent gui`, whole suite green (35/35),
+**"oh finnishe the milk loop but that's all for now" (v1.137).** The fourth town
+address had been sitting unused since the owner measured it: the milk loop filled
+a carrier, the carrier reached `n/n`, and the pass ended with
+`store: Milk Tanker is FULL (600/600) — empty it or pick another carrier` — every
+60 s, forever, while the milk it had already earned sat in the tank. §3.17 is the
+drain trip. Four things about it are deliberate decisions rather than code
+details, so they are on the record here:
+
+1. **The character travels; the machine only ever travels through the game's own
+   Spawn.** A loaded tanker is exactly the object the last four tow entries are
+   written around — a `PivotTo` on it is the "falls out the map" bug. So the trip
+   is `milkTp(deck + (0,3,0))` and, if the carrier is outside `spudLiquidDeckNear
+   = 45` studs of the deck, it goes through `managerAction(name, "Spawn")`, the
+   call the deposit pass already makes one screen earlier to bring a stored
+   carrier into the world.
+2. **Pressing nothing is the first attempt**, on v1.41's precedent (the
+   Fulfillment pad drains a parked harvester with no input), and the **only proof**
+   is `milkStoreAmount` reading lower than it did before the hop. A press that
+   lights up but leaves the number alone is not a sale and does not end the trip.
+3. **Nothing was invented to make it work.** No `EVTSellAtStore` at a measured
+   position (its captured shape is `(ride, pad)` and this deck has no pad part),
+   no remote name that a probe never printed, no walk of
+   `PCGP_ContextActions.Buttons` — the offers come from the build's own
+   `milkStoreActs()` (visible only) and are driven by `milkStorePress` (the game's
+   handlers, then `Activate()`), so no mouse and no invented key.
+4. **A failed run is the probe.** The refusal line prints the tank's own readout
+   and the **verbatim** list of what the spot offers, which is the one number this
+   feature could not get without the owner being present; three such lines switch
+   the trip off for the build (`milkLiquidOff`), and every exit — success,
+   refusal, spawn-that-never-arrived — calls `home()`, because the automatic
+   delivery thread that is standing in town reads `no milk jugs waiting at this
+   plot` and would go idle 800 studs from its own barn.
+
+A silo is refused outright (no wheels, no Garage card — "drive it to the deck"
+would mean teleporting a building), and the per-build reset (`milkLiquidOff,
+milkLiquidTries = nil, 0`) sits in the milk-tab block so learned state never
+survives a Reload, the same rule v1.24 set for the dirt line.
+
+New `tools/liquid_deck_test.py` runs the **real** `milkSellLiquidCarrier` against
+a fake world with counting stubs — 35 checks, all OK. The ones that carry weight:
+a draining deck sells with **zero** presses and the character ends back where it
+started; an offer list without an unload presses nothing *and* prints `Talk · Open
+Shop`; `Unload Milk` is driven through `milkStorePress` and logs which action paid;
+a press that leaves the tank alone is not a sale; a spawn that never arrives names
+the real distance, costs exactly one miss, and fires no press; two misses still
+allow a third visit and three set `milkLiquidOff`; a sale resets the counter; the
+three early-outs (switch off / destroyed model / seated player) cost **0**
+teleports; the silo refusal costs 0 teleports in all three shapes (type word,
+`Buildings` parent, rate-limited); a folded label (`Milk Tanker` card, `MilkTanker`
+instance) finds its live model and `milkStoreTarget` ends pointing at it; and no
+readable character position still sells rather than refusing to find its way home
+(rule 7). Fifteen source ties: the deck stays the owner's `-288` reading, the band
+is the constant (≥4 uses, never an in-line number), no `:PivotTo`, `pressKey`,
+`Mouse`, `FireServer`, `InvokeServer` or `EVTSellAtStore` appears anywhere in the
+trip, the live-offer pair is used instead of a raw `PCGP_ContextActions` walk,
+`milkPollFor(drained` is the proof twice, the no-input park precedes any button,
+`local function home(` sits **before** `local function noSale(` (rule 14), the silo
+test precedes the first `milkTp(deck`, `coins0` is captured and printed, and
+`milkStoreDeposit`'s FULL branch really calls `milkSellLiquidCarrier(dest)` with the
+old `empty it` line surviving as the else — so the honest message is still what a
+third failed trip says.
+
+Compile OK, suite **36/36** (33 harnesses + 3 gates), headroom **5** (unchanged —
+the trip is a 4-space `function`, i.e. a global, beside two new globals, and all
+five of its helpers are locals of its own prototype; rule 13 is why none of them
+is a build-closure `local`), name audit clean **380**. **Harness green — not
+reloaded in game**, and the first liquid-full pass is the verdict: either
+`✅ liquid sold at the deck — Milk Tanker 600 → 0, coins 14459 → 15231 (parked,
+pressing nothing)` and the pass carries on filling, or
+`liquid deck: … still reads 600/600 after being parked there — what the spot
+offers: …`, which names the action the trip should have pressed. A third line
+would be `the spawn left … 412 studs from the deck`, which means the deck is
+right but the carrier will not travel by the Garage, and the fix then is the
+character pushing the machine — not this trip.
+
+**Where it stands:** `rebuild v1.137 · fluent gui`, whole suite green (36/36),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **v1.134 was reloaded and driven in MuMu by the assistant** (the
 `[spud]` logcat quoted through §5 is that session), and what it showed is *not*
@@ -3551,9 +3696,18 @@ the weld verdict: the run never reached a field pass — it died on
 still unverified**, and the four defects that same session exposed are what
 v1.135 fixes (the spaced display names, the tab-filtered card list, the ride
 that answers `tractor=none`, the seed round that cannot end). v1.135's own
-verdicts are the five lines at the end of its entry; **neither v1.135 nor v1.136
-has been reloaded**, because after the v1.134 session the client took Roblox's
-Error 273 disconnect and reconnecting is the owner's call. **v1.129 was reloaded in game and crashed** (the ordering bug above);
+verdicts are the five lines at the end of its entry; **v1.135 was reloaded and
+driven in MuMu during this session** (the client is connected again), and what it
+showed is `hitch gap at arrival: 1.2 studs`, `✅ hitched JDShank (attempt 1)` and
+`✅ hitched HorschJoker (attempt 1)`, `equipment: Spawn … via spawn (no UI)`, and a
+`3x3 per stop` grid that took **2397 of 2399** cells. The implement that still
+loses the line-up now says so with the client's own count — `tool HorschJoker has
+no hitch point (308 instance(s) read)` — which is exactly v1.135's rule-7 line, and
+it names a build whose ride answered `tractor=none` in the previous session. Still
+**unobserved** from that entry: `seed default: Tomato`, the `All`-tab card rescue,
+`lined up … (the game's socket)`, and a bounded seed round; and **v1.136 has not
+been reloaded** either, so its single-heartbeat and DOCTOR `session N` verdicts are
+still open. **v1.129 was reloaded in game and crashed** (the ordering bug above);
 **v1.130 fixed that and was run in game** — the owner's console opens
 `rebuild v1.130`, gets past `— seed check —` into the field, and never prints
 `⚠ farming loop error`, so the crash verdict is closed. What that same run
@@ -3755,8 +3909,12 @@ versus the second crate left on the shelf. **(c)** A 600-slot seeder should read
    pass logs `reads X% but the game offers no Clean there - the dirty line moves
    to X%` and then stops hopping. That is the designed self-correction, not a
    bug — report the number if you see it.
-3. **The store deposit and feed top-up paths are untested** (they need a fake
-   carrier + dispenser).
+3. **The feed top-up path is untested** (it needs a fake dispenser), and the
+   **jug-carry / Fill half** of the store deposit still has no harness either —
+   `liquid_deck_test.py` runs the **drain** trip for real (§3.17), but nothing in
+   the suite proves that the live deck at `86, 141, -288` still drains a parked
+   tanker, that that number is still the spot, or what the spot actually offers.
+   The first liquid-full pass in game is the probe for all three.
 4. **"Modified client" is executor detection**, not movement or timing. No edit
    to this script changes it; the README's Stealth section says so explicitly
    and should keep saying so. The probes are louder than the farm script (they

@@ -590,6 +590,28 @@ Everything merged into one paste-and-run file:
   so the cows were herded and sent to the wrong barn (or nowhere). The bug, its
   reproduction and the fix are in
   [tools/herd_send_test.py](tools/herd_send_test.py)
+- **A full carrier is now sold, not reported** — the milk loop used to fill the
+  trailer or silo picked in **Store milk in**, and when that machine read
+  `600/600` the pass simply said `store: <carrier> is FULL (n/m) — empty it or
+  pick another carrier` and the milk it had already earned sat there. It now
+  drives it to the **sell liquid** deck you measured (`86, 141, -288`): the
+  character hops there, the carrier is brought to it with the game's own **Spawn**
+  if it is more than 45 studs away, and the load is parked on the deck **pressing
+  nothing** first — the same rule the Fulfillment pad follows. Only if the tank
+  refuses to move does it read what the spot actually offers and drive one of
+  those buttons through the game's own handlers (no mouse, no invented remote).
+  **The carrier's own readout dropping is the only proof** a sale happened; the
+  line is `✅ liquid sold at the deck — Milk Tanker 600 → 0, coins 14459 → 15231
+  (parked, pressing nothing)`, and the pass carries straight on filling against
+  the fresh number. A **silo** is left alone (it has no wheels and no Garage card,
+  so "drive it to the deck" would mean teleporting a building), every exit —
+  sold, refused, or a spawn that never arrived — brings the character **back to
+  the plot** so the delivery thread is not standing in town reading "no milk jugs
+  waiting here", and three misses in a row switch the trip off for that build. A
+  failed trip also prints exactly what the deck offered, so the run that cannot
+  sell is the run that names the button. [tools/liquid_deck_test.py](tools/liquid_deck_test.py)
+  runs the real trip against a fake world — 35 checks, all green — but
+  **whether the live deck drains a parked tanker is only answerable in game.**
 - **Run controls (Settings tab)** — **▶ Start everything** / **■ Stop everything** flip the three
   loops in a safe order (farm → milk → delivery; delivery turns itself back off
   when no trailer/silo is picked), and **verbose logs** puts the per-cow

@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.136 · fluent gui"
+local VERSION    = "rebuild v1.137 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6039,6 +6039,16 @@ local okBuild, errBuild = pcall(function()
         return Vector3.new(125, 142, -150)
     end
 
+    -- The LIQUID sell deck (AnimalCo side of town). The owner measured it the
+    -- same way as the other two — 📍 Get coords standing on it, 2026-11-02 —
+    -- and it has had no consumer until now: a full milk carrier stopped at
+    -- "empty it or pick another carrier", which is a thing a person does by
+    -- hand. The position is the measured one; what the deck OFFERS has never
+    -- been read, so the trip reports that instead of guessing at a key.
+    function spudLiquidSellSpot()
+        return Vector3.new(86, 141, -288)
+    end
+
     -- ▸ HOW CLOSE IS "THE SAME PAD"? The two readings of the Fulfillment drop
     --   pad — the 2026-10-30 dump's Deposit_Warehouse PART centre (-353,138,-90)
     --   and the owner's 2026-11-02 standing deck (-353,141,-92) — are 3.6 studs
@@ -6049,6 +6059,14 @@ local okBuild, errBuild = pcall(function()
     --   trip trusts it. The miss distance is logged, so the band stays a
     --   measurement and not a guess.
     spudFulfillPadNear = 35
+
+    -- HOW CLOSE IS "ON THE LIQUID DECK"? Same rule as the band above, and the
+    -- same way of staying honest: the trip logs the distance it measured, so a
+    -- number that is wrong shows up in one run instead of becoming folklore. It
+    -- starts wider than the Fulfillment band because a tanker is a long vehicle
+    -- whose contact trigger sits somewhere along its own body, not at its
+    -- centre — and because no build has ever printed what this deck offers.
+    spudLiquidDeckNear = 45
 
     -- the Fulfillment pad, read from the world — never a guessed position.
     -- Deposit_Warehouse is the drop pad; Withdraw_Warehouse is the opposite
@@ -9343,6 +9361,9 @@ local okBuild, errBuild = pcall(function()
     milkDirtLine = 24
     milkStoreDoubleKnown, milkStoreDoubleFails = nil, nil
     milkStoreFullAt, milkStoreQuietAt = nil, nil
+    -- the liquid-deck trip is learned state too: a deck that took nothing three
+    -- times this session stops being visited (see milkSellLiquidCarrier)
+    milkLiquidOff, milkLiquidTries = nil, 0
     milkFarmStayNote = nil
     milkGuiSaid, milkFilthSaid = nil, nil
     -- weak keys: a stall folder that streams out must not keep its backoff
@@ -12979,6 +13000,199 @@ local okBuild, errBuild = pcall(function()
         return "V"
     end
 
+    -- ▸ THE LIQUID DECK TRIP (owner: "finnishe the milk loop"). A full carrier
+    --   is where the milk money used to stop: the jugs stayed outside, the
+    --   console said "empty it or pick another carrier", and nothing ever
+    --   emptied. The deck has had an address since the owner stood on it and
+    --   pressed 📍 Get coords (86, 141, -288 → spudLiquidSellSpot), so the trip
+    --   is: stand the CHARACTER there, bring the carrier with the game's own
+    --   Spawn (the same door the top of milkStoreDeposit already uses, and a
+    --   FULL carrier is the one machine that costs nothing to move — it cannot
+    --   take a jug while it is full anyway), then prove the sale the only way
+    --   this script proves an unload: the carrier's OWN readout drops.
+    --   What is not done here is invented (rule 4). No key this build has never
+    --   seen at that spot, no remote whose arguments nobody captured. The first
+    --   thing tried is a park with no input, because the Fulfillment deck proved
+    --   in game that a pad can drain a parked vehicle by itself (v1.41); if the
+    --   tank stays, the deck's own visible context actions are read through
+    --   milkStoreActs() — the reader the fill step already trusts — and only one
+    --   the game itself put on screen is driven, through milkStorePress (its own
+    --   handlers, then the bind printed on that button; no mouse). A deck that
+    --   answers nothing is named with its verbatim offer list — that run is also
+    --   the probe — and three such trips stop the visits for the session, the
+    --   same three-miss rule the equipment remotes use. Every way out after the
+    --   first teleport puts the player back where the pass started: the automatic
+    --   delivery thread never teleports itself, so a trip that stayed in town
+    --   would leave it reading "no milk jugs waiting at this plot" for good.
+    function milkSellLiquidCarrier(dest)
+        if milkLiquidOff then return false end
+        if not dest or dest.Parent == nil then return false end
+        if farmTookBody() then return false end
+
+        -- A SILO IS A BUILDING: no wheels and no Garage card, so nothing can put
+        -- it on a deck. Tripping to town for it would only strand the player
+        -- beside a tank that cannot follow.
+        local isSilo = false
+        pcall(function()
+            if tostring(dest:GetAttribute("EquipmentType") or ""):lower():find("silo", 1, true) then
+                isSilo = true
+            elseif dest.Parent and dest.Parent.Name == "Buildings" then
+                isSilo = true
+            end
+        end)
+        if isSilo then
+            if not milkStoreQuietAt or os.clock() - milkStoreQuietAt > 120 then
+                milkStoreQuietAt = os.clock()
+                log("store: " .. dest.Name .. " is a silo — it cannot be driven onto the liquid deck; pick a trailer or tanker to sell the milk")
+            end
+            return false
+        end
+
+        local name = dest.Name
+        local deck = spudLiquidSellSpot()
+        local was, wasCap = milkStoreAmount(dest)
+        -- the coins BEFORE the sale, so the success line proves money moved
+        -- rather than a readout that got re-read
+        local coins0 = coinBalance()
+        -- ▸ where the character stood BEFORE this trip. milkStoreTask never
+        --   teleports to the plot itself — it works wherever the player already
+        --   is — so a pass that ended in town would leave every later pass
+        --   reading "no milk jugs waiting at this plot" for the rest of the
+        --   session. The trip that goes to the deck has to come back.
+        local startP
+        pcall(function()
+            local ch = LocalPlayer.Character
+            local root = ch and ch:FindFirstChild("HumanoidRootPart")
+            if root then startP = root.Position end
+        end)
+
+        local function carrier()
+            local folder = workspace:FindFirstChild("Objects")
+            folder = folder and folder:FindFirstChild("Equipment")
+            if not folder then return nil end
+            for _, c in ipairs(folder:GetChildren()) do
+                if spudSameEquipName(c.Name, name) then return c end
+            end
+            return nil
+        end
+        -- flat distance: the deck is a floor, and a machine on a ramp is not
+        -- "away" from it because of the Y
+        local function offDeck()
+            local c = carrier()
+            if not c then return nil end
+            local ok, d = pcall(function()
+                local p = c:GetPivot().Position
+                return math.sqrt((p.X - deck.X) ^ 2 + (p.Z - deck.Z) ^ 2)
+            end)
+            return ok and d or nil
+        end
+        local function drained()
+            local c = carrier()
+            local n = c and milkStoreAmount(c) or nil
+            return n ~= nil and n < was
+        end
+        -- ▸ back to where this pass started. Declared before noSale() so that
+        --   function closes over it — a local written below would read as nil
+        --   there (the ordering trap rule 14 names). Skipped when the farm loop
+        --   owns the body now, and when the player is already within 8 studs of
+        --   the recorded spot, so a trip that never left costs no teleport.
+        local function home()
+            if not startP or farmTookBody() then return false end
+            local ch = LocalPlayer.Character
+            local root = ch and ch:FindFirstChild("HumanoidRootPart")
+            if not root then return false end
+            if (startP - root.Position).Magnitude <= 8 then return false end
+            milkTp(startP + Vector3.new(0, 3, 0), true)
+            for _ = 1, 3 do milkFrame() end
+            return true
+        end
+        -- one way out for every no-sale answer, so the counter cannot be
+        -- forgotten at one of them
+        local function noSale(line)
+            log(line)
+            home()
+            milkLiquidTries = (milkLiquidTries or 0) + 1
+            if milkLiquidTries >= 3 then
+                milkLiquidOff = true
+                log("liquid deck: 3 trip(s) took nothing — not visiting it again this session; a full carrier gets reported, just not chased")
+            end
+            return false
+        end
+
+        -- 1) the player onto the deck (three frames, the ~50 ms a CFrame needs
+        --    to reach the server — not a guessed sleep)
+        milkTp(deck + Vector3.new(0, 3, 0), true)
+        for _ = 1, 3 do milkFrame() end
+
+        -- 2) the carrier onto the deck, through the game's own Spawn
+        local near0 = offDeck()
+        if not (near0 and near0 <= spudLiquidDeckNear) then
+            log(string.format("store: %s is %s from the liquid deck (%s) — asking the Equipment Manager to spawn it here",
+                name, near0 and (tostring(math.floor(near0)) .. " studs") or "unreadable",
+                tostring(spudLiquidDeckNear) .. "-stud band"))
+            pcall(managerAction, name, "Spawn")
+            for _ = 1, 24 do -- ~12 s for the machine to arrive
+                if milkStopping() or farmTookBody() then return false end
+                local d = offDeck()
+                if d and d <= spudLiquidDeckNear then break end
+                task.wait(0.5)
+            end
+        end
+        local live = carrier() or dest
+        local onDeck = offDeck()
+        if not onDeck or onDeck > spudLiquidDeckNear then
+            return noSale(string.format(
+                "store: the spawn left %s %s from the deck — it did not come here, so nothing was sold and the milk stays in it",
+                name, onDeck and (tostring(math.floor(onDeck)) .. " studs away") or "unreadable"))
+        end
+
+        -- 3) park and press NOTHING first: a deck that drains a parked vehicle
+        --    by itself is what the Fulfillment pad does, and the readout is the
+        --    only proof either way
+        if milkPollFor(drained, 8) then
+            milkStoreTarget = live
+            local now = milkStoreAmount(live)
+            log(string.format("✅ liquid sold at the deck — %s %s → %s, coins %s → %s (parked, pressing nothing)",
+                name, tostring(was), tostring(now), tostring(coins0), tostring(coinBalance())))
+            milkLiquidTries = 0
+            home()
+            return true, live
+        end
+
+        -- 4) no free drain: ask the deck what it OFFERS — the same visible
+        --    context actions milkStoreActs() reads for the fill step — and drive
+        --    only an unload the game itself put on screen, through its own
+        --    handlers (milkStorePress: handlers, then Activate, then the bind the
+        --    game printed on that button). Nothing here is a key this spot has
+        --    never shown.
+        local acts = milkStoreActs()
+        local shown = {}
+        for _, a in ipairs(acts) do shown[#shown + 1] = a.name end
+        for _, a in ipairs(acts) do
+            local lw = a.name:lower()
+            if lw:find("unload", 1, true) or lw:find("sell", 1, true)
+                or lw:find("empty", 1, true) or lw:find("offload", 1, true)
+                or lw:find("deposit", 1, true) then
+                local how = milkStorePress(a)
+                if milkPollFor(drained, 8) then
+                    milkStoreTarget = live
+                    local now2 = milkStoreAmount(live)
+                    log(string.format("✅ liquid sold at the deck — %s %s → %s, coins %s → %s (%s)",
+                        name, tostring(was), tostring(now2), tostring(coins0),
+                        tostring(coinBalance()), tostring(how)))
+                    milkLiquidTries = 0
+                    home()
+                    return true, live
+                end
+            end
+        end
+        local after = milkStoreAmount(live)
+        return noSale(string.format(
+            "liquid deck: %s still reads %s/%s after being parked there — what the spot offers: %s",
+            name, tostring(after or "?"), tostring(wasCap),
+            #shown > 0 and table.concat(shown, " · ") or "nothing visible"))
+    end
+
     -- returns the line the milk panel shows for the store step, or nil when
     -- nothing was waiting (a quiet cycle stays quiet)
     function milkStoreDeposit(cf, size)
@@ -13034,12 +13248,24 @@ local okBuild, errBuild = pcall(function()
         --   just stood at the truck every pass. Read the tank first.
         local roomNow, roomCap = milkStoreAmount(dest)
         if roomNow and roomCap and roomCap > 0 and roomNow >= roomCap then
-            if not milkStoreFullAt or os.clock() - milkStoreFullAt > 60 then
-                milkStoreFullAt = os.clock()
-                log(string.format("store: %s is FULL (%d/%d) — empty it or pick another carrier",
-                    dest.Name, roomNow, roomCap))
+            -- ▸ A FULL CARRIER IS NOT THE END OF THE LOOP ANY MORE (owner:
+            --   "finnishe the milk loop"). The old answer was to tell a person to
+            --   empty it; the deck has had an address since the owner measured it,
+            --   so the loop now takes the milk there itself. A sell it cannot prove
+            --   (no carrier arrives, no readout drops) still reports exactly what it
+            --   did, and the "empty it" line below is what a third failed trip
+            --   leaves the loop saying.
+            local sold, fresh = milkSellLiquidCarrier(dest)
+            if sold then
+                dest = fresh or dest
+            else
+                if not milkStoreFullAt or os.clock() - milkStoreFullAt > 60 then
+                    milkStoreFullAt = os.clock()
+                    log(string.format("store: %s is FULL (%d/%d) — empty it or pick another carrier",
+                        dest.Name, roomNow, roomCap))
+                end
+                return string.format("store: %s is full (%d/%d)", dest.Name, roomNow, roomCap), true
             end
-            return string.format("store: %s is full (%d/%d)", dest.Name, roomNow, roomCap), true
         end
         milkStoreFullAt = nil
 
