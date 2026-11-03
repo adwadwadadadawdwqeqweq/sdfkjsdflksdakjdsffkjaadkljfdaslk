@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.130 · fluent gui"
+local VERSION    = "rebuild v1.131 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -2944,6 +2944,36 @@ local okBuild, errBuild = pcall(function()
         return "swinging", dist
     end
 
+    -- ▸ ANCHOR THE TOW (owner 2026-11-03: "we need to anchor the tractor when it
+    --   tps because the tool drags it, also the tractor tps before the tool can
+    --   get back in place"). A ride teleport moves ONLY the tractor: the
+    --   implement is a separate model joined to it by the game's own hitch, so
+    --   the arc hop that live v1.130 run measured at 286 studs left the plow at
+    --   the old ground position — `hitch gap at arrival: 277.7 studs`. That is a
+    --   constraint under 277 studs of tension, which is the drag, and nothing
+    --   the settle wait (1.5 s a stop) can ever close, so every pass after it
+    --   refused itself and the field fired 0 calls.
+    --   So every teleport of the rig moves the implement by the same delta: the
+    --   hitch stays slack, the tool is already behind the ride before the next
+    --   jump, and what the settle wait now has to absorb is a few studs of sag.
+    --   The tool keeps its OWN rotation — a ride turn must not spin the plow.
+    --   A global so it costs no build-closure register, and it calls no local.
+    function spudPivotRig(ride, cf, tool)
+        local before
+        -- the harvest job rides the machine it works with (`impl = ride`), so
+        -- carrying it would move the same model a SECOND time by the same delta
+        -- and land the harvester twice the trip away.
+        if tool and tool ~= ride then before = ride:GetPivot().Position end
+        ride:PivotTo(cf)
+        if not before then return end
+        local d = cf.Position - before
+        if d.X == 0 and d.Y == 0 and d.Z == 0 then return end
+        pcall(function()
+            local tp = tool:GetPivot()
+            tool:PivotTo(CFrame.new(tp.Position + d) * (tp - tp.Position))
+        end)
+    end
+
     -- fire the game's own call for every cell still needing `job`, then
     -- re-read the field. Returns done, left:
     --   true, 0  = every cell took the call (no block or hop needed)
@@ -5482,7 +5512,7 @@ local okBuild, errBuild = pcall(function()
     --   harvester never touched the pad it was sent to park on. Landing is the
     --   target's height, full stop; the lift below is always enough to clear
     --   both ends, so the arrival is from above and never from under.
-    local function hopTo(tr, target, speed)
+    local function hopTo(tr, target, speed, towed)
         speed = speed or SELL_HOP_SPEED
         local cf = tr:GetPivot()
         local from = cf.Position
@@ -5492,7 +5522,7 @@ local okBuild, errBuild = pcall(function()
         local flat = Vector3.new(to.X - from.X, 0, to.Z - from.Z)
         local dist = flat.Magnitude
         if dist < 1 then
-            tr:PivotTo(CFrame.new(to) * rot)
+            spudPivotRig(tr, CFrame.new(to) * rot, towed)
             return true
         end
         local dir = flat / dist
@@ -5510,10 +5540,10 @@ local okBuild, errBuild = pcall(function()
             local t = travelled / dist
             local p = from + dir * travelled
             p = Vector3.new(p.X, from.Y + rise * t + lift * math.sin(math.pi * t), p.Z)
-            tr:PivotTo(CFrame.new(p) * rot)
+            spudPivotRig(tr, CFrame.new(p) * rot, towed)
             task.wait(tick)
         end
-        tr:PivotTo(CFrame.new(to) * rot)
+        spudPivotRig(tr, CFrame.new(to) * rot, towed)
         return true
     end
 
@@ -6943,7 +6973,7 @@ local okBuild, errBuild = pcall(function()
                     log(string.format("remote %s: the %s is still moving %.0f studs behind the ride — waiting 1.5 s per cell is all it will give, taking the jumps",
                         job.verb, tostring(impl and impl.Name or "tool"), trail or 0))
                 end
-                ride:PivotTo(CFrame.new(target) * rot)
+                spudPivotRig(ride, CFrame.new(target) * rot, impl)
                 local settled = bladeOn(c, 8, 20)
                 if not settled then
                     -- the tool was still swinging: park once more from where it
@@ -6951,7 +6981,8 @@ local okBuild, errBuild = pcall(function()
                     local b1 = bladePos()
                     local again = b1 and spudWaitTool(ride, att, job.verb)
                     if b1 and (again == "settled" or again == "none" or again == "swinging") then
-                        ride:PivotTo(CFrame.new(Vector3.new(c.X, c.Y, c.Z) - (b1 - ride:GetPivot().Position)) * rot)
+                        spudPivotRig(ride, CFrame.new(Vector3.new(c.X, c.Y, c.Z)
+                            - (b1 - ride:GetPivot().Position)) * rot, impl)
                         settled = bladeOn(c, 8, 20)
                     end
                 end
@@ -7136,7 +7167,7 @@ local okBuild, errBuild = pcall(function()
             local parked = pcall(function()
                 local b0 = bladePos()
                 if b0 then off = b0 - ride:GetPivot().Position end
-                ride:PivotTo(CFrame.new(Vector3.new(stop.x, sy, stop.z) - off) * rot)
+                spudPivotRig(ride, CFrame.new(Vector3.new(stop.x, sy, stop.z) - off) * rot, impl)
             end)
             if not parked then break end
             -- the first stop follows a long ride, the rest are short trips
@@ -7146,8 +7177,8 @@ local okBuild, errBuild = pcall(function()
                 local again = b1 and spudWaitTool(ride, att, job.verb)
                 if b1 and (again == "settled" or again == "none" or again == "swinging") then
                     pcall(function()
-                        ride:PivotTo(CFrame.new(Vector3.new(stop.x, sy, stop.z)
-                            - (b1 - ride:GetPivot().Position)) * rot)
+                        spudPivotRig(ride, CFrame.new(Vector3.new(stop.x, sy, stop.z)
+                            - (b1 - ride:GetPivot().Position)) * rot, impl)
                     end)
                     settled = bladeOn(stop, blockTol, 24)
                 end
@@ -7788,7 +7819,7 @@ local okBuild, errBuild = pcall(function()
                                 job.verb, tostring(impl and impl.Name or "tool"), trailH or 0))
                             return false
                         end
-                        arrived = hopTo(ride, goal, SELL_HOP_SPEED) and true or false
+                        arrived = hopTo(ride, goal, SELL_HOP_SPEED, impl) and true or false
                         how = "arc hop"
                         if stopping() then return false end
                         if not arrived then

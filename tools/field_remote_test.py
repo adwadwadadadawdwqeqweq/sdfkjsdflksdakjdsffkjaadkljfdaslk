@@ -44,6 +44,7 @@ WANTED = [
     "spudHarvestFull",
     "spudToolTrail",
     "spudWaitTool",
+    "spudPivotRig",
     "spudToolExtraTiles",
 ]
 
@@ -109,7 +110,13 @@ Vector3 = { new = function(x, y, z)
     return setmetatable({ X = x or 0, Y = y or 0, Z = z or 0 }, V)
 end }
 local CF = {}
-CF.__index = CF
+-- the build reads a pose as `.Position`; this stub stores it as `.pos`, so the
+-- key is served on demand (metamethods are looked up on the table itself, so
+-- redefining __index this way does not hide __mul/__sub)
+CF.__index = function(t, k)
+    if k == "Position" then return t.pos end
+    return rawget(CF, k)
+end
 CF.__mul = function(a, b)
     if a.base then return { Position = a.Position + (b.pos or b.Position) } end
     return a
@@ -247,6 +254,21 @@ local tool = newInst("KADL", "Model")
 local comps = adopt(tool, newInst("Components", "Folder"))
 local impl = adopt(comps, newInst("Seeder", "Model"))
 local att = adopt(adopt(impl, newInst("RaycastPart", "Part")), newInst("Attachment", "Attachment"))
+
+-- ▸ THE IMPLEMENT IS ITS OWN MODEL, and a ride teleport does not move it (that
+--   is the live defect: `arc hop: 286 studs` then `hitch gap at arrival: 277.7
+--   studs`). The old stub dragged ATTPARENT along with the ride, which is
+--   exactly why no harness ever saw it. So the tool gets a real pivot, and every
+--   carry the build performs lands here — CARRIED counts them.
+CARRIED = 0
+function tool:GetPivot()
+    if not ATTPARENT then return nil end
+    return setmetatable({ pos = ATTPARENT.Position }, CF)
+end
+function tool:PivotTo(cf)
+    CARRIED = CARRIED + 1
+    if ATTPARENT then ATTPARENT.Position = cf.pos end
+end
 
 local decoyTool = newInst("S4204", "Model")
 adopt(adopt(decoyTool, newInst("Misc", "Part")), newInst("Attachment", "Attachment"))
@@ -552,10 +574,11 @@ RIDE_POS = Vector3.new(0, 0, 0)
 local hopRide = {}
 local rides = 0
 function hopRide:GetPivot() return setmetatable({ Position = RIDE_POS }, CF) end
+-- a RIDE-ONLY teleport: the game moves the tractor and the hitched implement
+-- stays on the ground behind it, so a pass that wants its blade has to carry it
 function hopRide:PivotTo(cf)
     rides = rides + 1
     RIDE_POS = cf.pos
-    ATTPARENT.Position = RIDE_POS + Vector3.new(0, 0, -5)
 end
 local baseCF = setmetatable({ base = true, Position = Vector3.new(0, 0, 0) }, CF)
 local baseSize = Vector3.new(50, 1, 20)
@@ -881,6 +904,87 @@ check("wide tool: the block grows with the implement",
     loggedText():find("6x6 per stop") ~= nil,
     "took " .. tostring(tookWide))
 
+-- 16. ANCHOR THE TOW (owner: "we need to anchor the tractor when it tps because
+--     the tool drags it, also the tractor tps before the tool can get back in
+--     place"). Live v1.130 measured the failure: `arc hop: 286 studs` then
+--     `hitch gap at arrival: 277.7 studs` — the ride moved and the plow did not,
+--     so the hitch went taut (the drag) and no 1.5 s settle could ever close
+--     277 studs (every pass then refused and the field fired 0 calls).
+RIDE_POS = Vector3.new(0, 0, 0)
+ATTPARENT.Position = Vector3.new(0, 0, -5)
+local rotOf = CFrame.new(0, 0, 0) - Vector3.new(0, 0, 0)   -- heading with no position
+local gapOf = function()
+    local d = spudToolTrail(hopRide, hopAtt)
+    return d or -1
+end
+
+-- the fixture is honest first: a bare ride teleport DOES leave the blade behind,
+-- exactly like the game — otherwise every check below proves nothing
+local spin = CFrame.new(Vector3.new(286, 0, 0)) * rotOf
+hopRide:PivotTo(spin)
+check("a ride-only teleport leaves the implement on the ground (like the game)",
+    gapOf() > 200, "gap became " .. tostring(gapOf()))
+
+-- and the carrying one does not
+ATTPARENT.Position = Vector3.new(286, 0, -5)
+local c0 = CARRIED
+spudPivotRig(hopRide, CFrame.new(Vector3.new(0, 0, 0)) * rotOf, tool)
+check("carry: the implement moves with the ride, hitch slack kept",
+    gapOf() <= 6 and CARRIED == c0 + 1,
+    "gap " .. tostring(gapOf()) .. ", " .. (CARRIED - c0) .. " carry")
+
+local jumped = rides
+local carried = CARRIED
+RIDE_POS = Vector3.new(0, 0, 0)
+ATTPARENT.Position = Vector3.new(0, 0, -5)
+sweepGrid()
+resetState()
+local tookCarry = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+check("grid: every jump carries the implement (no jump left towing nothing)",
+    CARRIED - carried == rides - jumped,
+    (rides - jumped) .. " jump(s), " .. (CARRIED - carried) .. " carry(ies)")
+check("grid: the blade is still on the hitch after the last stop",
+    gapOf() <= 6, "gap " .. tostring(gapOf()))
+check("grid: the carried tow still takes the cells",
+    tookCarry and tookCarry > 0, tostring(tookCarry))
+
+jumped, carried = rides, CARRIED
+RIDE_POS = Vector3.new(0, 0, 0)
+ATTPARENT.Position = Vector3.new(0, 0, -5)
+sweepGrid()
+resetState()
+local tookHopC = spudHopCells(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+check("hop: every cell jump carries the implement",
+    CARRIED - carried == rides - jumped,
+    (rides - jumped) .. " jump(s), " .. (CARRIED - carried) .. " carry(ies)")
+check("hop: the tow is still behind the ride at the end",
+    gapOf() <= 6, "gap " .. tostring(gapOf()))
+check("hop: the carried tow still takes the cells",
+    tookHopC and tookHopC > 0, tostring(tookHopC))
+
+-- an unreadable tool is not a reason to stop moving
+local before0, cNoTool = rides, CARRIED
+spudPivotRig(hopRide, CFrame.new(Vector3.new(30, 0, 30)) * rotOf, nil)
+check("carry: a ride with nothing towed still jumps",
+    rides == before0 + 1 and CARRIED == cNoTool,
+    tostring(rides - before0) .. " jump(s), " .. (CARRIED - cNoTool) .. " carry(ies)")
+
+-- ▸ the harvest job's `impl` IS the ride (self-propelled). Carrying a model onto
+--   itself would add the delta a second time and land the harvester twice the
+--   trip away — the guard in spudPivotRig is the only thing preventing it.
+RIDE_POS = Vector3.new(0, 0, 0)
+local selfCF = CFrame.new(Vector3.new(286, 0, 0)) * rotOf
+local selfBefore = hopRide:GetPivot().Position
+local js0, cs0 = rides, CARRIED
+spudPivotRig(hopRide, selfCF, hopRide)
+check("self-propelled: the ride is moved once, not twice",
+    rides == js0 + 1 and CARRIED == cs0
+    and (hopRide:GetPivot().Position - selfBefore).X == 286,
+    "moved " .. string.format("%.0f",
+        (hopRide:GetPivot().Position - selfBefore).X) .. " studs")
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 """
 
@@ -908,15 +1012,31 @@ def main() -> int:
             print("the tow-settle gate no longer declares " + const
                   + " — update this harness")
             return 2
-    # the gate has to sit BEFORE each teleport, not after it
+    # the gate has to sit BEFORE each teleport, and the teleport has to be the
+    # carrying one — a bare `ride:PivotTo` leaves the implement on the ground
     for fn in ("spudRadialFire", "spudHopCells"):
         body = extract(src, fn)
         if "spudWaitTool(ride, att" not in body:
             print(fn + " teleports without waiting for the tow to settle")
             return 2
-        if body.index("spudWaitTool(ride, att") > body.index(":PivotTo("):
-            print(fn + " waits for the tow only AFTER its first PivotTo")
+        if "spudPivotRig(ride," not in body:
+            print(fn + " jumps the ride without carrying the implement")
             return 2
+        if body.index("spudWaitTool(ride, att") > body.index("spudPivotRig(ride,"):
+            print(fn + " waits for the tow only AFTER its first teleport")
+            return 2
+        if re.search(r"\b(?:ride|tr):PivotTo\(", body):
+            print(fn + " still has a bare ride:PivotTo — that is the tow-tearing bug")
+            return 2
+    # the arc hop moves the rig too, and the tour hands it the hitched implement
+    hop = src[src.index("    local function hopTo("):]
+    hop = hop[:hop.index("\n    end\n") + len("\n    end\n")]
+    if "spudPivotRig(tr," not in hop:
+        print("hopTo teleports the ride without carrying the tow")
+        return 2
+    if not re.search(r"hopTo\(ride, goal, SELL_HOP_SPEED, impl\)", src):
+        print("the field-to-field arc hop is not given the implement to carry")
+        return 2
     parts = []
     for name in WANTED:
         code = extract(src, name)

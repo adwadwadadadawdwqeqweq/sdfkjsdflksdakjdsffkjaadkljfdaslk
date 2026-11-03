@@ -29,7 +29,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "SpudFarm_Full.lua"
-WANTED = ["hopTo"]
+WANTED = ["hopTo", "spudPivotRig"]
 
 PRE = r"""
 local V = {}
@@ -53,8 +53,15 @@ PIVOT.__index = PIVOT
 function PIVOT.__sub(a, b) return { rot = true } end
 
 local CF = {}
-CF.__index = CF
+CF.__index = function(t, k)
+    -- spudPivotRig reads a pose as `.Position`; this stub stores it as `.p`, so
+    -- the key is served on demand (metamethods are looked up on the metatable
+    -- itself, so answering from a function here does not hide __mul/__sub)
+    if k == "Position" then return t.p end
+    return rawget(CF, k)
+end
 function CF.__mul(a, b) return a end
+function CF.__sub(a, b) return { pose = true } end
 
 CFrame = { new = function(p) return setmetatable({ p = p }, CF) end }
 
@@ -76,7 +83,27 @@ function ride:PivotTo(cf)
     pos = cf.p
     moves[#moves + 1] = { X = pos.X, Y = pos.Y, Z = pos.Z }
 end
-local function place(x, y, z) pos = Vector3.new(x, y, z) moves = {} stopped = false end
+
+-- The implement is a SEPARATE model joined by the game's own hitch, so a
+-- ride:PivotTo does not move it — that is the live v1.130 failure the carry
+-- exists to fix (`hitch gap at arrival: 277.7 studs`). This fake starts 20
+-- studs behind the ride and only ever moves when it is carried.
+local toolPos = Vector3.new(0, 0, -20)
+local carried = 0
+local tool = {}
+function tool:GetPivot() return setmetatable({ Position = toolPos }, PIVOT) end
+function tool:PivotTo(cf)
+    carried = carried + 1
+    toolPos = cf.p
+end
+local function place(x, y, z)
+    pos = Vector3.new(x, y, z)
+    toolPos = Vector3.new(x, y, z - 20)
+    moves = {}
+    carried = 0
+    stopped = false
+end
+local function gap() return (pos - toolPos).Magnitude end
 """
 
 POST = r"""
@@ -145,6 +172,39 @@ local aborted = hopTo(ride, Vector3.new(100, 172, 0), 140)
 check("stopping: the hop aborts", aborted == nil)
 check("stopping: the ride is not landed on the target", #moves == 0)
 
+-- 7. THE TOW (owner 2026-11-03: "we need to anchor the tractor when it tps
+--    because the tool drags it"). The ride moves; the implement is a separate
+--    model on the game's own hitch, so a hop that does not carry it puts the
+--    constraint under the whole length of the trip.
+place(0, 140, 0)
+hopTo(ride, Vector3.new(100, 172, 0), 140, tool)
+check("tow: the hop carries the implement", carried > 0,
+    carried .. " carry(ies) over " .. #moves .. " move(s)")
+check("tow: the hitch stays the same 20 studs",
+    gap() > 19 and gap() < 21, string.format("%.1f studs", gap()))
+check("tow: the landing carries it too",
+    toolPos.Z == moves[#moves].Z - 20,
+    string.format("tool z %.1f, ride z %.1f", toolPos.Z, moves[#moves].Z))
+place(0, 140, 0)
+hopTo(ride, Vector3.new(100, 172, 0), 140)
+check("no implement: the hop carries nothing", carried == 0,
+    carried .. " carry(ies)")
+
+-- the harvest job's `impl` IS the ride, so the carry must not translate it a
+-- second time — that hop would land the harvester twice the trip away
+place(0, 140, 0)
+hopTo(ride, Vector3.new(100, 172, 0), 140, ride)
+check("self-propelled: the hop lands the ride, not twice the ride",
+    moves[#moves].X == 100 and moves[#moves].Y == 172,
+    string.format("landed at %.0f, %.0f", moves[#moves].X, moves[#moves].Y))
+
+-- 8. the control the live run hit: a bare ride teleport leaves the blade on the
+--    ground 286 studs away, which is the drag and the refused passes
+place(0, 140, 0)
+ride:PivotTo(CFrame.new(Vector3.new(286, 140, 0)))
+check("control: a ride-only hop is what leaves the tow behind",
+    gap() > 200, string.format("%.1f studs of hitch", gap()))
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 """
 
@@ -163,6 +223,16 @@ def main() -> int:
     base = pathlib.Path(os.environ.get("LOCALAPPDATA", ".")) / "Temp" / "opencode" / "luau"
     exe = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else base / "luau.exe"
     src = SRC.read_text(encoding="utf-8")
+    # The arc mover must go through the pivot that carries the tow: a bare
+    # ride:PivotTo in here is the live v1.130 bug (277 studs of taut hitch)
+    # coming back, and this harness would still report a perfect landing.
+    hopBody = extract(src, "hopTo")
+    if "spudPivotRig(tr," not in hopBody:
+        print("hopTo no longer carries the implement — this harness is stale")
+        return 2
+    if re.search(r"\btr:PivotTo\(", hopBody):
+        print("hopTo still has a bare ride:PivotTo — the tow is left behind")
+        return 2
     parts = []
     for name in WANTED:
         code = extract(src, name)

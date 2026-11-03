@@ -124,7 +124,19 @@ Everything merged into one paste-and-run file:
   not on the hitch any more, stopping this hop pass instead of dragging it
   further`) and the arc refuses the field outright rather than towing it 800
   studs off the map; a tool still swinging is named **once** per pass and the
-  work continues. Whatever it misses is then **hopped**: one
+  work continues. **And every jump now takes the tool with it** (owner: *"we need
+  to anchor the tractor when it tps because the tool drags it, also the tractor
+  tps before the tool can get back in place"*): `Model:PivotTo` moves only the
+  model you point it at, so a ride teleport used to leave the hitched implement on
+  the old ground with the constraint under the whole length of the trip — one
+  286-stud arc hop arrived at **`hitch gap at arrival: 277.7 studs`**, and because
+  no 1.5 s wait can close a gap that wide the next pass refused itself again, and
+  the field fired **0** calls. `spudPivotRig` now pivots the ride and translates
+  the implement by the **same delta**, keeping the tool's own rotation (a turn
+  must not spin the plow), at every grid stop, every per-cell hop and every frame
+  of the arc; a job whose tool IS the ride (harvest) is moved once, not twice. The hitch stays the length of the tow-bar, so the settle wait reads
+  settled instead of far, and the whole field gets called at rather than refused.
+  Whatever it misses is then **hopped**: one
   teleport per remaining cell with the blade on it. Anything still standing
   after the hop is **retried**: grid → hop again, round after round, until the
   field reports none of that stage left (Stop ends it). Two rounds that take
