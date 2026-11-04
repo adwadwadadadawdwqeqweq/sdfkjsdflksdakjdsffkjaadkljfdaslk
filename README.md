@@ -409,7 +409,16 @@ Everything merged into one paste-and-run file:
   `carrying()` — which is already true with one box in hand. A second crate dearer
   than the balance is left on the shelf, and anything already bought but not paid
   for is put back down before the fill (`spudDropRemote` until the hands read
-  empty), so a shelf box can never reach the seeder. The
+  empty), so a shelf box can never reach the seeder. **The visit budget is
+  planned on the crates a trip actually came back with** (v1.144, the other
+  half of the same "only about 100"): the live console proves the second crate
+  usually does **not** land — `the second purchase did not land — putting the
+  crates back down and picking up only the one that is paid for` — and a plan
+  built on the two-crate **ask** promises 6 visits to a 600-slot tank that can
+  only receive 300 seeds in them. Each finished trip records
+  `spudCratesTripGot`, every budget divides by `spudCratesTripActual()`, and a
+  one-crate till is planned at **12** visits (`the cap is 12, planned on a read
+  tank of 600 at 1 crate(s) a trip`), never at six it cannot keep. The
   crate's own price billboard is the only price read, and it is only readable
   standing in town — so the first trip makes that hop, and a seed found dearer
   than the balance is then refused **where the run stands** (`the Cabbage crate
@@ -459,7 +468,15 @@ Everything merged into one paste-and-run file:
   (`every buy-shaped control on screen is the pallet till (…) — it sells pallets,
   not seed — clicking nothing for seed`) rather than a licence the script can
   buy. Only those two words refuse by path, because both came off that live
-  path and that toast; an invented third word would refuse the real buy. After a
+  path and that toast; an invented third word would refuse the real buy. **The
+  close judge reads the same rule** (v1.144, live): the question *"did the buy
+  popup shut?"* was answered by the first purchase-shaped control anywhere in
+  `GuiViews`, and this town keeps the pallet till's `PurchaseButton` on screen —
+  so a dialog that had closed was still reported `Stores is still open after
+  handler then again`, the close step chased the till's container, and the
+  second crate was bought against a till that was never shut. The judge now
+  gathers every purchase-shaped control with its path and hands the list to the
+  same picker. After a
   seed is bought the **shop menu is closed** on the way out: the open menu is
   read from `GuiViews.Menus`, its own close control is clicked inside it, the
   result is re-read, and F is only the fallback — so the UI does not stay up
@@ -646,6 +663,16 @@ Everything merged into one paste-and-run file:
   mouse), re-reads the cards, and only then declares the card absent. A build
   with no `All` tab says so, with the number of tabs it did find, instead of
   failing quietly.
+- **A card name is not an identity** (v1.144, live). The same diagnostic printed
+  `6 card(s) showing right now: Tempo L16 · JD Shank · Horsch Joker · JD S790 ·
+  Tempo L16 · Challenger MT9` — **two** cards named `Tempo L16`, because this
+  farm owns two of the planter. The store retry clicked the first match on all
+  five attempts, so the machine that was actually out in the field stayed out
+  and the console said `couldn't store the TempoL16 after 5 tries` twice in one
+  seed pass. Every attempt now asks the **next** card that carries the name
+  (wrapping), and the final refusal names what it still holds: whether that
+  instance is in the world, its own `InStorage` read, and the game's
+  `Name=Type (stored)` list — so the next run says which of the two it clicked.
 - **A fall-through names which half broke** (v1.135). `spudEquipRemoteAct`
   returned `false` in five places with no log at all, so a console could not
   tell "this build has no such remote", "the call threw", "switched off for the

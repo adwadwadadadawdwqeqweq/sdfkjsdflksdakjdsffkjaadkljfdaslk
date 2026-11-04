@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.143 · fluent gui"
+local VERSION    = "rebuild v1.144 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -1250,7 +1250,7 @@ local okBuild, errBuild = pcall(function()
     --      your plot."
     -- Flow: open → card (poll until the list populates) → verify the
     -- expanded card really shows it → Spawn (scrolled into view) → close.
-    local function managerAction(vehicleName, action)
+    local function managerAction(vehicleName, action, which)
         -- action = "Spawn" (bring it out) or "Store" (put it back)
         action = action or "Spawn"
         -- ▸ the captured call first: it is exactly what the card's button
@@ -1305,19 +1305,31 @@ local okBuild, errBuild = pcall(function()
             -- the manager reported no card for a vehicle it was listing). The
             -- video showed the menu opens EMPTY and the cards land ~1-2 s
             -- later — so poll for this card instead of searching once.
+            local want = math.max(1, math.floor(tonumber(which) or 1))
             local function findCard()
                 local key = spudNameKey(vehicleName)
+                local hits = {}
                 for _, d in ipairs(cards:GetDescendants()) do
                     if d:IsA("ImageButton") then
                         local nm = d:FindFirstChild("EquipmentName")
                         if nm and nm:IsA("TextLabel") then
                             local t = nm.Text:gsub("^%s+", ""):gsub("%s+$", "")
                             if key ~= "" and spudNameKey(t):sub(1, #key) == key then
-                                return d
+                                hits[#hits + 1] = d
                             end
                         end
                     end
                 end
+                if #hits == 0 then return nil end
+                -- ▸ WHICH OF THE SAME-NAMED CARDS (live 2026-11-03): the
+                --   garage list read `Tempo L16 · JD Shank · Horsch Joker ·
+                --   JD S790 · Tempo L16 · Challenger MT9` — TWO cards named
+                --   Tempo L16, so this farm owns two of the planter and the
+                --   first match is not necessarily the one standing in the
+                --   field. The store retry asks for the NEXT card with the
+                --   name (wrapping), so five attempts cannot all click the
+                --   twin that was already stored.
+                return hits[((want - 1) % #hits) + 1]
             end
             -- ▸ IS THE CARD ACTUALLY ON SCREEN (user: "it calls the card before
             --   they are even visible")? A card object exists in the tree as
@@ -3845,6 +3857,22 @@ local okBuild, errBuild = pcall(function()
     --   call sites are the pour loop, the seedCheck trip ceiling and the
     --   planting pass's refill ceiling.
     spudCratesPerTrip = 2
+    -- ▸ HOW MANY CRATES A TRIP ACTUALLY CAME BACK WITH (live 2026-11-03, the
+    --   owner's "it isnt filling it up to 600 only about 100"): the plan is
+    --   allowed two crates a visit, and the console says when the till
+    --   refuses the extra box and the trip puts only the paid crate back in
+    --   the hand. A trip that delivers ONE 50-seed crate cannot fill a 600
+    --   tank in the 6 visits a two-crate plan promises; it needs 12. So the
+    --   arithmetic plans on what this run has really carried out of town,
+    --   never on what the till was asked for. nil = no trip finished yet,
+    --   which keeps the constant.
+    spudCratesTripGot = nil
+    function spudCratesTripActual()
+        local want = math.max(1, tonumber(spudCratesPerTrip) or 1)
+        local got = tonumber(spudCratesTripGot)
+        if got and got > 0 then return math.min(got, want) end
+        return want
+    end
     -- What ONE crate actually gave the seeder, learned from a real pour (a
     -- crate's own Capacity only reads on a streamed crate). nil = never seen,
     -- which keeps the old constant trip ceiling rather than guessing a size
@@ -4403,12 +4431,12 @@ local okBuild, errBuild = pcall(function()
                     local capFor, via = spudSeederCapFor(cap1, spudSeederCap)
                     local more = capFor and (capFor - n1) or nil
                     local visits = spudSeedTripsNeeded(capFor, n1,
-                        spudSeedsPerCrate, spudCratesPerTrip)
+                        spudSeedsPerCrate, spudCratesTripActual())
                     log(string.format("seeder fill: the hands are empty and the tank still wants %s seed(s)%s — %s more town visit(s) at %d crate(s) a trip%s",
                         more and tostring(more) or "an unreadable amount",
                         capFor and (" of " .. capFor .. (via == "remembered" and " (the cap read from earlier this build)" or "")) or "",
                         visits and tostring(visits) or "an unknown number",
-                        math.max(1, tonumber(spudCratesPerTrip) or 1),
+                        spudCratesTripActual(),
                         visits and visits > 0 and "" or " — nothing more is carried"))
                 end
                 log(string.format("✅ seeder now holds %d%s seeds%s — the planting pass takes it from here",
@@ -4966,12 +4994,29 @@ local okBuild, errBuild = pcall(function()
         --   still popped up after its dialog had closed (and the F retry then
         --   re-opened it). The dialog's control says Purchase.
         local function shownPurchase()
+            local cands
             for _, g in ipairs(views:GetDescendants()) do
                 if g:IsA("GuiButton") and isShown(g) then
                     local t = (guiTextOf(g) .. " " .. g.Name):lower()
-                    if t:find("purchase", 1, true) then return g end
+                    if t:find("purchase", 1, true) then
+                        cands = cands or {}
+                        cands[#cands + 1] = { b = g,
+                            path = tostring(g:GetFullName()):lower() }
+                    end
                 end
             end
+            if not cands then return nil end
+            -- ▸ A TILL IS NOT THE DIALOG (live 2026-11-03). This judge answers
+            --   "did the buy popup close?", and this town keeps a
+            --   `Stores.PalletStoreMenu…PurchaseButton` on screen — so the
+            --   first purchase-shaped control in GuiViews could be the till
+            --   while the seed dialog was already gone. The close step then
+            --   chased the till's own container, logged `Stores is still open
+            --   after handler then again`, and the SECOND crate was bought
+            --   against a till that was never shut. Same rule the buy click
+            --   uses: a pallet/forklift path loses to any other candidate.
+            local cand = spudShopBuyPick(cands)
+            return cand and cand.b
         end
         local function closeDialog()
             local pus = shownPurchase()
@@ -5154,6 +5199,12 @@ local okBuild, errBuild = pcall(function()
                 break
             end
         end
+        -- ▸ WHAT THIS TRIP ACTUALLY BOUGHT. The first crate is counted, plus
+        --   every second-crate purchase the balance proved; a till that
+        --   refuses the extra box leaves the run at one, and the trip ceiling
+        --   then doubles the visits rather than promising 600 seeds in 6
+        --   visits that can only carry 300 (the owner's "only about 100").
+        spudCratesTripGot = 1 + extraCrates
         -- ▸ STAGE 3/4 — the crate is ALREADY IN HAND (nothing was put down), so
         --   the fill leg is the shared helper: pick the crate up only if the
         --   game swapped it out during the buy, go to the seeder, pour it in.
@@ -5248,14 +5299,15 @@ local okBuild, errBuild = pcall(function()
         --   a failed read must not silently shrink the promise the same pass
         --   just made (live: `refill 1/6` against `the cap is 4`).
         local capPlan, capVia = spudSeederCapFor(cap, spudSeederCap)
+        local cratesPerTrip = spudCratesTripActual()
         local tripsNeeded = spudSeedTripsNeeded(capPlan, count,
-            spudSeedsPerCrate, spudCratesPerTrip)
+            spudSeedsPerCrate, cratesPerTrip)
         local tripsCeiling = spudSeedTripCeiling(tripsNeeded, spudSeedTripsMax)
         if not spudSeedTripAllowed(seedShopTries, tripsCeiling) then
-            log(string.format("the seeder is still empty and this run already made %d shop trip(s) (the cap is %d, planned on a %s tank of %s) — not teleporting again (pick a different seed, or fill it by hand)",
+            log(string.format("the seeder is still empty and this run already made %d shop trip(s) (the cap is %d, planned on a %s tank of %s at %d crate(s) a trip) — not teleporting again (pick a different seed, or fill it by hand)",
                 seedShopTries, tripsCeiling,
                 capVia == "remembered" and "remembered" or (capPlan and "read" or "unreadable"),
-                tostring(capPlan)))
+                tostring(capPlan), cratesPerTrip))
             return false
         end
         seedShopTries += 1
@@ -8566,8 +8618,11 @@ local okBuild, errBuild = pcall(function()
         end
         log("store: putting the " .. m.Name .. " back in storage…")
         -- ▸ RETRY (user: "can you make it retry to put it in storage 5 times
-        --   then give up to the next"): each attempt re-opens the manager,
-        --   asks the same card to Store and waits ~5 s for InStorage to flip.
+        --   then give up to the next"): each attempt re-opens the manager and
+        --   waits ~5 s for InStorage to flip. Since v1.144 each attempt asks
+        --   the NEXT card that carries this name — the live garage list shows
+        --   `Tempo L16` TWICE, so a run that clicks the already-stored twin
+        --   five times was retrying the same wrong card.
         --   After 5 refused attempts it stops trying THIS tool and returns —
         --   the caller moves on to the next one.
         for attempt = 1, 5 do
@@ -8575,7 +8630,7 @@ local okBuild, errBuild = pcall(function()
             if attempt > 1 then
                 log(string.format("store: retrying the %s (%d/5)…", m.Name, attempt))
             end
-            managerAction(m.Name, "Store")
+            managerAction(m.Name, "Store", attempt)
             for _ = 1, 10 do -- ~5 s for the store to land
                 if stopping() then return false end
                 if m:GetAttribute("InStorage") then
@@ -8585,7 +8640,12 @@ local okBuild, errBuild = pcall(function()
                 task.wait(0.5)
             end
         end
-        log("couldn't store the " .. m.Name .. " after 5 tries — giving up on it and moving to the next (its card's Store button may refuse while the tool is out)")
+        log(string.format("couldn't store the %s after 5 tries — giving up on it and moving to the next (its card's Store button may refuse while the tool is out). The instance this run holds is %s, InStorage reads %s; what the world reads: %s",
+            m.Name,
+            m:IsDescendantOf(workspace) and "still in the world"
+                or "GONE from the world",
+            tostring(m:GetAttribute("InStorage")),
+            spudEquipHereText()))
         return false
     end
 
@@ -9176,7 +9236,7 @@ local okBuild, errBuild = pcall(function()
             local fillCapPlan = spudSeederCapFor(fillCap, spudSeederCap)
             local refillsMax = spudSeedTripCeiling(
                 spudSeedTripsNeeded(fillCapPlan, fillCount,
-                    spudSeedsPerCrate, spudCratesPerTrip), 3)
+                    spudSeedsPerCrate, spudCratesTripActual()), 3)
             while true do
                 rounds += 1
                 if stopping() then return end

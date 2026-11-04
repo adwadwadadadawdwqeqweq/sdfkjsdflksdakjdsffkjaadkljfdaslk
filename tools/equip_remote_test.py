@@ -542,6 +542,22 @@ def main() -> int:
     tie("the tab rescue is reached only from a miss",
         manager.count("if not card then") >= 2)
 
+    # ── v1.144: the garage can list the SAME machine name twice — live the
+    #   card row read `Tempo L16 · JD Shank · Horsch Joker · JD S790 ·
+    #   Tempo L16 · Challenger MT9` — and storeOne clicked the FIRST of them
+    #   five times in a row while the planter that was actually out stayed
+    #   out. A name is not an identity when the farm owns two.
+    tie("findCard gathers every card that carries the name",
+        "hits[#hits + 1] = d" in manager)
+    tie("a retry asks the NEXT same-named card, wrapping round",
+        "hits[((want - 1) % #hits) + 1]" in manager
+        and "local want = math.max(1, math.floor(tonumber(which) or 1))" in manager)
+    tie("storeOne hands its attempt number to the manager",
+        'managerAction(m.Name, "Store", attempt)' in src)
+    tie("a store that never lands names the instance it still holds",
+        "The instance this run holds is" in src
+        and "spudEquipHereText()" in src)
+
     act = extract(src, "spudEquipRemoteAct")
     tie("the call path folds the model name too",
         "spudNameKey(m.Name) == nKey" in act)

@@ -416,6 +416,25 @@ def main() -> int:
     else:
         print(f"{'the shop probe uses the same two rules':<56} PASS")
 
+    # ── v1.144: the CLOSE judge is the third place that reads a Purchase
+    # control, and it answers "did the dialog shut?" — live it read the
+    # pallet till's PurchaseButton, reported the seed dialog "still open"
+    # after it had closed, and the second crate was bought against a till
+    # that was never shut. Same picker, same path rule.
+    sp = region(src, "local function shownPurchase()",
+                "local function closeDialog()")
+    if "spudShopBuyPick(cands)" not in sp:
+        fails.append("shownPurchase is back to returning the first purchase-shaped "
+                     "control in GuiViews - a till on screen makes the dialog read "
+                     "as still open")
+    elif 'path = tostring(g:GetFullName()):lower()' not in sp:
+        fails.append("shownPurchase gives the picker no path to judge - the till "
+                     "and the dialog are the same word")
+    elif re.search(r'if t:find\("purchase", 1, true\) then return g end', sp):
+        fails.append("shownPurchase still short-circuits on the first match")
+    else:
+        print(f"{'the dialog judge refuses a till-shaped path':<56} PASS")
+
     body = "\n\n".join(parts) + "\n\n" + POST.replace("%%TARGET_BLOCK%%", tiers)
     with tempfile.NamedTemporaryFile("w", suffix=".lua", delete=False, encoding="utf-8") as fh:
         fh.write(body)

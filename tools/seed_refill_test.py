@@ -58,7 +58,8 @@ SRC = ROOT / "SpudFarm_Full.lua"
 
 WANTED = ["spudCrateSeedCount", "spudCrateHasSeed", "spudSeedTripAllowed",
           "spudSeedPriceBlocks", "spudSeedTripsNeeded", "spudSeedTripCeiling",
-          "spudSeederWantsMore", "spudCratesInHand", "spudSeederCapFor"]
+          "spudSeederWantsMore", "spudCratesInHand", "spudSeederCapFor",
+          "spudCratesTripActual"]
 
 
 def extract(text: str, name: str) -> str:
@@ -280,6 +281,47 @@ local noneCap, noneVia = spudSeederCapFor(nil, nil)
 check("neither read is unknown, not one trip", noneCap == nil and noneVia == nil)
 check("an unknown remembered cap is not a cap either",
     spudSeederCapFor(nil, 0) == nil)
+-- ── 9b. the plan uses the crates a trip ACTUALLY carried out of town ──────
+-- The till is ASKED for two crates a visit. Live 2026-11-03 the second one
+-- never lands — `seed crate: the second purchase did not land — putting the
+-- crates back down and picking up only the one that is paid for` — so a 600
+-- tank planned at 2 crates a trip gets 6 visits x 50 seeds = 300 and the
+-- owner sees "only about 100" per trip. The plan reads what was bought.
+spudCratesPerTrip = 2
+spudCratesTripGot = nil
+check("no trip finished yet: the ask stands", spudCratesTripActual() == 2)
+spudCratesTripGot = 1
+check("a one-crate trip plans on one crate", spudCratesTripActual() == 1)
+spudCratesTripGot = 2
+check("a two-crate trip plans on two", spudCratesTripActual() == 2)
+spudCratesTripGot = 5
+check("an over-reported delivery is not believed past the ask",
+    spudCratesTripActual() == 2, tostring(spudCratesTripActual()))
+spudCratesTripGot = 0
+check("zero is not a delivery", spudCratesTripActual() == 2)
+spudCratesTripGot = -1
+check("a negative is not a delivery", spudCratesTripActual() == 2)
+spudCratesTripGot = "2"
+check("a string count is still a count", spudCratesTripActual() == 2)
+spudCratesTripGot = nil
+check("and unknown is the ask again, not one", spudCratesTripActual() == 2)
+-- the arithmetic the owner's complaint turns on: 600 empty, 50 a crate.
+spudCratesTripGot = 1
+check("a one-crate till needs TWELVE visits, not six",
+    spudSeedTripsNeeded(600, 0, 50, spudCratesTripActual()) == 12,
+    tostring(spudSeedTripsNeeded(600, 0, 50, spudCratesTripActual())))
+check("and the ceiling raises the floor to that",
+    spudSeedTripCeiling(
+        spudSeedTripsNeeded(600, 0, 50, spudCratesTripActual()), 4) == 12)
+spudCratesTripGot = 2
+check("a two-crate till still needs six",
+    spudSeedTripsNeeded(600, 0, 50, spudCratesTripActual()) == 6)
+spudCratesPerTrip = 1
+spudCratesTripGot = 2
+check("a stray count never exceeds what the build asks the till for",
+    spudCratesTripActual() == 1)
+spudCratesPerTrip = 2
+spudCratesTripGot = nil
 -- the whole point: the plan feeds the trip arithmetic, so a tank that streams
 -- badly still gets the visits its REAL size needs.
 check("the remembered cap still sizes six trips",
@@ -487,6 +529,23 @@ def main() -> int:
                      "says the tank is hungry without naming what would fill it")
     else:
         print(f"{'a short pour names the visits it still needs':<56} PASS")
+
+    # ── v1.144: the visits are planned on the crates a trip ACTUALLY bought.
+    # The till is asked for two and live answers with one, so a plan built on
+    # the ASK under-counts the trips by exactly half (6 visits x 50 = 300 into
+    # a 600 tank). Every plan site reads the helper; the ask stays only where
+    # the run asks the till for a second crate.
+    if "spudCratesTripGot = 1 + extraCrates" not in src:
+        fails.append("the trip never records how many crates it bought - the "
+                     "ceiling is still planned on the two-crate ask")
+    elif len(re.findall(r"spudCratesTripActual\(\)", src)) < 4:
+        fails.append("a plan site still passes spudCratesPerTrip to the trip "
+                     "arithmetic - a one-crate till gets half the visits it needs")
+    elif not re.search(r"while extraCrates < math\.max\(0, \(tonumber\(spudCratesPerTrip\)", src):
+        fails.append("the second-crate loop no longer asks the till for the "
+                     "constant - spudCratesTripGot is a result, not a request")
+    else:
+        print(f"{'the visit budget plans on crates actually bought':<56} PASS")
 
     with tempfile.NamedTemporaryFile("w", suffix=".lua", delete=False, encoding="utf-8") as fh:
         fh.write("\n\n".join(parts) + "\n" + POST)
