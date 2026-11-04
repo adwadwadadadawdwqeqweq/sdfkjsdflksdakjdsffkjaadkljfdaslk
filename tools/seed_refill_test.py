@@ -26,7 +26,22 @@ Three rules are pinned here:
   * a price learned standing at the shelf is remembered, so a seed that costs
     more than the balance cannot cost a second 1,000-stud hop to town. The
     balance is re-read every time, so the cache remembers the PRICE and never
-    the verdict.
+    the verdict;
+  * and the TANK SIZE is remembered too (owner 2026-11-03: *"when it puts seeds
+    back in the seeder it isnt filling it up to 600 only about 100"*). The live
+    console had both halves of the lie on screen at once:
+
+        ✅ seeder now holds 50/600 seeds (Rice)      <- one crate, tank hungry
+        seeder EMPTY with ... refill 1/6: buying Rice and filling
+        the seeder is still empty and this run already made 4 shop trip(s) (the cap is 4)
+
+    `refill 1/6` and `the cap is 4` are the same machine read twice: the 6 comes
+    from a read that returned MaxCapacity 600, the 4 from one that returned nil.
+    An unreadable cap is `nil` trips and `spudSeedTripCeiling` answers nil with
+    the floor — so a 600-slot tank was planned as a 50-slot one. A cap this
+    build has ever READ is what the next plan uses, and the line says
+    "(the cap read from earlier this build)" rather than pretending a failed
+    read answered 600 (rule 7).
 
     python tools/seed_refill_test.py [path-to-luau.exe]
 """
@@ -43,7 +58,7 @@ SRC = ROOT / "SpudFarm_Full.lua"
 
 WANTED = ["spudCrateSeedCount", "spudCrateHasSeed", "spudSeedTripAllowed",
           "spudSeedPriceBlocks", "spudSeedTripsNeeded", "spudSeedTripCeiling",
-          "spudSeederWantsMore", "spudCratesInHand"]
+          "spudSeederWantsMore", "spudCratesInHand", "spudSeederCapFor"]
 
 
 def extract(text: str, name: str) -> str:
@@ -244,6 +259,36 @@ function noLinks:FindFirstChild(_) return nil end
 LocalPlayer.Character = noLinks
 check("no CarryLinks folder is 0 crates", spudCratesInHand() == 0)
 
+-- ── 9. the tank size a trip PLANS ON survives a failed read ────────────────
+-- 600 read once is 600 for the build. The owner's "only about 100" is the
+-- second half of this: a nil cap is nil trips is the floor of 4 (or 3), and a
+-- 600-slot tank planned at the floor gets one crate's worth and is called loaded.
+check("a readable cap is the plan", spudSeederCapFor(600, 600) == 600)
+check("a fresh read wins over a remembered one",
+    spudSeederCapFor(50, 600) == 50, tostring(spudSeederCapFor(50, 600)))
+check("a failed read falls back to the remembered cap",
+    spudSeederCapFor(nil, 600) == 600)
+local planCap, planVia = spudSeederCapFor(nil, 600)
+check("and SAYS it remembered", planCap == 600 and planVia == "remembered")
+local freshCap, freshVia = spudSeederCapFor(600, 600)
+check("a fresh read says nothing about remembering",
+    freshCap == 600 and freshVia == nil)
+check("a zero cap is not a cap", spudSeederCapFor(0, 600) == 600)
+check("a negative cap is not a cap", spudSeederCapFor(-5, 600) == 600)
+check("a cap string is still a number", spudSeederCapFor("600", nil) == 600)
+local noneCap, noneVia = spudSeederCapFor(nil, nil)
+check("neither read is unknown, not one trip", noneCap == nil and noneVia == nil)
+check("an unknown remembered cap is not a cap either",
+    spudSeederCapFor(nil, 0) == nil)
+-- the whole point: the plan feeds the trip arithmetic, so a tank that streams
+-- badly still gets the visits its REAL size needs.
+check("the remembered cap still sizes six trips",
+    spudSeedTripsNeeded(spudSeederCapFor(nil, 600), 0, 50, 2) == 6,
+    tostring(spudSeedTripsNeeded(spudSeederCapFor(nil, 600), 0, 50, 2)))
+check("planning on unknown collapses to the floor - the defect",
+    spudSeedTripCeiling(spudSeedTripsNeeded(nil, 0, 50, 2), 4) == 4
+    and spudSeedTripCeiling(spudSeedTripsNeeded(600, 0, 50, 2), 4) == 6)
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 """
 
@@ -406,6 +451,42 @@ def main() -> int:
                      "an empty crate is still 'seed'")
     else:
         print(f"{'a held crate is checked for seed':<56} PASS")
+
+    # The cap has to be REMEMBERED at the one place it is read, and every plan
+    # site has to read it back through the one helper. A plan computed from a
+    # raw `cap` is the 4-vs-6 lie again, one call site at a time.
+    if "spudSeederCap = cap" not in src:
+        fails.append("the seeder's MaxCapacity is never remembered - a nil read "
+                     "on the next pass is still an unknown tank")
+    elif not re.search(r"if cap and cap > 0 then spudSeederCap = cap end", src):
+        fails.append("the remembered cap is written unconditionally - a zero/nil "
+                     "read would wipe the 600 it already saw")
+    else:
+        print(f"{'the read cap is remembered, a failed read is not':<56} PASS")
+    for need, why in (
+        ("spudSeederCapFor(cap, spudSeederCap)",
+         "seedCheck's trip gate plans on the raw read again - an unreadable cap "
+         "is '4 trips' for a 600-slot tank"),
+        ("spudSeederCapFor(fillCap, spudSeederCap)",
+         "the refill ceiling plans on the raw read again - `refill 1/6` beside "
+         "`the cap is 4` is exactly this call site"),
+    ):
+        if need not in src:
+            fails.append(why)
+    if "spudSeederCapFor(cap, spudSeederCap)" in src and \
+            "spudSeederCapFor(fillCap, spudSeederCap)" in src:
+        print(f"{'both trip ceilings plan on the remembered cap':<56} PASS")
+
+    # And the pour loop must SAY when the hands run dry on a hungry tank, rather
+    # than logging "✅ seeder now holds 50/600" as though that were loaded.
+    if "the hands are empty and the tank still wants" not in src:
+        fails.append("a pour that stops on empty hands is not named - 50/600 is "
+                     "still reported as a loaded seeder")
+    elif "spudSeedTripsNeeded(capFor, n1" not in src:
+        fails.append("the stop line does not do the town-visit arithmetic - it "
+                     "says the tank is hungry without naming what would fill it")
+    else:
+        print(f"{'a short pour names the visits it still needs':<56} PASS")
 
     with tempfile.NamedTemporaryFile("w", suffix=".lua", delete=False, encoding="utf-8") as fh:
         fh.write("\n\n".join(parts) + "\n" + POST)

@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.142 · fluent gui"
+local VERSION    = "rebuild v1.143 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -670,6 +670,45 @@ local okBuild, errBuild = pcall(function()
             or t:find("buy", 1, true) ~= nil
             or t:find("confirm", 1, true) ~= nil
             or t:find("checkout", 1, true) ~= nil
+    end
+
+    -- ▸ WHICH OF THE BUY-SHAPED CONTROLS GETS THE CLICK (the second incident,
+    --   live 2026-11-03). The rule above stopped the trip clicking a destructive
+    --   control, and the very next seed run showed the other half of the same
+    --   mistake — it stopped at the FIRST buy-shaped control it met:
+    --     seed shop: clicking Players.ok_simba3.PlayerGui.GuiViews.Stores.
+    --       PalletStoreMenu.Main.Border.Content.InfoPanel.PurchaseButton ('Buy')
+    --       — the Purchase button
+    --     seed shop: balance 1519251 -> 1519251
+    --     ⚠ the Rice purchase could NOT be confirmed (toast: "You need to own
+    --       the Forklift License!")
+    --   `PalletStoreMenu` is the PALLET till — the same screen v1.107 found
+    --   answering "You need to own the Forklift License!" — and its Purchase
+    --   button says `Buy`, which is buy-shaped, safe, and sorts before the seed
+    --   dialog. Clicking it three times spent nothing and bought nothing, so the
+    --   label alone was never enough to tell the two tills apart. The PATH does:
+    --   a control under anything named like the pallet till is passed over for
+    --   any safe control at all, and a screen that has ONLY that till is a dead
+    --   end the run says out loud instead of buying a licence.
+    --   Both words are measured, from that path and that toast — nothing else is
+    --   refused by path, because an invented word would refuse the real buy (rule 4).
+    function spudShopBuyPick(cands)
+        local safe, till
+        for _, c in ipairs(cands or {}) do
+            local p = tostring(c.path or "")
+            if p:find("pallet", 1, true) or p:find("forklift", 1, true) then
+                till = till or c
+            elseif not safe then
+                safe = c
+            end
+        end
+        if safe then return safe, nil end
+        if till then
+            -- every buy-shaped thing on screen is the till: name it and click nothing
+            return nil, "every buy-shaped control on screen is the pallet till ("
+                .. tostring(till.path) .. ") — it sells pallets, not seed"
+        end
+        return nil, nil
     end
 
     -- the line a hitch line-up prints when it has no point to aim at: WHICH
@@ -3744,6 +3783,11 @@ local okBuild, errBuild = pcall(function()
                 (k and k:IsA("StringValue")) and k.Value or nil
         end)
         if not ok or count == nil then return nil end
+        -- A cap that has ever been READ is remembered: the same machine that
+        -- answered 600 a moment ago can answer nil while it streams, and an
+        -- unknown cap collapses the trip budget to the floor (live: the refill
+        -- promised `refill 1/6` while the run gate said `the cap is 4`).
+        if cap and cap > 0 then spudSeederCap = cap end
         return count, cap, kind
     end
 
@@ -3806,6 +3850,22 @@ local okBuild, errBuild = pcall(function()
     -- which keeps the old constant trip ceiling rather than guessing a size
     -- (rule 7 — unreadable is not a number).
     spudSeedsPerCrate = nil
+    -- The seeder's OWN tank size, remembered the first time it is read (line
+    -- 3744 writes it). A 600-slot machine that answers nil on a later read is
+    -- still a 600-slot machine, and planning on "unknown" instead of it is what
+    -- made one town visit pour 100 into 600 and call the seeder loaded.
+    spudSeederCap = nil
+    -- ▸ THE CAPACITY THE TRIP ARITHMETIC PLANS ON: what this read said, or what
+    --   this build has already seen from the same kind of machine. `via` says
+    --   which, so the log can be honest about planning on a remembered number
+    --   rather than pretending a failed read answered 600.
+    function spudSeederCapFor(cap, remembered)
+        local fresh = tonumber(cap)
+        if fresh and fresh > 0 then return fresh, nil end
+        local old = tonumber(remembered)
+        if old and old > 0 then return old, "remembered" end
+        return nil, nil
+    end
     function spudSeedTripsNeeded(cap, have, perCrate, cratesPerTrip)
         cap, perCrate = tonumber(cap), tonumber(perCrate)
         have = tonumber(have) or 0
@@ -4008,10 +4068,73 @@ local okBuild, errBuild = pcall(function()
         return false
     end
 
+    -- ▸ HOW FAR OFF A CRATE THE E PROMPT IS MADE FROM. The remote is measured
+    --   to reach 35 studs (§5, "Grab from afar → carry TAKEN at 35 studs"),
+    --   but the billboard prompt is not: dump §18 says standing AT a seed box
+    --   lights the plain `Carry`, and §5's v1.108 reading is that a teleport
+    --   ONTO a thing pushes the character out of it. So the press is made from
+    --   beside, and this is the number to retune from a live run — not a
+    --   distance the game ever printed.
+    spudCarryNear = 8
+
+    -- ▸ DOES THE GAME OFFER A CARRY FROM HERE? The visible
+    --   PCGP_ContextActions list is a readable answer about WHERE the
+    --   character is standing, and v1.143's buffer needed it: E was pressed
+    --   three times where the only offer was `EnterEquipment` — the tractor's
+    --   prompt, not the crate's. Only "carry" is matched, because that is the
+    --   one word this game has ever shown for a box pickup (dump §18's `Carry`
+    --   bound to E, v1.142's own registry line `Carry(hidden)`); inventing
+    --   synonyms would turn a real offer into a false "no".
+    --   true = a Carry is on it, false = the list read fine and has none,
+    --   nil = unreadable — rule 7, never dressed up as a "no".
+    function spudOfferSaysCarry(acts)
+        if type(acts) ~= "table" then return nil end
+        for _, n in ipairs(acts) do
+            if tostring(n):lower():find("carry", 1, true) then return true end
+        end
+        return false
+    end
+
     local function carryCrate(what, model)
         if spudCarryRemote(model) then
             log("✅ carrying the " .. what .. " (EVTRequestToCarry)")
             return true
+        end
+        -- ▸ BESIDE THE BOX BEFORE PRESSING ANYTHING (v1.143, live). Every call
+        --   site arrives here by teleporting the character ONTO the crate
+        --   (`tpChar(hit.pos)`, `tpChar(seeder:GetPivot().Position)`), which is
+        --   exactly the thing §5's v1.108 entry says throws you off it — so the
+        --   game was offering the machine's `EnterEquipment` and the crate's
+        --   `Carry` never armed. Nothing was wrong with the crate or with the
+        --   remote. Move to beside it, give the CFrame the three frames it
+        --   needs to reach the server, and read the offers again. FAIL-OPEN:
+        --   the presses below run whatever that read says, because a list this
+        --   build does not render is not evidence the box is unreachable — the
+        --   refusal line names what WAS offered instead.
+        local part = model and model:FindFirstChildWhichIsA("BasePart", true)
+        local ch = LocalPlayer.Character
+        local hr = ch and ch:FindFirstChild("HumanoidRootPart")
+        if part and hr then
+            local cp, hp = part.Position, hr.Position
+            local dx, dz = hp.X - cp.X, hp.Z - cp.Z
+            local flat = math.sqrt(dx * dx + dz * dz)
+            if flat > spudCarryNear + 2 or flat < 1.5 then
+                local ox, oz = 1, 0
+                if flat > 0.5 then ox, oz = dx / flat, dz / flat end
+                if tpChar(Vector3.new(cp.X + ox * spudCarryNear, cp.Y,
+                        cp.Z + oz * spudCarryNear)) then
+                    task.wait(0.05)
+                    task.wait(0.05)
+                    task.wait(0.05)
+                    local acts = contextActions()
+                    if spudOfferSaysCarry(acts) == false then
+                        log("carry: standing " .. spudCarryNear
+                            .. " studs off the " .. what .. " offers no Carry — the game offers: "
+                            .. (#acts > 0 and table.concat(acts, " · ") or "nothing")
+                            .. " — pressing anyway")
+                    end
+                end
+            end
         end
         for attempt = 1, 3 do
             if stopping() then return false end
@@ -4176,8 +4299,16 @@ local okBuild, errBuild = pcall(function()
             if carrying() then
                 log("seed crate: still carrying the crate — straight to the seeder")
             elseif not (crate and carryCrate("bought crate", crate)) then
-                log("seed crate: the crate didn't come to hand — pick it up by hand (E) and the seeder fill is next time")
-                return true
+                -- ▸ THIS SAID `true` FOR A FAILED GRAB (v1.142, live). The
+                --   buffer is the proof of what that cost: three
+                --   `didn't come up on attempt 1/2/3 (hands still empty)` lines,
+                --   a trip that reported itself done, and four shop trips
+                --   burned reading `the seeder is still empty and this run
+                --   already made 4 shop trip(s)`. No crate in hand means no
+                --   pour — so this is a failure, and the caller stops with the
+                --   reason instead of paying for another visit.
+                log("seed crate: the crate didn't come to hand — nothing was poured (pick it up by hand (E) and the fill runs next trip)")
+                return false
             end
             local cPart = crate and crate:FindFirstChildWhichIsA("BasePart", true)
             local seeder2 = findImplement("Planter", r2.Position, nil)
@@ -4261,6 +4392,24 @@ local okBuild, errBuild = pcall(function()
                     if gave2 > (spudSeedsPerCrate or 0) then spudSeedsPerCrate = gave2 end
                     log(string.format("seeder fill: round %d poured %d more — the seeder reads %d%s",
                         rounds, gave2, n1, cap1 and ("/" .. cap1) or ""))
+                end
+                -- ▸ A CRATE IN THE HAND IS NOT A FULL TANK. When the hands are
+                --   empty and the machine still reads room, this trip is over —
+                --   say how much of the tank it left to fill, so the refill
+                --   block's "N more visits" is a number the console shows rather
+                --   than a claim it makes quietly (owner 2026-11-03: "it isnt
+                --   filling it up to 600 only about 100").
+                if spudSeederWantsMore(n1, cap1) and spudCratesInHand() == 0 then
+                    local capFor, via = spudSeederCapFor(cap1, spudSeederCap)
+                    local more = capFor and (capFor - n1) or nil
+                    local visits = spudSeedTripsNeeded(capFor, n1,
+                        spudSeedsPerCrate, spudCratesPerTrip)
+                    log(string.format("seeder fill: the hands are empty and the tank still wants %s seed(s)%s — %s more town visit(s) at %d crate(s) a trip%s",
+                        more and tostring(more) or "an unreadable amount",
+                        capFor and (" of " .. capFor .. (via == "remembered" and " (the cap read from earlier this build)" or "")) or "",
+                        visits and tostring(visits) or "an unknown number",
+                        math.max(1, tonumber(spudCratesPerTrip) or 1),
+                        visits and visits > 0 and "" or " — nothing more is carried"))
                 end
                 log(string.format("✅ seeder now holds %d%s seeds%s — the planting pass takes it from here",
                     n1, cap1 and ("/" .. cap1) or "", kind1 and (" (" .. kind1 .. ")") or ""))
@@ -4657,6 +4806,7 @@ local okBuild, errBuild = pcall(function()
                 end
             end
             local target, why, refused
+            local cands = {}
             for _, b in ipairs(btns) do
                 if spudShopBuyChoice(b.label, b.name) then
                     local bad = spudShopDanger(b.label, b.name)
@@ -4666,13 +4816,25 @@ local okBuild, errBuild = pcall(function()
                         refused = refused or string.format("%s reads '%s' (%s)",
                             b.btn:GetFullName(), b.label, bad)
                     else
-                        target, why = b, "the Purchase button"
-                        break
+                        -- ▸ NO `break`. The first safe match on the live screen
+                        --   was the PALLET till's `Buy` button, and breaking here
+                        --   is what spent three clicks and no coins. Collect them
+                        --   all, with the path that tells the tills apart, and let
+                        --   spudShopBuyPick choose.
+                        cands[#cands + 1] = {
+                            b = b,
+                            path = tostring(b.btn:GetFullName()):lower(),
+                        }
                     end
                 end
             end
             if refused then
                 log("seed shop: ⚠ a buy-shaped control was REFUSED, not clicked — " .. refused)
+            end
+            local cand, tillNote = spudShopBuyPick(cands)
+            if cand then target, why = cand.b, "the Purchase button" end
+            if tillNote then
+                log("seed shop: ⚠ " .. tillNote .. " — clicking nothing for seed")
             end
             if not target then
                 for _, b in ipairs(btns) do
@@ -5081,12 +5243,19 @@ local okBuild, errBuild = pcall(function()
         --   crates each, and the constant 4 would refuse the last two — leaving
         --   the field planted 200 deep out of 600 and the run saying it was done.
         --   An unknown crate size (never poured, never read) keeps the old 4.
-        local tripsNeeded = spudSeedTripsNeeded(cap, count,
+        --   An unknown CAP is answered the same way now: the cap this build has
+        --   already read stands in for it, and the line says it was remembered —
+        --   a failed read must not silently shrink the promise the same pass
+        --   just made (live: `refill 1/6` against `the cap is 4`).
+        local capPlan, capVia = spudSeederCapFor(cap, spudSeederCap)
+        local tripsNeeded = spudSeedTripsNeeded(capPlan, count,
             spudSeedsPerCrate, spudCratesPerTrip)
         local tripsCeiling = spudSeedTripCeiling(tripsNeeded, spudSeedTripsMax)
         if not spudSeedTripAllowed(seedShopTries, tripsCeiling) then
-            log(string.format("the seeder is still empty and this run already made %d shop trip(s) (the cap is %d) — not teleporting again (pick a different seed, or fill it by hand)",
-                seedShopTries, tripsCeiling))
+            log(string.format("the seeder is still empty and this run already made %d shop trip(s) (the cap is %d, planned on a %s tank of %s) — not teleporting again (pick a different seed, or fill it by hand)",
+                seedShopTries, tripsCeiling,
+                capVia == "remembered" and "remembered" or (capPlan and "read" or "unreadable"),
+                tostring(capPlan)))
             return false
         end
         seedShopTries += 1
@@ -8998,8 +9167,15 @@ local okBuild, errBuild = pcall(function()
             local planter = findImplement("Planter", tr:GetPivot().Position, tr)
             local fillCount, fillCap
             if planter then fillCount, fillCap = seederSeedState(planter) end
+            -- ▸ THE SAME remembered cap the entry gate plans on. A refill round
+            --   that reads the machine while it is streaming can get nil for the
+            --   capacity, and an unknown capacity is `nil` trips, which the
+            --   ceiling answers with the floor: 3 visits for a 600-slot tank that
+            --   needs 6. The owner's "only about 100" is that floor being taken as
+            --   the plan (50 + 2 crates a trip x 3 rounds).
+            local fillCapPlan = spudSeederCapFor(fillCap, spudSeederCap)
             local refillsMax = spudSeedTripCeiling(
-                spudSeedTripsNeeded(fillCap, fillCount,
+                spudSeedTripsNeeded(fillCapPlan, fillCount,
                     spudSeedsPerCrate, spudCratesPerTrip), 3)
             while true do
                 rounds += 1

@@ -63,6 +63,7 @@ WANTED = [
     "spudDropRemote",
     "spudSellRemote",
     "spudPurchaseRemote",
+    "spudOfferSaysCarry",
 ]
 
 PRE = r"""
@@ -353,6 +354,26 @@ check("a refused carry returns false and counts a miss",
     spudCarryRemote(kadl) == false
         and spudEquipRemoteState.fails.carry == 1)
 
+-- 11b. THE OFFER READ: is a Carry actually on the list the game renders?
+--   The live v1.142 stall was E pressed where the game offered EnterEquipment,
+--   so the list is a readable answer — but only Carry is a measured word.
+check("a Carry on the visible list is a yes",
+    spudOfferSaysCarry({ "Open Shop", "Carry" }) == true)
+check("the plain Carry alone is a yes",
+    spudOfferSaysCarry({ "Carry" }) == true)
+check("a list of only EnterEquipment is a NO",
+    spudOfferSaysCarry({ "EnterEquipment" }) == false)
+check("FillLiquidCarrier is not a Carry",
+    spudOfferSaysCarry({ "FillLiquidCarrier", "Talk" }) == false)
+check("the word is matched case and spacing-blind",
+    spudOfferSaysCarry({ "CARRY" }) == true
+        and spudOfferSaysCarry({ "Carry SeedBox" }) == true)
+check("an empty list is a readable NO, not unknown",
+    spudOfferSaysCarry({}) == false)
+check("no list at all is UNREADABLE, never a no",
+    spudOfferSaysCarry(nil) == nil
+        and spudOfferSaysCarry("not a table") == nil)
+
 -- 12. drop: EVTRequestToDrop() with no arguments, proven by empty hands
 resetState()
 carryingFlag = true
@@ -532,6 +553,27 @@ def main() -> int:
         "switched off this session after 3 ignored calls" in act
         and "the remote is not in this build" in act
         and "the call threw" in act)
+
+    # ▸ the carry press itself is a nested local the harness cannot run, so its
+    #   wiring is read: v1.142 pressed E three times where the game offered
+    #   EnterEquipment, and seedCrateIntoSeeder reported that failed carry as a
+    #   finished fill — which is how four shop trips burned with nothing poured.
+    carry = block(src, "carryCrate")
+    tie("the carry press asks the game what it offers first",
+        "spudOfferSaysCarry(" in carry)
+    tie("a step off the crate is a teleport, never a mouse",
+        "tpChar(" in carry and "Mouse" not in carry)
+    tie("the step-aside is fail-open: an unreadable read still presses",
+        carry.find("spudOfferSaysCarry(") < carry.find("for attempt = 1, 3 do")
+        and "== false" in carry)
+    tie("the three presses and their verbatim offer log survived",
+        "for attempt = 1, 3 do" in carry
+        and 'table.concat(acts, " · ")' in carry)
+
+    pour = block(src, "seedCrateIntoSeeder")
+    tie("a crate that never came to hand is NOT reported as a fill",
+        'elseif not (crate and carryCrate("bought crate", crate)) then' in pour
+        and re.search(r"didn't come to hand[^\n]*\n\s*return true", pour) is None)
 
     for name, ok, detail in ties:
         print("%-58s %s%s" % (name, ok and "PASS" or "FAIL", ("  " + detail) if detail else ""))

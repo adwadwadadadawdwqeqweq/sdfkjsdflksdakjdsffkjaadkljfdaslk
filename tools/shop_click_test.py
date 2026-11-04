@@ -26,8 +26,30 @@ Three rules, all pinned here:
   * there is **no arbitrary click tier**. A buy the game has not NAMED is not a
     buy: say what is on screen and click nothing.
 
-The pure predicates are run for real, and so is the **actual** tier block sliced
-out of `buySeedAndFill` - the fixtures are the live shapes.
+THE SECOND INCIDENT (2026-11-03, same session, a fourth reload): the three rules
+above stopped the destructive press and then bought nothing anyway, because the
+loop took the **first** buy-shaped control and broke:
+
+  seed shop: clicking Players.ok_simba3.PlayerGui.GuiViews.Stores.PalletStoreMenu
+      .Main.Border.Content.InfoPanel.PurchaseButton ('Buy') - the Purchase button
+  seed shop: balance 1519251 -> 1519251
+  ⚠ the Rice purchase could NOT be confirmed   (toast: "You need to own the
+      Forklift License!")
+
+`PalletStoreMenu` is the **pallet** till - §5 v1.107 measured it, and its
+Purchase answers the licence toast, never a seed. It is buy-shaped, it is not
+dangerous, and it sorted ahead of the dialog. So a fourth rule, and it is a
+**path** rule because that is the only thing that names which till it is:
+
+  * a buy-shaped control whose path says `pallet` or `forklift` is passed over
+    for any other buy-shaped control, and if it is the ONLY one the run clicks
+    nothing and prints which till it refused.
+
+Both words are measured, from that console line and that toast; nothing else is
+refused by path (rule 4 - an invented word would refuse the real buy).
+
+The pure predicates and the picker are run for real, and so is the **actual**
+tier block sliced out of `buySeedAndFill` - the fixtures are the live shapes.
 
     python tools/shop_click_test.py [path-to-luau.exe]
 """
@@ -42,7 +64,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "SpudFarm_Full.lua"
 
-PURE = ["spudShopDanger", "spudShopBuyChoice"]
+PURE = ["spudShopDanger", "spudShopBuyChoice", "spudShopBuyPick"]
 
 
 def extract(text: str, name: str) -> str:
@@ -87,15 +109,19 @@ end
 
 -- a button shaped exactly like the ones the live shop showed. `label` is what
 -- guiTextOf returns (Text, else the first TextLabel, else the NAME), `name` is
--- the instance Name - both already lowercased by harvestMenu.
-local function mk(label, name)
+-- the instance Name - both already lowercased by harvestMenu. `path` is the
+-- control's FULL path as the build reads it (lowercased); with none it is the
+-- HUD default, which is what every notification-style fixture gets.
+local function mk(label, name, path)
     return {
         label = label,
         name = name,
         text = label .. " " .. name,
         btn = {
             Name = name,
-            GetFullName = function(self) return "GuiViews.HUD." .. self.Name end,
+            GetFullName = function(self)
+                return path or ("GuiViews.HUD." .. self.Name)
+            end,
         },
     }
 end
@@ -198,6 +224,70 @@ check("the safe Purchase button is found past a dangerous one",
 check("and the refusal is still logged",
     table.concat(logs, " "):find("REFUSED", 1, true) ~= nil)
 
+-- ── 8. the pallet till is not the seed till (v1.143's incident) ───────────
+-- The live path, from the console: the trip clicked THIS and called it "the
+-- Purchase button", three times, and the balance never moved.
+local palletPath = ("Players.ok_simba3.PlayerGui.GuiViews.Stores.PalletStoreMenu"
+    .. ".Main.Border.Content.InfoPanel.PurchaseButton"):lower()
+local dialogPath = ("Players.ok_simba3.PlayerGui.GuiViews.Stores.SeedShop"
+    .. ".Content.Purchase"):lower()
+
+check("the picker passes the till over for the dialog that sorts after it",
+    (function()
+        local c = spudShopBuyPick({
+            { path = palletPath, b = mk("buy", "PurchaseButton", palletPath) },
+            { path = dialogPath, b = mk("purchase", "Purchase", dialogPath) },
+        })
+        return c ~= nil and c.path == dialogPath
+    end)(), "the old loop broke on the FIRST buy-shaped control")
+check("the FORKLIFT word refuses too (the toast names it)",
+    (function()
+        local c = spudShopBuyPick({ { path = "gui.co.forkliftshop.buy", btn = mk("buy", "b") } })
+        return c == nil
+    end)())
+check("a till-only screen says so instead of buying a licence",
+    (function()
+        local c, note = spudShopBuyPick({ { path = palletPath, btn = mk("buy", "b") } })
+        return c == nil and note ~= nil and note:find("pallet", 1, true) ~= nil
+    end)())
+check("and names the path it refused",
+    (function()
+        local _, note = spudShopBuyPick({ { path = palletPath, btn = mk("buy", "b") } })
+        return note ~= nil and note:find(palletPath, 1, true) ~= nil
+    end)())
+check("no candidates at all is nothing to say",
+    (function()
+        local c, note = spudShopBuyPick({})
+        return c == nil and note == nil
+    end)())
+check("and a nil list does not crash",
+    (function()
+        local c = spudShopBuyPick(nil)
+        return c == nil
+    end)())
+check("a plain safe control is still taken (no new tier)",
+    (function()
+        local c = spudShopBuyPick({ { path = dialogPath, btn = mk("purchase", "Purchase") } })
+        return c ~= nil and c.path == dialogPath
+    end)())
+
+logs = {}
+check("the whole click loop takes the dialog, not the till",
+    (function()
+        local b = decide({
+            mk("buy", "PurchaseButton", palletPath),
+            mk("purchase", "Purchase", dialogPath),
+        })
+        return b ~= nil and b.btn:GetFullName():lower() == dialogPath
+    end)(), "the live run clicked the pallet till three times")
+logs = {}
+check("a till-only screen clicks NOTHING and prints the reason",
+    (function()
+        local b = decide({ mk("buy", "PurchaseButton", palletPath) })
+        local t = table.concat(logs, " ")
+        return b == nil and t:find("pallet", 1, true) ~= nil
+    end)(), logs[1])
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 """
 
@@ -291,6 +381,25 @@ def main() -> int:
         print(f"{'the click loop asks both rules by the halves':<56} PASS")
     if re.search(r"spudShopBuyChoice\((b\.text|txt)", loop):
         fails.append("the buy test is being handed the joined text again")
+
+    # THE SECOND INCIDENT: the loop must not stop at the FIRST buy-shaped control.
+    # It lives 1,519,251 coins deep in PalletStoreMenu, and it answers "You need
+    # to own the Forklift License!" — so the path has to reach the picker and the
+    # picker has to be the one that decides.
+    for need, why in (("spudShopBuyPick(cands",
+                       "the click loop never asks the picker - it is back to "
+                       "clicking the first buy-shaped control it meets"),
+                      ('path = tostring(b.btn:GetFullName()):lower()',
+                       "the click loop does not carry each control's full path "
+                       "to the picker - the till is only findable by path")):
+        if need not in loop:
+            fails.append(why)
+    if "spudShopBuyPick(cands" in loop and \
+            'path = tostring(b.btn:GetFullName()):lower()' in loop:
+        print(f"{'the loop gathers candidates and lets the picker choose':<56} PASS")
+    if re.search(r'target, why = b, "the Purchase button"\s*\n\s*break', loop):
+        fails.append("the click loop still breaks at the first buy-shaped control - "
+                     "that is the pallet till being clicked instead of the seed dialog")
 
     # harvestMenu has to keep the halves apart, or both rules are blind
     hm = region(src, "local function harvestMenu(top)", "local function crateCount()")

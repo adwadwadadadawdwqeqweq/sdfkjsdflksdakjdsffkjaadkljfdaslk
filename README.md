@@ -334,7 +334,26 @@ Everything merged into one paste-and-run file:
   `InStorage` flag (or a >100-stud move for a rebuilt spawn), hands filling or
   emptying, the tank dropping (sell) and the balance or crate count moving
   (buy). A call that does not land falls back to the old F/X/E/Q/UI path in the
-  same step, and three misses switch that one call off for the session. **The
+  same step, and three misses switch that one call off for the session. **A carry
+  is asked for from *beside* the box** (v1.143, live). Every crate trip arrives by
+  teleporting the character **onto** the crate, which is what the shop-counter
+  probing already found throws you off it — so the offer on screen was the
+  machine's `EnterEquipment`, the crate's `Carry` never armed, and E was pressed
+  three times at a prompt that was never being shown. `carryCrate` now steps to
+  `spudCarryNear = 8` studs off the crate (only if it is standing on it or far
+  from it), gives the CFrame the three frames it needs to reach the server, and
+  reads what the game renders; `spudOfferSaysCarry` answers **true** for a list
+  carrying the word `Carry`, **false** for a list that does not, and **nil** when
+  there is no list to read — and it is *fail-open*: the presses run whatever that
+  answer says, because an offer list this build does not render is not evidence
+  the box is unreachable. A readable "no" is named instead
+  (`carry: standing 8 studs off the bought crate offers no Carry — the game
+  offers: Open Shop — pressing anyway`). **And a crate that never came to hand is
+  a failed trip, not a filled one** (v1.143): the fill helper used to `return true`
+  there, so the run reported a purchase that poured nothing and paid for another
+  town visit, and another — four shop trips in one buffer, ending
+  `the seeder is still empty and this run already made 4 shop trip(s)`. It returns
+  false now and says so (`the crate didn't come to hand — nothing was poured`). **The
   default seed is the crop you are planting** (v1.135, owner: *"btw we are
   planting tomatoes so mke it plnt tht"*): a live cell's own `SeedType` reads the
   game's word — the `Grow now` census printed `Seeded ×50 [growth 2012, mult 1,
@@ -368,7 +387,23 @@ Everything merged into one paste-and-run file:
   to. `spudSeedsPerCrate` is **learned**, never guessed — it is the count a real
   pour actually raised — and until a pour has happened it is nil, which means the
   arithmetic answers nil and the old ceiling stands (unreadable is not a number to
-  divide by). **Two crates a trip** (`spudCratesPerTrip = 2`, the game's own carry
+  divide by). **The seeder's own capacity is remembered too** (v1.143, owner:
+  *"when it puts seeds back in the seeder it isnt filling it up to 600 only about
+  100"*): `seederSeedState` writes `spudSeederCap` whenever a `MaxCapacity` ever
+  reads, and both trip budgets plan through `spudSeederCapFor(cap, remembered)` —
+  the fresh number when this read gave one, otherwise the one this build has
+  already seen from the same kind of machine, and the log says
+  `planned on a remembered tank of 600` rather than pretending a failed read
+  answered it. That is the whole "only about 100": a 600-slot tank that answers
+  **nil** while it streams gives `nil` trips, the ceiling answers with its floor,
+  and the pass stops after the crate(s) the floor allows — 100-odd seeds into a
+  machine with 600 slots, while the same pass's own promise still reads
+  `refill 1/6`, because the two gates each asked the machine at a different moment
+  and only one of them got an answer. When the
+  hands go empty and the tank still reads room, the fill now prints what is left
+  (`the hands are empty and the tank still wants 500 seed(s) of 600 — 5 more town
+  visit(s) at 2 crate(s) a trip`), so the budget the next round uses is a number
+  the console shows instead of one it assumes. **Two crates a trip** (`spudCratesPerTrip = 2`, the game's own carry
   limit): after the first purchase is proven, the run prices and carries a second
   crate in the same town visit, proven by the `CarryLinks` count rather than by
   `carrying()` — which is already true with one box in hand. A second crate dearer
@@ -408,7 +443,23 @@ Everything merged into one paste-and-run file:
   (`nothing on screen reads as a buy of Wheat (267 visible button(s): …) —
   clicking nothing`), which is the answer the next run needs rather than a second
   destructive press. The **Shop counter** probe reads a control the same way, so
-  the probe can no longer click what the farm refuses to. After a
+  the probe can no longer click what the farm refuses to. **And a label is not a
+  till** (v1.143, live): stopping at the *first* safe buy-shaped match was the
+  other half of the same mistake — the next seed run clicked
+  `…GuiViews.Stores.PalletStoreMenu.…InfoPanel.PurchaseButton`, whose label
+  genuinely says `Buy`, and the toast answered *"You need to own the Forklift
+  License!"* three times while the balance did not move. That is the **pallet**
+  till — the same screen the counter probing found answering that licence line —
+  it is safe by the word rules, and it sorts
+  before the seed dialog. The path tells them apart: the trip now collects every
+  safe buy-shaped control with its full path, and `spudShopBuyPick` passes over
+  anything under a `pallet` or `forklift` name in favour of a control that is not,
+  so the real Purchase still gets clicked from behind the pallet till. A screen
+  with **only** that till is a dead end said out loud
+  (`every buy-shaped control on screen is the pallet till (…) — it sells pallets,
+  not seed — clicking nothing for seed`) rather than a licence the script can
+  buy. Only those two words refuse by path, because both came off that live
+  path and that toast; an invented third word would refuse the real buy. After a
   seed is bought the **shop menu is closed** on the way out: the open menu is
   read from `GuiViews.Menus`, its own close control is clicked inside it, the
   result is re-read, and F is only the fallback — so the UI does not stay up
