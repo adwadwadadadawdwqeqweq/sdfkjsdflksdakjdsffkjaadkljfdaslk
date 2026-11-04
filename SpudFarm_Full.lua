@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.148 · fluent gui"
+local VERSION    = "rebuild v1.149 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -7743,6 +7743,79 @@ local okBuild, errBuild = pcall(function()
                 s = tostring(s or "")
                 if #s > n then return s:sub(1, n) .. "…" end
                 return s
+            end
+
+            -- ── 0. THE ORDER TABLES THE GAME SHIPS ───────────────────────────
+            --   Section 1 answers WHERE an order is and section 4 answers WHAT IS
+            --   OPEN right now; neither answers what an order LOOKS LIKE, and the
+            --   reader cannot be written against a guessed field set (rule 4). The
+            --   grow-time question was closed exactly this way — the answer was a
+            --   client ModuleScript (CropGrowthConfigClient), not a world object —
+            --   so ask the modules first. Requiring a ModuleScript runs the game's
+            --   own loader on this client: no remote is fired, no key is pressed,
+            --   and every require sits inside pcall because a module that wants an
+            --   argument refuses rather than throwing the report away.
+            local MOD_WORDS = { "order", "contract", "task", "goal", "box",
+                "quota", "cargo", "shipment", "fulfill" }
+            local cfgMods = {}
+            pcall(function()
+                local function scan(node, depth)
+                    if depth > 3 or #cfgMods >= 12 then return end
+                    for _, c in ipairs(node:GetChildren()) do
+                        if c:IsA("ModuleScript") then
+                            local key = spudNameKey(c.Name)
+                            for _, w in ipairs(MOD_WORDS) do
+                                if key ~= "" and key:find(w, 1, true) then
+                                    cfgMods[#cfgMods + 1] = c
+                                    break
+                                end
+                            end
+                        elseif c:IsA("Folder") and depth < 3 then
+                            scan(c, depth + 1)
+                        end
+                    end
+                end
+                scan(game:GetService("ReplicatedStorage"), 0)
+            end)
+            spudTestSay(string.format(
+                "orders: %d client ModuleScript(s) under ReplicatedStorage named like an order/task/goal/box",
+                #cfgMods))
+            if #cfgMods == 0 then
+                spudTestSay("orders:   · no client module carries an order-shaped name — the order table is not sitting there to read, so the payload has to come from a getter or from the board's own GUI")
+            end
+            for _, m in ipairs(cfgMods) do
+                local okM, t = pcall(require, m)
+                if not okM then
+                    spudTestSay(string.format("orders: %s refused a plain require (%s) — it wants an argument or a caller this client is not",
+                        m.Name, clip(tostring(t), 90)))
+                elseif type(t) ~= "table" then
+                    spudTestSay(string.format("orders: %s is a %s, not a table — nothing to dump",
+                        m.Name, type(t)))
+                else
+                    local keys, show, capK = {}, {}, 14
+                    for k in pairs(t) do keys[#keys + 1] = k end
+                    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+                    for j = 1, math.min(#keys, capK) do
+                        local k, v = keys[j], t[keys[j]]
+                        if type(v) == "table" then
+                            local sub, cnt = {}, 0
+                            for sk in pairs(v) do
+                                cnt += 1
+                                if cnt <= 8 then sub[#sub + 1] = tostring(sk) end
+                            end
+                            table.sort(sub)
+                            show[#show + 1] = tostring(k) .. "={" .. table.concat(sub, ",")
+                                .. (cnt > 8 and "…" or "") .. "}"
+                        elseif type(v) == "function" then
+                            show[#show + 1] = tostring(k) .. "=fn"
+                        else
+                            show[#show + 1] = tostring(k) .. "=" .. clip(tostring(v), 30)
+                        end
+                    end
+                    spudTestSay(string.format("orders: %s → %s%s", m.Name,
+                        table.concat(show, "  "),
+                        #keys > capK and ("  (+" .. tostring(#keys - capK) .. " more)") or ""))
+                end
             end
 
             -- ── 1. WHERE: the streamed world, name-first ────────────────────

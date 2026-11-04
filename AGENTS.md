@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.148 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.149 ·
   fluent gui` (`VERSION`, line 15). ≈14k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -195,10 +195,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 38/38 checks on v1.148
+python tools/run_all.py        # 38/38 checks on v1.149
 ```
 
-Last full run (v1.148): **38/38 checks passed** (35 harnesses + 3 gates).
+Last full run (v1.149): **38/38 checks passed** (35 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment a script contained a string with those three
@@ -249,7 +249,7 @@ ghost build. |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
 | `stall_stream_test.py` | The stall scan after a milk teleport, on a virtual clock: a pass that did **not** hop reads once and sleeps zero (the old behaviour), a pass that hopped re-reads until the game actually has stalls and hands those back, each try costs 0.25 s, the wait is **bounded** at 12 tries (3 s), Stop ends it between tries, the skipped count and the same plot/owner are carried through every re-read, and a barn that never streams is logged as **not streamed** (naming the farm, saying the plot reads, saying this is not "no barn") rather than as an empty answer. Plus the ties: `milkCycle` scans through `spudStallScan`, its two plot teleports each report whether they moved, and the timing stamp is taken after the scan. |
 | `fulfill_probe_test.py` | The fulfillment probe's **company-order** sections on a fake tree: every order-named instance with its value tree, the board's text read from **PlayerGui as well as workspace**, what `Stores` holds, each seed crate's `Configurations`, one field cell's full key list, and the honest grow-time verdict — a cell with only `PlantGrowth`/`GrowthMultiplier` must **not** be called a readable duration. Also pins the probe's read-only claim (no key press, no `FireServer`/`InvokeServer`, no `CFrame`/`PivotTo`, no metatable hook) and that the report reaches the panel, the multiline box and the clipboard. |
-| `order_probe_test.py` | The **in-build** order probe (v1.138, §3.18) runs for real against three fake worlds, because the standalone probe needs a second executor script and that is how the v1.136 ghost build happened. Rich fixture: the order folder is found and its **full path printed with the `Workspace` root**, every attribute and descendant value dumped, the 16-descendant and 14-hit caps both say "N more … not shown" rather than silently stopping, a `ScreenGui` board label is read from PlayerGui, the `Modules.Larry` door list comes back, a grow-time module is found by **both** shapes (a table of tables and a `GetConfig()`), and the remembered shelf prices are printed. Bare fixture: nothing order-named is reported as **"the board is elsewhere"**, never as "no orders", and no grow time is answered as `NO client-side grow time is readable — the ranking would have to run on cost alone`. The ledger is the read-only claim: **zero** `FireServer`, **zero** key presses, **zero** `PivotTo`, and the two `InvokeServer` calls are exactly `FNCGetOrderProgress` and `FNCGetAvailableBoxes` — the allow-list is a literal in the source, so `FNCAcceptOrder` and `EVTRefreshOrders` are asserted present in the dump and **absent** from what is fired. A third fixture gives a getter that raises the coin balance and the run must say `the balance MOVED on a getter — treat every order call as a write, not a read`. Ties: the leg's own text mentions **no** `FireServer`, `pressKey`, `setkeypress`, `Mouse`, `PivotTo`, `CFrame`, `Teleport`, `HookFunction`, `getrawmetatable`, `hookmetamethod` or `SetPrimaryPartCFrame`; it folds names through the build's **`spudNameKey`** rather than a new rule; the allow-list is a literal of the two `FNCGet*` strings with **`FNCAcceptOrder` and `EVTRefreshOrders` absent from the leg entirely** (they live only in the fixture, so a future edit that widens the list trips the tie); and the walk records a hit **and still recurses** (`if why then` … `if depth < 8 then walk(c`). |
+| `order_probe_test.py` | The **in-build** order probe (v1.138, §3.18) runs for real against three fake worlds, because the standalone probe needs a second executor script and that is how the v1.136 ghost build happened. Rich fixture: the order folder is found and its **full path printed with the `Workspace` root**, every attribute and descendant value dumped, the 16-descendant and 14-hit caps both say "N more … not shown" rather than silently stopping, a `ScreenGui` board label is read from PlayerGui, the `Modules.Larry` door list comes back, a grow-time module is found by **both** shapes (a table of tables and a `GetConfig()`), and the remembered shelf prices are printed. Bare fixture: nothing order-named is reported as **"the board is elsewhere"**, never as "no orders", and no grow time is answered as `NO client-side grow time is readable — the ranking would have to run on cost alone`. The ledger is the read-only claim: **zero** `FireServer`, **zero** key presses, **zero** `PivotTo`, and the two `InvokeServer` calls are exactly `FNCGetOrderProgress` and `FNCGetAvailableBoxes` — the allow-list is a literal in the source, so `FNCAcceptOrder` and `EVTRefreshOrders` are asserted present in the dump and **absent** from what is fired. The rich fixture also carries an order-shaped `ModuleScript`, so section 0 runs for real and the checks are `the client's order-shaped module is found and counted`, `the order module's fields are dumped — the reader's keys come from the game`, `a function field is named fn, never called` and `a scalar field is printed with its number`. A third fixture gives a getter that raises the coin balance and the run must say `the balance MOVED on a getter — treat every order call as a write, not a read`. Ties: the leg's own text mentions **no** `FireServer`, `pressKey`, `setkeypress`, `Mouse`, `PivotTo`, `CFrame`, `Teleport`, `HookFunction`, `getrawmetatable`, `hookmetamethod` or `SetPrimaryPartCFrame`; it folds names through the build's **`spudNameKey`** rather than a new rule; the allow-list is a literal of the two `FNCGet*` strings with **`FNCAcceptOrder` and `EVTRefreshOrders` absent from the leg entirely** (they live only in the fixture, so a future edit that widens the list trips the tie); and the walk records a hit **and still recurses** (`if why then` … `if depth < 8 then walk(c`). |
 | `test_doctor.py` | The in-script 🩺 DOCTOR report runs on stubbed world objects and reports, not crashes. Since v1.136 it also asserts the **session** line: the report carries the shared counter (`session 4`), an owning build is **not** called a ghost, a superseded one names itself `GHOST BUILD` while still printing the number it lost, and it stops claiming that when the token comes back (§3.16). |
 
 Plus the two non-test gates:
@@ -1792,6 +1792,17 @@ So the questions moved into the shipped build: **Tests → Company orders**
 with the single autostarted build running and no second executor tab. It answers,
 in order:
 
+0. **The client's own order tables** (v1.149) — `ReplicatedStorage` is walked
+   to depth 3 for a `ModuleScript` whose name says order / contract / task / goal
+   / box / quota / cargo / shipment / fulfill, each `require`d inside `pcall` and
+   dumped two levels (`key={sub-keys}`, `fn` for a function, the value for a
+   scalar, `+N more` past fourteen). This is the section the payload question
+   actually needs: sections 1 and 4 answer WHERE an order is and WHAT IS OPEN,
+   and neither names a field. The grow-time answer came from exactly such a
+   module (`CropGrowthConfigClient`), so asking the game's own loader is the
+   measured way to learn an order's shape instead of inventing one (rule 4). No
+   remote is fired here — a `require` runs the client's own loader and nothing
+   else — and a module that wants an argument prints its refusal text.
 1. **Where** anything order-shaped is, by name (`order / contract / request /
    demand / company / cargo / freight / shipment / delivery / goal / task /
    fulfill / reward / quota`, folded through `spudNameKey` so the game's own

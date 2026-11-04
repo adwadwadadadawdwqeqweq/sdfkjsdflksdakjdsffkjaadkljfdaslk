@@ -176,7 +176,8 @@ local larry = node("Larry", "Folder", {
     node("FNCAcceptOrder", "RemoteFunction", nil, { _throws = "want an order id" }),
 })
 local growCfg = node("CropGrowthConfigClient", "ModuleScript")
-local mods = node("Modules", "Folder", { larry, growCfg })
+local orderCfg = node("CompanyOrderConfigs", "ModuleScript")
+local mods = node("Modules", "Folder", { larry, growCfg, orderCfg })
 local repl = node("ReplicatedStorage", "Folder", { mods })
 game = { GetService = function(_, n) if n == "ReplicatedStorage" then return repl end end }
 
@@ -189,6 +190,16 @@ local CONFIG = {
 }
 require = function(m)
     if m.Name == "CropGrowthConfigClient" then return CONFIG end
+    -- the shape the orders leg's new section 0 exists to find: a client module
+    -- that carries the order table itself, fields and all
+    if m.Name == "CompanyOrderConfigs" then
+        return {
+            Order1 = { Crop = "Tomato", Count = 240, Coins = 3200, Time = 2178 },
+            Order2 = { Crop = "Wheat", Count = 80, Coins = 600 },
+            GetOrder = function() return nil end,
+            Count = 2,
+        }
+    end
     error("unexpected require of " .. tostring(m.Name))
 end
 
@@ -318,6 +329,15 @@ def main() -> int:
           ".Order1.Crop=Tomato" in says and "Wanted=240" in says)
     check("an empty table from a getter is an answer, not a failure",
           "it answered an EMPTY table" in says)
+    # ── section 0: the client's OWN order tables (v1.149) — the field names the
+    #    reader must use, asked of the game instead of guessed at it
+    check("the client's order-shaped module is found and counted",
+          "1 client ModuleScript(s) under ReplicatedStorage named like an order" in says
+          and "CompanyOrderConfigs →" in says)
+    check("the order module's fields are dumped — the reader's keys come from the game",
+          "Order1={" in says and "Crop" in says and "Coins" in says and "Time" in says)
+    check("a function field is named fn, never called", "GetOrder=fn" in says)
+    check("a scalar field is printed with its number", "Count=2" in says)
     check("a grow time the client CAN read is printed with its number",
           "GrowTime" in says and "900" in says)
     check("the remembered shelf prices come back in the report",
