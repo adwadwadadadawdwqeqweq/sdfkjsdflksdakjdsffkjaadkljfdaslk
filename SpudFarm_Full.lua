@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.151 · fluent gui"
+local VERSION    = "rebuild v1.152 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6435,8 +6435,8 @@ local okBuild, errBuild = pcall(function()
     --   2026-10-31: 49/50 against 46 standing cells fired ONE call per round
     --   for ever — the budget allowed exactly one, the server refused it, and
     --   the sell gate demanded cur >= max, so nothing ever unloaded). The trip
-    --   is worth taking when the room left cannot cover the cells still
-    --   standing, because otherwise it is one call and one refusal per cell.
+    --   is worth taking when the room left cannot spend even ONE block stop,
+    --   because from there the field advances one refused call at a time.
     function spudHarvestFull(cur, max, need)
         if type(cur) ~= "number" or type(max) ~= "number" or max <= 0 then return false end
         if cur >= max then return true end
@@ -6453,8 +6453,19 @@ local okBuild, errBuild = pcall(function()
         --   handled by selling when the tank really is full; the rule only
         --   bites when there is a load in the machine that the space left
         --   cannot cover.
-        return cur > 0 and type(need) == "number" and need > 0
-            and (max - cur) < need
+        if not (cur > 0 and type(need) == "number" and need > 0) then return false end
+        -- ▸ …AND TWO UNITS IN A 600-SLOT TANK IS NOT A LOAD (live 2026-11-04,
+        --   the same rule one step later). The `free < need` half is still true
+        --   for ANY load on a field four times the tank, so the run sold
+        --   `harvester is FULL (2/600)`, paid 71 coins for 2 cells
+        --   (`coins 1699492 → 1699563`) and 2,034 studs of arc hop, came back,
+        --   and refused itself again at the next 2 — the 1798 cells left were
+        --   never going to be harvested. What makes the 49/50 case a real dead
+        --   end is not the FIELD, it is the machine: a block stop fires
+        --   side*side cells, so a tank with less room than ONE STOP can make no
+        --   progress wherever the field stands, and that is worth a trip.
+        local side = spudBlockSide(spudFieldTaken)
+        return (max - cur) < math.min(need, side * side)
     end
 
     -- ▸ THE SPOTS THE OWNER STOOD ON AND MEASURED — 📍 Get coords, 2026-11-02.

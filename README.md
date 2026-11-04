@@ -607,22 +607,28 @@ Everything merged into one paste-and-run file:
   **names what the world does
   hold** that sounds like a pad, with each one's class and path, so the next run
   answers the shape instead of guessing at it.
-  A tank with **less free space than there are cells still standing** counts
-  as full (`spudHarvestFull`): 49/50 against 46 standing crops used to fire the
-  one slot's call — refused, because the field corner is out of reach — and
-  sell anyway, round after round. The pass now fires **no** call in that case
-  and unloads first, so the harvester comes back with a whole tank
+  A tank whose remaining room **cannot fire one block stop** counts as full
+  (`spudHarvestFull`): 49/50 against 46 standing crops used to fire the one
+  slot's call — refused, because the field corner is out of reach — and sell
+  anyway, round after round. The pass now fires **no** call in that case and
+  unloads first, so the harvester comes back with a whole tank
   (`remote harvest: 1 free slot(s) cannot cover 46 standing cell(s) — selling
-  first, then coming back`). **That rule needs a load in the tank** (v1.151):
-  the same arithmetic on a 600-slot harvester facing a 2400-cell field is always
-  true — free space can never cover a field four times its size — so an **empty**
-  machine was being called full, sent to sell nothing
+  first, then coming back`). The rule has been corrected twice, and both halves
+  are the same mistake: comparing the tank's room against the **whole field**.
+  On a 600-slot harvester facing a 2400-cell field that is true of every load,
+  including none at all, so an **empty** machine was called full
   (`harvester is FULL (0/600)` → `the tank already reads empty here — coins
-  1664376 → 1664376`), came back, refused to fire a call for the same reason, and
-  ended the cycle with `2400 cell(s) never took a harvest call even with the
-  blade on them`. A field bigger than one tank is the normal case: the harvest
-  fills 600, sells, and comes back for the next 600. The rule now only bites
-  when the tank actually holds a load that the remaining space cannot cover.
+  1664376 → 1664376`), came back, refused to fire for the same reason, and ended
+  the cycle with `2400 cell(s) never took a harvest call even with the blade on
+  them` (v1.151). Closing that half moved the lock one step, not out of it: the
+  next console sold a **two-unit** load — `harvester is FULL (2/600)`, a
+  2,034-stud round trip that paid 71 coins (`coins 1699492 → 1699563`) — came
+  back, and refused itself again at the next 2, so 1798 standing cells were never
+  going to be harvested. What makes 49/50 a dead end is the **machine**: less
+  room than one firing step (3×3 = 9 cells) means the grid can never be spent,
+  wherever the field stands, and that is worth a trip. A field bigger than one
+  tank is the normal case and is handled the same way a truck does it — fill 600,
+  sell, come back for the next 600.
 - **Trees are left alone** — the harvester never drives a field whose type or
   model name says wood / tree / log / forest / timber / lumber / sawmill / stump,
   so standing trees are not cut. A field whose cell read succeeds but returns

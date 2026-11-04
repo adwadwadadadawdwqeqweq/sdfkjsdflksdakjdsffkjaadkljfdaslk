@@ -37,7 +37,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "SpudFarm_Full.lua"
-WANTED = ["spudSellNow", "spudHarvestFull", "spudFulfillSpots", "findSellSpots", "trySellAt", "sellHarvester", "spudFulfillPadSpot", "spudCropSellSpot"]
+WANTED = ["spudSellNow", "spudHarvestFull", "spudBlockSide", "spudFulfillSpots", "findSellSpots", "trySellAt", "sellHarvester", "spudFulfillPadSpot", "spudCropSellSpot"]
 
 PRE = r"""
 local V = {}
@@ -111,6 +111,11 @@ end
 -- does not carry its assignment, so the harness supplies the number that
 -- main() asserts is in the source.
 spudFulfillPadNear = spudFulfillPadNear or 35
+-- ▸ spudHarvestFull now sizes the dead end by the FIELD'S FIRING STEP, not by
+--   the whole field, so the slice needs the build's own band and pitch. main()
+--   reads both out of the source and refuses the build if they move.
+spudFieldTaken = spudFieldTaken or FIELD_TAKEN
+spudFieldPitch = spudFieldPitch or FIELD_PITCH
 
 -- 1. the full-tank gate follows the destination pick
 spudDropOff = "Fulfillment"
@@ -129,22 +134,31 @@ check("nil destination: a full tank stays put", spudSellNow(50, 50) == false)
 
 -- 1b. a tank that cannot cover the standing cells is full too (live 49/50
 --     against 46 cells fired one call a round for ever)
+check("stop: one block stop fires 3x3 = 9 cells on this build",
+    spudBlockSide(spudFieldTaken) ^ 2 == 9, tostring(spudBlockSide(spudFieldTaken)))
 check("space: a full tank needs no second opinion", spudHarvestFull(50, 50, 46) == true)
 check("space: one free slot against 46 cells unloads", spudHarvestFull(49, 50, 46) == true)
 check("space: one free slot against 1 cell keeps working", spudHarvestFull(49, 50, 1) == false)
 check("space: an empty tank never unloads", spudHarvestFull(0, 50, 46) == false)
--- ▸ The check above is the one that PASSED while the defect was live: 46 cells
---   fit inside a 50-slot tank, so free(50) < need(46) was false for a reason
---   that has nothing to do with the load. The live field is 2400 cells against
---   a 600-slot harvester — free is ALWAYS less than need — and an empty tank
---   was called full, sold nothing, and left 2400 cells unharvested every cycle.
+-- ▸ The two checks above are the ones that PASSED while the defect was live: 46
+--   cells fit inside a 50-slot tank, so free(50) < need(46) was false for a reason
+--   that has nothing to do with the load. The live field is 2400 cells against a
+--   600-slot harvester, so `free < need` is TRUE of every load, including none at
+--   all — v1.151 closed the 0/600 half and the next console read
+--   `harvester is FULL (2/600) — going to Fulfillment`, a 2,034-stud round trip
+--   that paid 71 coins for two cells (`coins 1699492 → 1699563`) and left 1798
+--   standing. What makes 49/50 a dead end is the MACHINE, not the field: less
+--   room than one firing step means the grid can never be spent.
 check("space: an empty tank facing a field BIGGER than it is not full",
     spudHarvestFull(0, 600, 2400) == false, tostring(spudHarvestFull(0, 600, 2400)))
-check("space: the same field with a real load still unloads first",
+check("space: two units in a 600-slot tank keep harvesting — the live 2/600 lock",
+    spudHarvestFull(2, 600, 1798) == false, tostring(spudHarvestFull(2, 600, 1798)))
+check("space: a load with room for a whole stop is not a sale",
+    spudHarvestFull(150, 600, 2400) == false, tostring(spudHarvestFull(150, 600, 2400)))
+check("space: the same field with one slot left unloads first",
     spudHarvestFull(599, 600, 2400) == true)
-check("space: a partial load whose space cannot cover the field still unloads",
-    spudHarvestFull(150, 600, 2400) == true,
-    "the v1.86 rule, kept: it only stops applying to an EMPTY tank")
+check("space: room for fewer cells than one stop unloads, however big the field",
+    spudHarvestFull(595, 600, 2400) == true)
 check("space: an unreadable load never unloads", spudHarvestFull(nil, nil, 46) == false)
 check("space: a zero capacity never unloads", spudHarvestFull(0, 0, 46) == false)
 check("space: no standing cells means no excuse", spudHarvestFull(25, 50, 0) == false)
@@ -652,7 +666,22 @@ def main() -> int:
     if band.group(1) != "35":
         print(f"the pad band is now {band.group(1)} — the live miss distances say whether that is right")
         return 2
+    # ▸ The harvest-full gate now measures the dead end against ONE BLOCK STOP, so
+    #   the slice needs the build's own band and pitch. They are read from the
+    #   source rather than hard-coded: if the grid is retuned, the arithmetic below
+    #   follows it and the 3x3 check says so out loud.
+    taken = re.search(r"^\s*spudFieldTaken\s*=\s*(\d+)", src, re.M)
+    pitch = re.search(r"^\s*spudFieldPitch\s*=\s*(\d+)", src, re.M)
+    if not taken or not pitch:
+        print("missing the block band/pitch the harvest-full rule sizes a stop by")
+        return 2
     for tie, why in [
+        ("local side = spudBlockSide(spudFieldTaken)",
+         "the harvest-full rule no longer sizes the dead end by the field's firing step"),
+        ("(max - cur) < math.min(need, side * side)",
+         "the harvest-full rule is back to calling any load on a big field full"),
+        ("if not (cur > 0 and type(need) == \"number\" and need > 0) then return false end",
+         "the harvest-full rule is back to calling an EMPTY tank full"),
         ("local bestFromWalk = false", "the walk no longer records that its pad came from a name match"),
         ("bestWhere, bestFromWalk = k, score, where, true", "the walk no longer flags the candidate it matched by name"),
         ("if bestFromWalk then", "a walk candidate is no longer checked against the measured deck"),
@@ -662,8 +691,10 @@ def main() -> int:
         if tie not in src:
             print("source tie broken: " + why)
             return 2
+    script = (PRE + "\n" + "\n\n".join(parts) + "\n" + POST).replace(
+        "FIELD_TAKEN", taken.group(1)).replace("FIELD_PITCH", pitch.group(1))
     with tempfile.NamedTemporaryFile("w", suffix=".lua", delete=False, encoding="utf-8") as fh:
-        fh.write(PRE + "\n" + "\n\n".join(parts) + "\n" + POST)
+        fh.write(script)
         path = fh.name
     try:
         out = subprocess.run([str(exe), path], capture_output=True, encoding="utf-8",

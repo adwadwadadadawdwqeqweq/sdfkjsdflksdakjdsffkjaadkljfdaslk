@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.151 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.152 ·
   fluent gui` (`VERSION`, line 15). ≈14k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -126,7 +126,9 @@ description — it is the long-form manual and it is kept in sync with behaviour
     spent **nothing** either: `fieldTrips` is a local of `seedCheck` and the
     refill raise reuses the `refillsMax` local that already existed. v1.151
     spent **nothing** either: the fix is one clause inside the existing global
-    `spudHarvestFull`. Do **not**
+    `spudHarvestFull`. v1.152
+    spent **nothing** either: its one new name (`side`) is a local inside that
+    same global's body, and `spudBlockSide` was already a global. Do **not**
     add a `local` inside the main build closure. Reuse an existing local,
     convert the feature to a **global** (the established pattern), or
     restructure — and re-run the budget.
@@ -199,10 +201,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 38/38 checks on v1.151
+python tools/run_all.py        # 38/38 checks on v1.152
 ```
 
-Last full run (v1.151): **38/38 checks passed** (35 harnesses + 3 gates).
+Last full run (v1.152): **38/38 checks passed** (35 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment a script contained a string with those three
@@ -247,7 +249,7 @@ ghost build. |
 | `row_steer_test.py` | The row decision in the wide band: `spudRowNeedsAlign` asks for ONE snap only past `spudRowAng` (15°) or `spudRowTol` (6 studs); `spudRowSteer` presses nothing inside the band; `spudRowEase` takes a step off the throttle after three steering flips (×0.7, floor 30 %) and gives one back per steady 3 s. |
 | `foreign_respawn_test.py` | `spudMayRespawn()` is false while a Farm owner is picked, and `ensureToolNearby` then never calls `respawnTool`: a stored or far-away tool is named and the pass is skipped, while `(mine)` still respawns. |
 | `equip_name_test.py` | The game writes a display name the model name has no spaces in (v1.135): `spudNameKey` folds `Tempo L16`, `TempoL16` and a model tagged with a serial suffix to one key and keeps the **digits** (`%W`, not `%A` — `%A` folds `TempoL16` and `TempoL20` together), empty/nil never matches, and a card match stays a **prefix** match on the key. Ties: the Equipment Manager card lookup and the expanded-card proof fold the name, the stale-label check walks by key instead of `FindFirstChild`, the wrong-tool guard and the park pass compare folded names, `hitchPoint` falls back to the game's own socket Attachment at `WorldCFrame`, `lineUpHitch` measures the ride's `Components.Hitchable` against the tool's `Chassis.HitchableSocket`, carries the tow (`spudPivotRig(tr, newPivot, airborne and nil or plow)`) instead of a bare `tr:PivotTo`, and a miss NAMES the model and how much of it the client read; and `seedPasses` ends a round that took nothing (`leftStuck >= 2`). |
-| `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). **A walk match that is not AT the deck is refused too** (v1.128): the harness rebuilds the live `Ugc.CompanyArea.WarehouseArea` and asserts 0 pads, a log naming the **142-stud** miss, and the marker still returned as the waypoint — while an in-band match is still taken and logs no refusal, and the game's own `Stores.DropOffs` folder is never gated. **No pad instance and no waypoint still unloads** (v1.122, both picks since v1.126): the trip parks at the owner's 📍 Get coords readings — `spudFulfillPadSpot()` = `-353, 141, -92` and `spudCropSellSpot()` = `125, 142, -150` — fires no sell call it has no part for, and logs the spot as remembered rather than as a world part. Fulfillment presses **nothing** (auto pad); the remembered **Sell** board must keep `autoPad` false so `trySellAt`'s Q/E menu path still runs there, which is pinned. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. **An already-empty tank is a sale, not a failure** (v1.139, the live lie the owner's console caught): the real `trySellAt` parked in front of a tank reading 0 must return true, press nothing, fire no call and log `already reads empty`, and must **never** print `didn't take it`; and the real `sellHarvester` — whose `trySellAt` empties the tank and still says false — must end with `✅ the tank reads empty after the pad trip` rather than `⚠ still full`, while a tank that really is at 50 still gets `still reads 50`. **An empty tank is not full** (v1.151): the harness's own `space: an empty tank never unloads` check (`0/50` against `46`) had been passing **for the wrong reason** — 46 cells fit in 50 slots, so `free < need` was false whatever the load — and the live 600-slot harvester facing a 2400-cell field was therefore called full at `0/600`, sold nothing, and left every cell standing. Three checks now pin the real arithmetic: `an empty tank facing a field BIGGER than it is not full` (0/600 vs 2400 = false), `the same field with a real load still unloads first` (599/600 = true), and `a partial load whose space cannot cover the field still unloads` (150/600 = true, the v1.86 protection kept). |
+| `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). **A walk match that is not AT the deck is refused too** (v1.128): the harness rebuilds the live `Ugc.CompanyArea.WarehouseArea` and asserts 0 pads, a log naming the **142-stud** miss, and the marker still returned as the waypoint — while an in-band match is still taken and logs no refusal, and the game's own `Stores.DropOffs` folder is never gated. **No pad instance and no waypoint still unloads** (v1.122, both picks since v1.126): the trip parks at the owner's 📍 Get coords readings — `spudFulfillPadSpot()` = `-353, 141, -92` and `spudCropSellSpot()` = `125, 142, -150` — fires no sell call it has no part for, and logs the spot as remembered rather than as a world part. Fulfillment presses **nothing** (auto pad); the remembered **Sell** board must keep `autoPad` false so `trySellAt`'s Q/E menu path still runs there, which is pinned. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. **An already-empty tank is a sale, not a failure** (v1.139, the live lie the owner's console caught): the real `trySellAt` parked in front of a tank reading 0 must return true, press nothing, fire no call and log `already reads empty`, and must **never** print `didn't take it`; and the real `sellHarvester` — whose `trySellAt` empties the tank and still says false — must end with `✅ the tank reads empty after the pad trip` rather than `⚠ still full`, while a tank that really is at 50 still gets `still reads 50`. **An empty tank is not full** (v1.151): the harness's own `space: an empty tank never unloads` check (`0/50` against `46`) had been passing **for the wrong reason** — 46 cells fit in 50 slots, so `free < need` was false whatever the load — and the live 600-slot harvester facing a 2400-cell field was therefore called full at `0/600`, sold nothing, and left every cell standing. **…and one unit in a 600-slot tank is not full either** (v1.152, the same mistake one step later): the check that replaced it — `a partial load whose space cannot cover the field still unloads` (150/600 = **true**) — was the defect written down, because `free < need` is true of *every* load on a field four times the tank. Live, the next console sold a **two-unit** load (`harvester is FULL (2/600)` → 2,034 studs of arc hop, 71 coins, `coins 1699492 → 1699563`), came back and refused itself again at the next 2, so 1798 standing cells would never be harvested. The dead end is a property of the **machine**: `49/50` is stuck because one slot cannot spend a block stop, not because the field is bigger than the tank. The harness now slices the real `spudBlockSide` (and reads `spudFieldTaken` / `spudFieldPitch` out of the source rather than hard-coding them), pins `one block stop fires 3x3 = 9 cells on this build`, and runs the arithmetic both ways: `two units in a 600-slot tank keep harvesting — the live 2/600 lock` (false), `a load with room for a whole stop is not a sale` (150/600 = false), `room for fewer cells than one stop unloads, however big the field` (595/600 = true), `the same field with one slot left unloads first` (599/600 = true) — while v1.86's `49/50 against 46` and v1.151's `0/600` keep their answers. Three source ties refuse the build if the predicate loses `local side = spudBlockSide(spudFieldTaken)`, the `math.min(need, side * side)` comparison, or the `cur > 0` clause. |
 | `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", the run's shop-trip cap is at least the seed pass's `refill N/M` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out — and a shelf price dearer than the balance blocks the **next** trip locally (unreadable price or balance blocks nothing; the gate must sit before the trip is counted). **The full tank** (v1.133): `spudSeedTripsNeeded` is pinned at the arithmetic (600 empty at 50 a crate, 2 crates a trip → **6** trips; a 50-slot tank → 1; room left, not capacity; a partial crate rounds **up**; full/over-full → 0; 1 crate a trip doubles the visits; a nil cap/crate size is **unknown**, not one trip; a nil `have` reads as empty) and `spudSeedTripCeiling` **only ever raises** the floor (unknown keeps 4, 6 trips → 6, a 1-trip tank never lowers the 4); `spudSeederWantsMore` stops the pour at the machine's own `MaxCapacity` and reads an unreadable pair as "no room", never "hungry"; `spudCratesInHand` counts `CarryLinks` children (0/1/2, no character = 0, no folder = 0). Ties: the refill ceiling scales, the run's trips cover that promise, no once-per-run latch came back, the shelf price is stored, the trip gate reads the **scaled** ceiling (not the constant) with the price gate still **before** it, the fill is a loop to the cap, `spudSeedsPerCrate` is never given a literal, the second crate is proven by `CarryLinks`, an unpaid crate calls `spudDropRemote()`, crates-per-trip is one setting, and a held crate is still gated by `spudCrateHasSeed`. **The cap is remembered** (v1.143, owner: *"when it puts seeds back in the seeder it isnt filling it up to 600 only about 100"*): the live console carried both halves of the lie at once — `✅ seeder now holds 50/600 seeds (Rice)` next to `refill 1/6` next to `this run already made 4 shop trip(s) (the cap is 4)` — and `6` versus `4` is the **same machine read twice**, once returning `MaxCapacity 600` and once `nil`, because `spudSeedTripCeiling` answers nil with its floor. `spudSeederCapFor(cap, remembered)` is now pinned (a fresh read wins, a failed read falls back and says `via == "remembered"`, `0`/negative/unknown-remembered are not caps, a numeric string still counts, neither-read is **nil** not one trip) and it feeds the trip arithmetic, so a tank that streams badly still gets the visits its real size needs. Four ties: `spudSeederCap = cap` exists and is guarded by `if cap and cap > 0` (an unconditional write would let a nil read wipe the 600 it already saw), **both** plan sites call `spudSeederCapFor(cap, spudSeederCap)` / `spudSeederCapFor(fillCap, spudSeederCap)` rather than the raw read, and the pour loop says `the hands are empty and the tank still wants …` and does that town-visit arithmetic instead of calling `50/600` loaded. **The visits count crates the trip actually got** (v1.144, from the owner's pasted v1.142 console): `spudCratesTripActual()` is run for real (no trip finished = the ask; 1 = 1; 2 = 2; 5 is clamped to the ask; 0 / negative / nil = the ask; a numeric string counts; a stray count never exceeds `spudCratesPerTrip`) and it feeds the arithmetic, so `a one-crate till needs TWELVE visits, not six` and `the ceiling raises the floor to that` are the "only about 100" written as an assertion; four more ties refuse the build if `spudCratesTripGot = 1 + extraCrates` goes missing, if a plan site passes the **constant** to `spudSeedTripsNeeded` again, or if the second-crate loop stops asking it. |
 | `shop_click_test.py` | **Which shop control the buy clicks** (v1.141, §3.13). The live incident: the dialog's own reader joined `label .. " " .. Name` into one string, so an instance named `ConfirmButton` whose label on screen said **`Delete Farm`** matched "confirm" and was clicked as "the Purchase button" — and when nothing buy-shaped was on screen the old third tier clicked **the first usable control** out of 267. The harness runs the **real** tier block, sliced verbatim out of `buySeedAndFill`, wrapped so its `break` is legal, against fixtures that carry a label and a name separately: the incident (`spudShopBuyChoice("Delete Farm", "ConfirmButton")` is **false**, `spudShopDanger` answers `"delete"`, and the block clicks neither), a buy-shaped-but-dangerous control is **refused and logged** rather than skipped quietly, a danger word in the **Name alone** refuses (`("Purchase", "CancelPurchase")` → `"cancel"`), the real buys are still clicked (`purchase` → `why == "the Purchase button"`, plus `buy now`, `confirm`, `checkout`), the **image-only** case (label and name identical → the name may speak; `("", "buyseeds")` is true, `("","")` and `(nil,nil)` are false), the money words (`buy with robux` is buy-shaped AND refused; `sell cart`, `close` each name their word), the seed tile still chosen by its own word (`why == "the Wheat tile"`) and a `cancelbutton` tile refused, **no arbitrary click** (nil target + `clicking nothing` + the visible count in the line), and a safe Purchase found **past** a refused one. Nine ties: `isPurchase`, `forbidden(` and the `first usable control` tier are **gone**; `spudShopDangerWords` is a global table holding all fourteen words; both predicates are 4-space globals; `spudShopDanger` reads **`label or` AND `name or`**; `spudShopBuyChoice` keeps the `l ~= ""` guard; the tier block calls both predicates on `(b.label, b.name)` (never `b.text`), carries the `a buy-shaped control was REFUSED` line and `clicking nothing`; `harvestMenu` records `label = lbl` and `name = tostring(g.Name):lower()` separately; and the **Shop counter** probe uses the same two predicates, so the probe cannot click what the farm refuses to. **The second incident** (v1.143): the three rules stopped the destructive press and then bought **nothing**, because the loop `break`ed at the FIRST buy-shaped control — live, `PalletStoreMenu.Main.Border.Content.InfoPanel.PurchaseButton ('Buy')`, three times, `balance 1519251 -> 1519251`, toast *"You need to own the Forklift License!"* (§5 v1.107's pallet till). So the harness now runs `spudShopBuyPick` for real too: a candidate carries its **full lowercased path**, a path saying `pallet` or `forklift` is passed over for any other buy-shaped control (including one that sorts **after** it), a till-only screen returns the refusal note **naming the path**, an empty/nil list says nothing and does not crash, and a plain safe control is still taken — no new tier. Three ties: the loop calls `spudShopBuyPick(cands`, the loop carries `path = tostring(b.btn:GetFullName()):lower()`, and `target, why = b, "the Purchase button"` followed by `break` is **gone**. **The close judge reads the same rule** (v1.144): four ties on the sliced `shownPurchase` body — it routes through `spudShopBuyPick(cands)`, it records `path = tostring(g:GetFullName()):lower()` for every candidate, and the old short-circuit `if t:find("purchase", 1, true) then return g end` is refused, because that line is what read the pallet till as a seed dialog that never shut. |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
@@ -654,17 +656,26 @@ values, and the full tank always ends in a real trip:
   `spudSavedDropOff`); `spudSellNow(cur, max)` is true only for a readable
   `cur >= max` **and** one of the two known destinations — an unknown or nil
   pick still stops the run rather than driving nowhere.
-- **A tank that cannot cover the standing cells is full** (`spudHarvestFull(cur,
+- **A tank that cannot spend one block stop is full** (`spudHarvestFull(cur,
   max, need)`, v1.86). Live: `49/50` against 46 standing crops gave a budget of
   **1**, fired one call, the server refused it, and the sell gate demanded
   `cur >= max` — so the harvest loop ran round after round for ever and nothing
-  unloaded. The rule is `cur >= max` **or** (`cur > 0` **and** `max − cur < need`)
-  — a readable pair, `max > 0`, `need > 0`. The `cur > 0` half is v1.151: an
-  empty harvester facing a field four times its tank is not full, it just needs
-  four loads (§5); `harvestSellIfFull` takes the standing count at every
-  call site and checks the destination pick itself. Its budget line now says
-  `remote harvest: the tank has N free slot(s) …` instead of reusing the
-  seeder's wording.
+  unloaded. The rule is `cur >= max` **or** (`cur > 0` **and** `max − cur <
+  math.min(need, side * side)`, `side = spudBlockSide(spudFieldTaken)`) — a
+  readable pair, `max > 0`, `need > 0`. The `cur > 0` half is v1.151 and the
+  `min(need, side²)` half is v1.152: comparing the room against the **whole
+  field** is true of every load when the field is four times the tank (2400 cells
+  vs a 600-slot JDS790), so first an empty machine and then a **two-unit** one
+  was sold on a 2,034-stud round trip (§5). What makes `49/50` a dead end is that
+  the tank cannot fire one 3×3 stop — the machine, not the field. A field bigger
+  than one tank is the normal case: fill 600, sell, come back for the next 600;
+  `harvestSellIfFull` takes the standing count at every call site and checks the
+  destination pick itself. The two lines it can print both name the machine:
+  `remote harvest: N free slot(s) cannot cover M standing cell(s) — selling
+  first, then coming back` (the gate, before any call) and
+  `remote harvest: the tank has N free slot(s) — M call(s) sent, K cell(s) still
+  standing; the sell trip comes first` (after a spent budget), plus
+  `harvester is FULL (cur/max, after the remote pass) — unloading`.
 - **Fulfillment** → `spudFulfillSpots()` reads `Stores.DropOffs` and prefers
   `Deposit_Warehouse` (the owner's standing reading: `-353, 141, -92`) over
   `Withdraw_Warehouse` and the plain `DropOff`s, aiming at the pad's **top
@@ -1915,7 +1926,7 @@ order-shaped, so **the board is not in the world and not on screen from the fiel
 | Hitch line-up | global `hitchPoint(model, folder, child)` — the named attachment, else the game's own socket `Attachment.WorldCFrame`, else the best-ranked hitch `BasePart` from `findHitchPart`; `lineUpHitch(ride, plow, newPivot, airborne)` measures **both** the ride's `Components.Hitchable` and the tool's `Chassis.HitchableSocket` (the exact pair the captured `FNCAttemptHitch` takes) and, with nothing to measure, calls global `spudHitchMissText(model)` — the model name, how many descendants the client actually has and whether it is still in the world (rule 7). The pre-park line-up carries the tow through the pivot; the pre-hitch arc does not |
 | Row driving | `keyRow(tr, seat, from, goal, who)` drives rows on real W (the game auto-steers); global `spudRowSteer(angDeg, crossY, cross, tol)` (heading > 8°, cross-track > 2.5 studs → re-center); travel `ALIGN_MAXVEL = 34`, fallback row speed 18; **field-to-field travel is `hopTo` (the arc) for every job**; the A* planner was deleted in v1.81 and the row driver in v1.82, so a field pass never touches a movement key |
 | Dirt line | global `milkDirtLine = 24`; `milkDirtHigh(spot)` (the single "is this dirty?" answer) |
-| Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** room less than the cells still standing), `spudFulfillSpots()` (Deposit_Warehouse top; a world-walk match has to sit within `spudFulfillPadNear` of the measured deck or it is refused and only its marker comes back), `spudFulfillPadSpot()` (the measured `-353,141,-92` — the park-only fallback *and* the point the band is measured from), global `spudFulfillPadNear = 35`, `spudCropSellSpot()` (the measured `125, 142, -150` crop board, park-only fallback for the Sell pick), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
+| Drop-off | global `spudDropOff` (**Fulfillment** / **Sell**, remembered in `spudSavedDropOff`), `spudSellNow(cur,max)` (full tank + a chosen destination), `spudHarvestFull(cur,max,need)` (full tank **or** a load whose room cannot spend one `spudBlockSide`² stop — never a comparison against the whole field), `spudFulfillSpots()` (Deposit_Warehouse top; a world-walk match has to sit within `spudFulfillPadNear` of the measured deck or it is refused and only its marker comes back), `spudFulfillPadSpot()` (the measured `-353,141,-92` — the park-only fallback *and* the point the band is measured from), global `spudFulfillPadNear = 35`, `spudCropSellSpot()` (the measured `125, 142, -150` crop board, park-only fallback for the Sell pick), `findSellSpots()` (crop sell board), `sellHarvester` (arc hop + `trySellAt`), `harvestSellIfFull`; Farm tab dropdown `dropOffChoice` |
 | Early harvest | globals `spudEarlyCut` (**on**, remembered in `spudSavedEarlyCut`) and `spudCutWatch` (the wait's spin guard); the one predicate `grownStage(s)` (v1.125, §3.14) read by `whichNeed`/`whichCells`/`spudFieldCellIds`/the census and by `waitForGrowth`, Settings toggle **Early harvest** |
 | Coordinates | Settings **📍 Get coords** (v1.125) — logs `(x, y, z)` from `HumanoidRootPart.Position` and copies the same text, so a pad the script cannot stream can still be named by the owner |
 | Clean pass | pre-pass offer watch (0.96 s) → clean watch (2.2 s); per-cow clean `≤2.25 s` |
@@ -4983,11 +4994,86 @@ build does NOT change is the harvest's own reach question — the earlier
 line is the corner pass correctly handing the field to the blocks, and the
 blocks are now reached.
 
-**Where it stands:** `rebuild v1.151 · fluent gui`, whole suite green (38/38),
+**"another bug" — the same rule sold a two-unit load across town (v1.152).** The
+v1.151 fix moved the lock by one step rather than out of it, and the next
+logcat window said so in four lines:
+
+```
+remote harvest: fired 600 of 2400 cell(s) from 280 stop(s), 3x3 per stop — 599 took, 1801 left
+harvester is FULL (599/600, after the single-spot fire) — unloading
+…
+remote harvest: 598 free slot(s) cannot cover 1798 standing cell(s) — selling first, then coming back
+harvester is FULL (2/600) — going to Fulfillment
+```
+
+So the first round worked exactly as designed — 600 called, 599 taken, sold at
+the pad for 20,594 coins (`coins 1673802 → 1694396`), back to the field. Then the
+second round read the tank at **2** units
+(the arc back onto the plate stages a cell or two by itself: the census went
+`1800 … still standing` → `1798 cells need it`), `598 free < 1798 standing` was
+true, and the run hopped **1,005 studs** to the warehouse and **1,029 back** to
+pay **71 coins** for those two cells (`coins 1699492 → 1699563`) — the second
+sale of an almost-empty tank in this one cycle, after v1.151's window caught the
+first at `0/600`. With the room left always short of 1798, the arithmetic says
+every round does the same, so 1798 ripe crops were never going to be cut. Nothing
+errored and no line lied — the census simply crept (`1800 … still standing` →
+`1798 cells need it`), which is why the symptom reads as a slow farm rather than
+a broken one. **Where those 2 units came from is not measured** (the pass reads
+the tank before it fires anything, and the sale above reported the tank empty);
+it does not change the gate, which is what the run does with a load of 2.
+
+**Root cause, and it is the same mistake v1.151 only half closed:** the second
+branch of `spudHarvestFull` compared the tank's **remaining room** against the
+**whole standing field**. On a 600-slot harvester facing 2400 cells that is true
+of every load, including one crate's worth, so "full" stopped meaning *the
+machine is out of room* and started meaning *the field is bigger than the
+machine* — which is the normal case, handled by filling, selling, and coming
+back. v1.86's `49/50` is a dead end for a different reason, and the reason is the
+**machine**: a block stop fires `side²` = **9** cells, so a tank with less room
+than one stop can never spend the grid, whatever is standing.
+
+**Fix:** the branch is now `max − cur < math.min(need, side * side)` with
+`side = spudBlockSide(spudFieldTaken)` (both already globals, so the local is
+free and rule 14's ordering holds). `2/600` against 1798 → not full, keep
+harvesting; `150/600` → not full; `595/600` and `599/600` → full, unload; and
+`49/50` against **46** cells → full (v1.86 kept) while `49/50` against **1**
+cell → keep working and take that last tile before travelling for it. `need`
+survives only as the "there IS standing work" guard and as the cap that makes the
+one-cell case work.
+
+`tools/dropoff_test.py` now slices the **real** `spudBlockSide` and reads
+`spudFieldTaken` / `spudFieldPitch` out of the source instead of hard-coding
+them, pins `one block stop fires 3x3 = 9 cells on this build`, and replaces the
+check that was this defect written down — v1.151's
+`a partial load whose space cannot cover the field still unloads` (150/600 =
+**true**) is now `a load with room for a whole stop is not a sale` (false), next
+to `two units in a 600-slot tank keep harvesting — the live 2/600 lock`. Both
+were **verified against the old arithmetic** before the edit shipped: the two
+formulas agree on all six recorded cases (`0/600`, `595/600`, `599/600`, `49/50`
+both ways, `0/50`) and differ only on `2/600 vs 1798` and `150/600 vs 2400` —
+which is the whole bug and nothing else.
+
+That makes **two** builds in a row where a green harness assertion was the
+defect: the check `spudHarvestFull(0, 50, 46) == false` passed while an empty
+tank was being called full, because 46 fits in 50; and the check
+`spudHarvestFull(150, 600, 2400) == true` passed while a two-unit tank was being
+sold across town, because it asserted the *field comparison* rather than asking
+what makes a tank stuck. A new arithmetic rule needs a check that FAILS on the
+old formula — which the two-rule comparison above is now written down for.
+
+Compile OK, suite **38/38**, headroom **5** (unchanged — `side` is a local inside
+the global's own body), name audit clean **393** (no new top-level name).
+**Harness green — NOT reloaded in game**, and the verdict is the harvest filling
+before it travels: a `harvester is FULL (59x/600)` line rather than `(2/600)`,
+and the census dropping by ~600 cells a round (`2400 → 1800 → 1200 …`) instead of
+2 at a time. What it does NOT change: the `599/600` sale at the warehouse pad,
+the marker-vs-pad refusal, or the reach line that hands the field to the blocks.
+
+**Where it stands:** `rebuild v1.152 · fluent gui`, whole suite green (38/38),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **The newest build proven in the client is v1.149** — the owner's
 **Copy report** header reads `place 2772610559 · player ok_simba3 · rebuild
-v1.149 · fluent gui`, and **Run all** ran on it — so **v1.151 is the build the
+v1.149 · fluent gui`, and **Run all** ran on it — so **v1.152 is the build the
 next reload brings in**. That reload also closed the oldest open seed verdict:
 the v1.148 fill-to-max loop ran end to end on the live client — `seeder fill:
 200/600 — back to town for more Rice (trip 3 of 6)` through `trip 6 of 6`, then
@@ -5229,13 +5315,18 @@ versus the second crate left on the shelf. **(c)** A 600-slot seeder should read
    a forged stage), so the remaining question is whether the server uses it —
    the verdict is `reads Seeded` = TAKEN (a real abuse) or `reads Cultivated`
    = IGNORED (client-only lie). Paste that one line).
-   **v1.143 and v1.144 are the two newest and both are unrun** (the client's
-   header is v1.142): the till-only refusal or a real dialog buy with the
-   balance falling, a `the cap is N, planned on a … tank of 600 at M crate(s) a
-   trip` budget that reaches the pass's own promise, a carry asked from beside
-   the box, a dialog judge that stops calling the till "still open", and a
-   store that lands inside five attempts — or a refusal that names which of the
-   two `Tempo L16` cards it was clicking.
+   **The newest build proven in the client is v1.149** (its **Copy report** header
+   reads `rebuild v1.149`); **v1.150, v1.151 and v1.152 are all unrun**, and
+   today's logcat tail cannot name its own build — its lines exist in v1.149 too.
+   The three verdicts stacked up: a field whose trip budget covers the **cells**
+   (2400 = 24 visits, `for 2400 cell(s)` in the refusal), a harvest that fires
+   instead of selling an empty tank, and — v1.152's — a tank that only travels
+   when it cannot spend a **stop**: `harvester is FULL (59x/600)` with the census
+   dropping ~600 cells a round, not `harvester is FULL (2/600)` after a 71-coin
+   round trip. Older still unobserved: v1.143/v1.144's till refusal, cap-remembered
+   budget, carry from beside the box, dialog judge and five-attempt store — and
+   v1.149's **Tests → Company orders** button has never been pressed, so the
+   Company-order payload is still unread.
    Harness green ≠ game green.
 2. **The 24 % baseline may differ per build.** If stalls sit higher, the first
    pass logs `reads X% but the game offers no Clean there - the dirty line moves
