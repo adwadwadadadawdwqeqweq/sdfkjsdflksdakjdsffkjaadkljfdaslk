@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.138 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.139 ·
   fluent gui` (`VERSION`, line 15). ≈14k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -73,7 +73,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 
 13. **Luau's 200-local limit is real** (it was 2 away from the practical
     ceiling until the path engine was deleted in v1.81). Run
-    `python tools/local_budget.py`. As of v1.138:
+    `python tools/local_budget.py`. As of v1.139:
     `4-space locals before milkCycle: 180 (practical ceiling 185)`,
     whole body `187 / 200`, **headroom 5** (v1.129's four `*_STEMS` word tables
     are four build-closure locals — every name the equipment rewrite, the tow
@@ -91,7 +91,9 @@ description — it is the long-form manual and it is kept in sync with behaviour
     locals of its own prototype. v1.138 spent **nothing** either: the order
     probe is another `kind` **inside** the existing global `spudTestWork`, so
     every one of its new names is a local of that function's own prototype and
-    the build closure never sees them). Do **not**
+    the build closure never sees them). v1.139 spent **nothing** either: the
+    unload fix changes two existing bodies and adds no name, and the store-picker
+    guard is one line inside a closure that already existed. Do **not**
     add a `local` inside the main build closure. Reuse an existing local,
     convert the feature to a **global** (the established pattern), or
     restructure — and re-run the budget.
@@ -164,10 +166,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 37/37 checks on v1.138
+python tools/run_all.py        # 37/37 checks on v1.139
 ```
 
-Last full run (v1.138): **37/37 checks passed** (34 harnesses + 3 gates).
+Last full run (v1.139): **37/37 checks passed** (34 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment the script contained a string with those three
@@ -187,7 +189,7 @@ heartbeat is `while beat and spudAlive()`, `destroyUI` bumps `env.spudGen`,
 ghost build. |
 | `webhook_test.py` | A webhook URL must be Discord's own host + `/api/webhooks/` path; "contains the word discord" is rejected, and blank means off. |
 | `drop_scope_test.py` | A jug appearing elsewhere in the world during the 10 s milk wait is not counted as "this cow gave milk". |
-| `liquid_deck_test.py` | The full-carrier drain trip runs for real on a fake world (v1.137): a machine the game calls a **Silo** (or one that lives under `Buildings`) is refused **before the first teleport**, with no Equipment Manager call and the refusal rate-limited; the farm loop owning the body, a carrier that left the world and a deck already switched off each cost zero teleports; a carrier already inside the band pays no spawn; a deck that drains a parked tanker is a sale with **zero presses** and the line says `pressing nothing`; an offer list with no unload in it presses nothing and prints its **verbatim** list; the game's own unload is driven through `milkStorePress` and the line names the button; a press that leaves the readout alone is **not** a sale; a spawn that never brings the carrier names the real distance left and costs one miss; three misses switch the deck off, and a sale resets the count; a spaced label (`Milk Tanker`) finds the model it was folded from and the sale is read off **that** instance; and a character position that cannot be read still sells without a phantom teleport home. Fifteen source ties: the deck stays the owner's measured `86, 141, -288`, the band is the constant at every call site, **no** `:PivotTo` / `pressKey` / `FireServer` / `InvokeServer` / `EVTSellAtStore` / `Mouse` anywhere in the trip, the live offer comes from `milkStoreActs()` + `milkStorePress` (never a raw `PCGP_ContextActions` walk), the readout is the only proof, the no-input park is tried **before** any button, `home()` is declared before the `noSale()` that closes over it (rule 14), every refusal goes through the one counter, `milkStoreDeposit`'s FULL branch calls the trip and keeps the honest `empty it` line as its else, and the learned state is reset per build. |
+| `liquid_deck_test.py` | The full-carrier drain trip runs for real on a fake world (v1.137): a machine the game calls a **Silo** (or one that lives under `Buildings`) is refused **before the first teleport**, with no Equipment Manager call and the refusal rate-limited; the farm loop owning the body, a carrier that left the world and a deck already switched off each cost zero teleports; a carrier already inside the band pays no spawn; a deck that drains a parked tanker is a sale with **zero presses** and the line says `pressing nothing`; an offer list with no unload in it presses nothing and prints its **verbatim** list; the game's own unload is driven through `milkStorePress` and the line names the button; a press that leaves the readout alone is **not** a sale; a spawn that never brings the carrier names the real distance left and costs one miss; three misses switch the deck off, and a sale resets the count; a spaced label (`Milk Tanker`) finds the model it was folded from and the sale is read off **that** instance; and a character position that cannot be read still sells without a phantom teleport home. Seventeen source ties: the deck stays the owner's measured `86, 141, -288`, the band is the constant at every call site, **no** `:PivotTo` / `pressKey` / `FireServer` / `InvokeServer` / `EVTSellAtStore` / `Mouse` anywhere in the trip, the live offer comes from `milkStoreActs()` + `milkStorePress` (never a raw `PCGP_ContextActions` walk), the readout is the only proof, the no-input park is tried **before** any button, `home()` is declared before the `noSale()` that closes over it (rule 14), every refusal goes through the one counter, `milkStoreDeposit`'s FULL branch calls the trip and keeps the honest `empty it` line as its else, the learned state is reset per build, and — since v1.139 — the **Store milk in** dropdown's `Callback` bails when the value it is handed already **is** `milkStorePick` (the 15 s re-scan sets it through `SetValue`, which re-enters the Callback, so the script used to log its own refresh as the owner's pick, twice a minute, forever) while that scan itself still exists. |
 | `farm_batch_test.py` | Herd-batch arithmetic: who fills a batch, who hands over. |
 | `farm_hop_test.py` | The go-to-the-farm hop: no plot or no position answers with a reason, a plot within 60 studs is left alone, a far plot targets its centre +5 Y, and the reported distance is the real one. |
 | `farm_rotate_test.py` | Three-farm rotation order and wrap-around. |
@@ -208,7 +210,7 @@ ghost build. |
 | `row_steer_test.py` | The row decision in the wide band: `spudRowNeedsAlign` asks for ONE snap only past `spudRowAng` (15°) or `spudRowTol` (6 studs); `spudRowSteer` presses nothing inside the band; `spudRowEase` takes a step off the throttle after three steering flips (×0.7, floor 30 %) and gives one back per steady 3 s. |
 | `foreign_respawn_test.py` | `spudMayRespawn()` is false while a Farm owner is picked, and `ensureToolNearby` then never calls `respawnTool`: a stored or far-away tool is named and the pass is skipped, while `(mine)` still respawns. |
 | `equip_name_test.py` | The game writes a display name the model name has no spaces in (v1.135): `spudNameKey` folds `Tempo L16`, `TempoL16` and a model tagged with a serial suffix to one key and keeps the **digits** (`%W`, not `%A` — `%A` folds `TempoL16` and `TempoL20` together), empty/nil never matches, and a card match stays a **prefix** match on the key. Ties: the Equipment Manager card lookup and the expanded-card proof fold the name, the stale-label check walks by key instead of `FindFirstChild`, the wrong-tool guard and the park pass compare folded names, `hitchPoint` falls back to the game's own socket Attachment at `WorldCFrame`, `lineUpHitch` measures the ride's `Components.Hitchable` against the tool's `Chassis.HitchableSocket`, carries the tow (`spudPivotRig(tr, newPivot, airborne and nil or plow)`) instead of a bare `tr:PivotTo`, and a miss NAMES the model and how much of it the client read; and `seedPasses` ends a round that took nothing (`leftStuck >= 2`). |
-| `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). **A walk match that is not AT the deck is refused too** (v1.128): the harness rebuilds the live `Ugc.CompanyArea.WarehouseArea` and asserts 0 pads, a log naming the **142-stud** miss, and the marker still returned as the waypoint — while an in-band match is still taken and logs no refusal, and the game's own `Stores.DropOffs` folder is never gated. **No pad instance and no waypoint still unloads** (v1.122, both picks since v1.126): the trip parks at the owner's 📍 Get coords readings — `spudFulfillPadSpot()` = `-353, 141, -92` and `spudCropSellSpot()` = `125, 142, -150` — fires no sell call it has no part for, and logs the spot as remembered rather than as a world part. Fulfillment presses **nothing** (auto pad); the remembered **Sell** board must keep `autoPad` false so `trySellAt`'s Q/E menu path still runs there, which is pinned. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. |
+| `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). **A walk match that is not AT the deck is refused too** (v1.128): the harness rebuilds the live `Ugc.CompanyArea.WarehouseArea` and asserts 0 pads, a log naming the **142-stud** miss, and the marker still returned as the waypoint — while an in-band match is still taken and logs no refusal, and the game's own `Stores.DropOffs` folder is never gated. **No pad instance and no waypoint still unloads** (v1.122, both picks since v1.126): the trip parks at the owner's 📍 Get coords readings — `spudFulfillPadSpot()` = `-353, 141, -92` and `spudCropSellSpot()` = `125, 142, -150` — fires no sell call it has no part for, and logs the spot as remembered rather than as a world part. Fulfillment presses **nothing** (auto pad); the remembered **Sell** board must keep `autoPad` false so `trySellAt`'s Q/E menu path still runs there, which is pinned. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. **An already-empty tank is a sale, not a failure** (v1.139, the live lie the owner's console caught): the real `trySellAt` parked in front of a tank reading 0 must return true, press nothing, fire no call and log `already reads empty`, and must **never** print `didn't take it`; and the real `sellHarvester` — whose `trySellAt` empties the tank and still says false — must end with `✅ the tank reads empty after the pad trip` rather than `⚠ still full`, while a tank that really is at 50 still gets `still reads 50`. |
 | `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", the run's shop-trip cap is at least the seed pass's `refill N/M` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out — and a shelf price dearer than the balance blocks the **next** trip locally (unreadable price or balance blocks nothing; the gate must sit before the trip is counted). **The full tank** (v1.133): `spudSeedTripsNeeded` is pinned at the arithmetic (600 empty at 50 a crate, 2 crates a trip → **6** trips; a 50-slot tank → 1; room left, not capacity; a partial crate rounds **up**; full/over-full → 0; 1 crate a trip doubles the visits; a nil cap/crate size is **unknown**, not one trip; a nil `have` reads as empty) and `spudSeedTripCeiling` **only ever raises** the floor (unknown keeps 4, 6 trips → 6, a 1-trip tank never lowers the 4); `spudSeederWantsMore` stops the pour at the machine's own `MaxCapacity` and reads an unreadable pair as "no room", never "hungry"; `spudCratesInHand` counts `CarryLinks` children (0/1/2, no character = 0, no folder = 0). Ties: the refill ceiling scales, the run's trips cover that promise, no once-per-run latch came back, the shelf price is stored, the trip gate reads the **scaled** ceiling (not the constant) with the price gate still **before** it, the fill is a loop to the cap, `spudSeedsPerCrate` is never given a literal, the second crate is proven by `CarryLinks`, an unpaid crate calls `spudDropRemote()`, crates-per-trip is one setting, and a held crate is still gated by `spudCrateHasSeed`. |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
 | `stall_stream_test.py` | The stall scan after a milk teleport, on a virtual clock: a pass that did **not** hop reads once and sleeps zero (the old behaviour), a pass that hopped re-reads until the game actually has stalls and hands those back, each try costs 0.25 s, the wait is **bounded** at 12 tries (3 s), Stop ends it between tries, the skipped count and the same plot/owner are carried through every re-read, and a barn that never streams is logged as **not streamed** (naming the farm, saying the plot reads, saying this is not "no barn") rather than as an empty answer. Plus the ties: `milkCycle` scans through `spudStallScan`, its two plot teleports each report whether they moved, and the timing stamp is taken after the scan. |
@@ -247,11 +249,16 @@ drains a parked tanker, that the owner's `86, 141, -288` is still the sell-liqui
 spot, or which action that spot actually offers. The per-cow clean path is
 covered by `cow_in_stall_test.py`. The **Company-order probe** (v1.138, §3.18)
 is covered on three fake worlds by `order_probe_test.py`, which proves the
-report shape and that nothing is written — but the whole point of the leg is to
-answer questions the fake worlds cannot answer: **where** an order instance
-actually lives, **what** it holds, whether `FNCGetOrderProgress` accepts no
-arguments here, and whether a grow time is client-readable at all. Those four
-are only knowable from one live press of **Tests → Company orders**.
+report shape and that nothing is written. It was **pressed live** (v1.139's
+entry has the report), so three of the four questions it exists to ask are
+answered — the getters need **no arguments** and move no coins, one answers
+`{ [<id>] = number }`, and a **grow time is client-readable**
+(`CropGrowthConfigClient[Tomato] = 2178`). The one still open is **where an
+order lives and what one holds**: the live walk found 0 order-named instances
+and the PlayerGui labels said nothing order-shaped, and `FNCGetAvailableBoxes`
+answered empty **from the field** — so the next evidence step is the same button
+pressed **in town with the company board on screen**, not a reader written
+against a guessed payload (§6 item 7).
 
 ### 2.4 Reading a live run from the emulator (no copy-paste)
 
@@ -675,7 +682,16 @@ values, and the full tank always ends in a real trip:
     itself, pressing nothing`.
   - **Sell** (`autoPad = false`) fires the captured `EVTSellAtStore(ride, pad)`
     first, then falls back to Q (menu) / E (confirm) after a 3 s grace.
-  **The tank dropping is the only proof** a pad took the load, in both cases. A
+  **The tank dropping is the only proof** a pad took the load, in both cases —
+  **except that a tank already at 0 IS the proof** (v1.139, live): the in-place
+  call is watched for only 1.5 s, so a sale that lands a beat later empties the
+  tank while the park trip is still polling, and `cur < cap0` can never be true
+  against a `cap0` of 0. The owner's console therefore called a sold-out,
+  +278k-coin harvester `⚠ still full` and backed off for a minute. A park that
+  reads 0 now returns true naming the empty read as the reason, and the
+  end-of-trip line **re-reads the tank** — empty is `✅ the tank reads empty
+  after the pad trip`, a real load prints its number, and an unreadable one says
+  `UNREADABLE` (rule 7) instead of "full". A
   failed trip backs off 60 s and the harvest carries on with the load it has.
 - **The hop lands on the target's own height, from above** (v1.42 → v1.122).
   `hopTo` used to keep the **takeoff** height at both ends, so the return leg
@@ -1581,6 +1597,23 @@ carries a counting `FireServer` / `InvokeServer` / `PivotTo`, so "nothing was
 fired" is asserted as `fired=0 … keys=0 moved=0` rather than as a reading of the
 source, and the eight source ties pin the allow-list literally excludes
 `FNCAcceptOrder` and `EVTRefreshOrders`.
+
+**ANSWERED live (the assistant's MuMu press, v1.139).** Steps 5 and 6 came back:
+`FNCGetOrderProgress()` and `FNCGetAvailableBoxes()` are both invoked with **no
+arguments** and neither moves the wallet (`coins 923235 → 923235`); one answers an
+**empty table** (a real answer — no order open from where the character stands) and
+the other a table whose numeric key holds **1232**, so the shape is
+`{ [<id>] = <number> }`. The grow-time question has a **yes**: the game's own
+`CropGrowthConfigClient` gives one number per crop — **`Tomato = 2178`**, `Wheat =
+45`, `Rice = 480`, `Soybean = 2178`, `Grape = 2400`, `Balsam = 1500`, `Cypress =
+2280`, `Holly = 1800`, `Mint = 1800`, `Alien Tentacle = 3660`, `Steve = 600`,
+`Stunted Hallowood = 1200` — plus a `Configs` table with `RSVPEvents` / `Stories`,
+and no shelf price had been read that build (a seed trip fills `spudSeedPrices`,
+the **cost** half of the ranking). Steps 1–3 are still empty and the probe says so
+honestly: `0 instance(s) … named like an order (20004 node(s) walked, CAP 20000
+REACHED — this is not the whole map)` and 386 `PlayerGui` label hits, none of them
+order-shaped, so **the board is not in the world and not on screen from the field**
+— it lives behind a menu this probe will not click (§6 item 7).
 
 ---
 
@@ -3862,11 +3895,105 @@ open. Until it is pressed once, the auto-contract reader stays unbuilt on
 purpose — the alternative is a feature whose order-shape, reward field and grow
 time are all invented.
 
-**Where it stands:** `rebuild v1.138 · fluent gui`, whole suite green (37/37),
+**"boy do it yourself" — the Company-orders button pressed, and two lying log
+lines it exposed (v1.139).** The owner's go-ahead to drive MuMu myself rather than
+ask for pastes. Reaching the button needed one honest detour: the client was still
+on a build whose Tests tab had no **Company orders**, and the only way to get the
+new one loaded was 📤 Unload (which kills the live loops and bumps the shared
+token) and a re-EXECUTE of the saved **"faf"** script — **one** build, session 3,
+never a second EXECUTE beside a live one (§3.16). Then Tests (tab rail y≈660) →
+**Company orders** (y≈801), and `adb -s 127.0.0.1:16416 logcat -d | grep -F
+"[spud] test: orders"` carried the whole report. What §6 asked, answered:
+
+- **(c) the doors answer with no arguments.** `FNCGetOrderProgress()` and
+  `FNCGetAvailableBoxes()` both invoked clean from the field, and the balance
+  bracket proved a **reader**: `coins 923235 → 923235`. One returned an **empty
+  table**, the other a table holding a numeric key with value **1232** — so the
+  shape is `{ [<id>] = <number> }`, and an empty answer is a real answer ("no
+  order is open from here"), not a failure. `FNCAcceptOrder` and `EVTFulfillOrder`
+  remain **unfired** — the allow-list worked exactly as designed.
+- **(d) a grow time IS client-readable.** `CropGrowthConfigClient` answers per
+  crop: **`Tomato = 2178`**, `Wheat = 45`, `Rice = 480`, `Soybean = 2178`,
+  `Grape = 2400`, `Balsam = 1500`, `Cypress = 2280`, `Holly = 1800`,
+  `Mint = 1800`, `Alien Tentacle = 3660`, `Steve = 600`, `Stunted Hallowood =
+  1200`, plus a `Configs` table with `RSVPEvents` / `Stories`. So the owner's
+  ranking rule (*"the easyest one by seeding time and cost"*) has a **time** half
+  after all — the v1.123/v1.124 fear (`NO client-side grow time is readable …`)
+  is closed. The **cost** half is still only what a shop trip learned:
+  `no shelf price read yet this build (a seed trip names them)`.
+- **(a)/(b) the order instance is still NOT in the world.** `0 instance(s) of
+  20004 walked are named like an order (CAP 20000 REACHED — this is not the whole
+  map)`, and the leg says the right thing about that: *nothing in the WORLD is
+  named like an order — that is not "no orders", it means the board is elsewhere*.
+  The `PlayerGui` walk came back with 386 label hits and **none** of them says an
+  order (all Herding Mode / PalletStoreMenu / notification text), so the board is
+  not merely off-screen — it is **inside a menu that has to be opened**, and
+  opening it is a UI action this probe deliberately does not take. The 20
+  `Modules.Larry` order/task/goal/box doors were captured **with their classes**,
+  which is the other thing that was previously only a name.
+
+**So the reader is still not writable, and the reason is narrower than before:**
+the getters and the grow-time table are proven, but nothing has ever named the
+instance an order lives in, and `FNCGetAvailableBoxes` answered `{}` from the
+field. Rule 4 says the next step is one more press **in town / with the company
+board actually on screen**, not a reader built on the assumption that
+`{ [id] = 1232 }` is the whole payload.
+
+**The two bugs the same buffer gave me, both fixed here.** Neither is a crash;
+both are log lines that assert something untrue, which is the class this repo
+treats as a bug (rule 7 and v1.134's status-line fix are the precedents):
+
+1. **`⚠ still full` about a tank that had been emptied and paid.** The owner's
+   v1.138 console: `no unload at DropOffs.Deposit_Warehouse after 16 s (load 0,
+   coins 644584 → 923235) — the pad didn't take it while parked`, then `⚠ still
+   full`, then a 60 s back-off — while the tank read **0** and the balance had
+   risen ~278k. **Root cause, read from the source, no new probe needed:** the
+   park trip's only proof is `cur < cap0`, and the in-place `EVTSellAtStore`
+   above it is watched for just **1.5 s**, so a sale that lands a beat later
+   empties the tank *while the trip is still polling* — and with `cap0 == 0` the
+   drop is arithmetically unprovable. `sellHarvester` then printed its final line
+   without ever re-reading. Now a park that finds the tank at 0 returns true with
+   `the tank already reads empty here — the load is gone (coins … → …)`, and the
+   end-of-trip verdict **re-reads** `harvesterLoad`: an empty tank is
+   `✅ the tank reads empty after the pad trip`, a loaded one names the real
+   number, and an unreadable one says `UNREADABLE` instead of "full".
+2. **`milk store: (no trailer or silo found)` twice a minute with milk off.** The
+   dropdown's own `Callback` is what logs a pick, and the store re-scan (every
+   15 s) **sets** the value — Fluent's `SetValue` re-enters that Callback — so the
+   script was reporting its own refresh as though the owner had chosen it, in
+   every console, forever. A pick that is already the pick now returns before it
+   assigns or logs. Costs no register (one line inside an existing closure).
+   Also fixed in passing: `drop-off 1/1: … at (-352, -89)` printed only X and Z,
+   hiding the **Y** that is the entire subject of §3.10's height story — the line
+   now names all three.
+
+**Deliberately NOT changed:** `remote harvest: fired 0 of 287 cell(s) from 47
+stop(s), 3x3 per stop — 0 took, 287 left`. `#stops` in that line is the *planned*
+count, so it is consistent with the grid correctly ending itself after three
+blade-miss stops (v1.132's rule), and the logcat buffer no longer holds the lines
+around that run — so per rule 4 the code stays as it is until a live pass says
+otherwise.
+
+Compile OK, suite **37/37**, headroom **5** (unchanged — no new top-level name;
+the guard and the re-read add no build-closure local), name audit clean **380**.
+`tools/dropoff_test.py` gained **9 checks** that run the **real** `trySellAt` and
+`sellHarvester` on a virtual clock (an already-empty park is a success with
+**zero** presses and **zero** sell calls, the line names the empty read as the
+proof, and nothing calls that pad a failure; a trip that leaves the tank at 50 is
+still `⚠ … still reads 50` and never claims an empty tank), and
+`tools/liquid_deck_test.py` gained **2 ties** (the Callback bails before it
+assigns and logs, and the 15 s scan still exists). **In-game verified:** the
+Company-orders report above came from the live v1.138 client. **Not verified in
+game:** these three log-line fixes — they need the next full tank and the next
+milk run.
+
+**Where it stands:** `rebuild v1.139 · fluent gui`, whole suite green (37/37),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
-above). **The client now runs v1.138** — the owner's **Copy report** header reads
-`rebuild v1.138 · fluent gui`, and **Run all** ran on it — so every verdict below
-that was waiting on a *reload* is now waiting on a *run*, not on a load. **v1.134
+above). **The client ran v1.138** for the Company-orders press above (unload +
+one re-EXECUTE of "faf", session 3), so **v1.139 is the build the next reload
+brings in**; the v1.138 report header proved **Run all** works on it, and every
+verdict below that was waiting on a *reload* is now waiting on a *run*, not on a
+load. **v1.134
 was reloaded and driven in MuMu by the assistant** (the
 `[spud]` logcat quoted through §5 is that session), and what it showed is *not*
 the weld verdict: the run never reached a field pass — it died on
@@ -4111,28 +4238,33 @@ versus the second crate left on the shelf. **(c)** A 600-slot seeder should read
    harvest pass that takes them, or the bounded
    `still read cuttable after 2 restart(s) that took nothing`, which means the
    server pays only for the cell it was shown, not for the field.
-7. **The auto-contract feature is blocked on four answers, and one button gets
-   them.** **Tests → Company orders** (v1.138, §3.18) is the evidence step for the
-   owner's approved design, and rule 4 forbids writing the reader before it has
-   been pressed once in game. The four: **(a)** where an order actually lives —
-   the report either prints `Workspace.<…>.<Order…> [ClassName]` lines with their
-   value trees, or says `nothing in the WORLD is named like an order — that is not
-   "no orders", it means the board is elsewhere`, which means the board has to be
-   opened before it can be read (and opening it is a UI action this probe
-   deliberately does not take); **(b)** what
-   one holds — the crop, the wanted count, how much is in, the reward, and whether
-   an order is a folder of values or one table on a `StringValue`; **(c)** whether
-   `FNCGetOrderProgress` answers with **no arguments** in this build — the refusal
-   text names the argument if it does not, and an empty table is a real answer
-   meaning no order is open right now; **(d)** whether a **grow time is client
-   readable at all** — `CropGrowthConfigClient`-style tables per crop, or the
-   honest `NO client-side grow time is readable — the ranking would have to run on
-   cost alone`, which is the answer that changes the design rather than confirming
-   it. With (a)–(d) in hand the reader is small: pick the cheapest-seed, shortest-
-   grow order the balance can actually afford (the owner's
+7. **The auto-contract feature is blocked on ONE answer now, and the same button
+   gets it.** **Tests → Company orders** (v1.138, §3.18) **has been pressed in
+   game** (v1.139's entry has the report), so three of the four questions §6 used
+   to ask are closed: `FNCGetOrderProgress()` and `FNCGetAvailableBoxes()` answer
+   with **no arguments** and provably move nothing (`coins 923235 → 923235`), one
+   of them answers `{ [<id>] = 1232 }`-shaped data and the other an **empty table**
+   (a real answer: no order open from here), and a **grow time is client-readable**
+   after all — `CropGrowthConfigClient` gives `Tomato = 2178`, `Wheat = 45`,
+   `Rice = 480`, `Grape = 2400`, `Soybean = 2178`, `Mint`/`Holly = 1800`,
+   `Cypress = 2280`, `Balsam = 1500`, `Alien Tentacle = 3660`, `Steve = 600`,
+   `Stunted Hallowood = 1200` — so the owner's ranking rule (*"the easyest one by
+   seeding time and cost"*) has both halves available. **What is still unknown,
+   and is the one thing that blocks the reader:** **(a)/(b) where an order
+   actually lives and what one holds.** The live walk found `0 instance(s) …
+   named like an order (CAP 20000 REACHED — this is not the whole map)`, the
+   PlayerGui labels said nothing order-shaped (all Herding Mode / PalletStoreMenu /
+   notification text), and `FNCGetAvailableBoxes` answered empty **from the
+   field**, so the `{ [id] = 1232 }` shape is a hint, not a contract payload. The
+   board is inside a menu that has to be **opened**, and this probe deliberately
+   does not open menus (rule 4, and a click is a write). So the next evidence step
+   is the same button pressed **standing in town with the company board on
+   screen**, not a reader written against a guessed field set. With that in hand
+   the reader is small: pick the cheapest-seed, shortest-grow order the balance can
+   actually afford (the owner's
    *"if it dont got enough money to buy 1 single seed mox it skips and goes to a
    lower cost one"*), steer **only the next planting**, and unload before
-   replanting. Without them it is a guess.
+   replanting. Without it the payload is a guess.
 
 ---
 

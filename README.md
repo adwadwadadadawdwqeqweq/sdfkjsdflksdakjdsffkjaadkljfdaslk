@@ -408,9 +408,22 @@ Everything merged into one paste-and-run file:
   second-guessed: whatever it holds is a drop-off by the game's own grouping.
   The console prints
   `fulfillment pad: Objects.Buildings.CompanyArea.Deposit_Warehouse at (…)`,
-  `drop-off 1/1: …`, then
-  `✅ sold at …` or an honest `still full — none of the pads took the load`,
-  after which the trip backs off 60 s and the harvest carries on. Every hop
+  `drop-off 1/1: … at (-353, 140, -90)` (all three numbers — the Y is what this
+  whole section is about), then
+  `✅ sold at …` or an honest `⚠ no pad took the load — the tank still reads N`,
+  after which the trip backs off 60 s and the harvest carries on. **A tank that
+  already reads empty is not a failed unload** (v1.139, live): the in-place call
+  is only watched for 1.5 s, so a sale that lands a beat later leaves the load
+  gone while the park trip is still running — and that trip's proof is *"the
+  count dropped below what it read at arrival"*, which can never be true against
+  an arrival baseline of 0. The owner's console read
+  `no unload at DropOffs.Deposit_Warehouse after 16 s (load 0, coins 644584 →
+  923235) — the pad didn't take it while parked` and then `⚠ still full`, about a
+  harvester that had been emptied and paid out 278k. So a park that finds the tank
+  at 0 says `the tank already reads empty here — the load is gone`, the final
+  verdict **re-reads the tank** instead of repeating what the branch assumed, and
+  a tank it cannot read is named `UNREADABLE` rather than called full (rule 7).
+  Every hop
   lands at the **target's own height** and arcs ~12 studs above it, so it always
   arrives as a descent: up onto the field from a lower pad, and **down onto the
   pad** on the way there (v1.122 — the old "land at the higher of the two" rule
@@ -594,7 +607,11 @@ Everything merged into one paste-and-run file:
   [tools/farm_batch_test.py](tools/farm_batch_test.py)). The **herd
   batch size typed in a box
   (1–12)**, **Store milk in** (live list of the picked account's trailers/silos;
-  only free-range jugs are loaded there), **Deliver all milk** switch, **Refill
+  only free-range jugs are loaded there. That list re-scans every 15 s, and the
+  re-scan sets the picker rather than the owner setting it, so a pick that is
+  already the pick logs nothing — before v1.139 the console printed
+  `milk store: (no trailer or silo found)` twice a minute while milk off),
+  **Deliver all milk** switch, **Refill
   feed dispenser** switch (tops the plot's FeedDispenser up from the
   AnimalFoodBoxes), live status paragraph, **milk loop** toggle. The loop cleans
   dirty stalls first, then **milks any cow already waiting in a stall**, herds

@@ -349,6 +349,23 @@ check("sell pad: an ignored remote is not a sale", okIgnored == false)
 check("sell pad: it falls back to Q and E", pressed:find("Q") ~= nil and pressed:find("E") ~= nil, pressed)
 check("sell pad: the failure line names the pad", loggedText():find("DropOff") ~= nil)
 
+-- 5b. a tank that ARRIVES ALREADY EMPTY is not a failed unload. sellHarvester
+--     watches its in-place call for only 1.5 s; a sale that lands a beat later
+--     leaves the pad trip running against an empty harvester, where
+--     `cur < cap0` can never be true at cap0 = 0. Live v1.138 printed
+--     `no unload at DropOffs.Deposit_Warehouse after 16 s (load 0, coins
+--     644584 → 923235) — the pad didn't take it while parked` and then
+--     `⚠ still full`, about a tank that had been emptied and paid out 278k.
+resetPad() drainAt = 0 remoteTakes = true
+local okEmpty = trySellAt("ride", "Deposit_Warehouse", nil, true)
+check("already empty: the park trip is not a failure", okEmpty == true)
+check("already empty: it presses nothing", #keys == 0, #keys .. " key(s)")
+check("already empty: it makes no sell call", #calls == 0, #calls .. " call(s)")
+check("already empty: the line names the empty read as the proof",
+    loggedText():find("already reads empty") ~= nil, loggedText())
+check("already empty: nothing calls the pad a failure",
+    loggedText():find("didn't take it") == nil, loggedText())
+
 -- 6. a full tank still finds the store when no pad is streamed yet
 local realFindSellSpots = findSellSpots -- keep the extracted one for section 7
 local hops = {}
@@ -540,6 +557,35 @@ check("remembered spot: the log says the pad instance was unreadable",
 check("remembered spot: the trip names it as remembered, not as a world part",
     soldAt ~= nil and soldAt.what:find("remembered Fulfillment spot") ~= nil,
     soldAt and tostring(soldAt.what) or "no trip")
+
+-- 6i. THE LAST LINE OF A TRIP CANNOT CONTRADICT THE TANK IT JUST READ.
+--     Every pad below the loop was tried and none returned a drop-baseline,
+--     which used to print `⚠ still full` unconditionally. The load is re-read
+--     now, so a sale that landed late ends the trip as the sale it was, and a
+--     tank that really is still loaded names its own number.
+local tank9 = 50
+function harvesterLoad(ride) return tank9, 50 end
+function spudSellRemote(ride, pad) remoteFired += 1 return false end
+function spudFulfillSpots()
+    return { { p = Vector3.new(-353, 140, -90), what = "DropOffs.Deposit_Warehouse",
+        store = "Fulfillment", part = "warehousePart" } }
+end
+spudDropOff = "Fulfillment"
+function trySellAt(ride, what, pad, autoPad) tank9 = 0 return false end
+remoteFired, hops, soldAt = 0, {}, nil
+logged = {}
+local okLateEmpty = sellHarvester(ride, nil, nil)
+check("empty after the trip: the run is not called still full",
+    okLateEmpty == true and loggedText():find("still full") == nil, loggedText())
+check("empty after the trip: the line reports the empty read as the proof",
+    loggedText():find("reads empty after the pad trip") ~= nil, loggedText())
+function trySellAt(ride, what, pad, autoPad) return false end
+tank9, hops, soldAt, logged = 50, {}, nil, {}
+local okStillLoaded = sellHarvester(ride, nil, nil)
+check("still loaded: the failure names the real number",
+    okStillLoaded == false and loggedText():find("still reads 50") ~= nil, loggedText())
+check("still loaded: it never claims an empty tank",
+    loggedText():find("reads empty") == nil, loggedText())
 
 -- 7. every sell spot carries the part the sell call fires at
 local gvNode = folder("GameplayVisuals", GRID)

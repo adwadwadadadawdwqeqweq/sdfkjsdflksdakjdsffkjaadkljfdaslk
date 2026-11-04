@@ -430,6 +430,15 @@ def main() -> int:
         and dep.index("milkSellLiquidCarrier(dest)") < dep.index("empty it or pick another"))
     tie("the learned state is reset per build",
         re.search(r"milkLiquidOff, milkLiquidTries = nil, 0", src) is not None)
+    # ▸ the 15 s store scan drives SetValue(), and SetValue re-enters the
+    #   dropdown's own Callback — so a pick that is already the pick must not
+    #   log itself as if the owner had chosen it.
+    tie("a refresh that re-sets the same store pick logs no choice",
+        re.search(r"if v == milkStorePick then return end\s*\n\s*milkStorePick = v",
+                  src) is not None,
+        "the Callback must bail before it assigns and logs")
+    tie("the store scan still runs on its own timer",
+        re.search(r"pcall\(milkStoreRefresh, true\)", src) is not None)
 
     for name, ok, detail in ties:
         print("%-62s %s%s" % (name, "PASS" if ok else "FAIL", ("  " + detail) if detail else ""))

@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.138 · fluent gui"
+local VERSION    = "rebuild v1.139 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5850,6 +5850,20 @@ local okBuild, errBuild = pcall(function()
         local coins0 = coinBalance()
         task.wait(0.8) -- the pad needs a beat to register the vehicle
         if stopping() then return false end
+        -- ▸ A TANK THAT ALREADY READS EMPTY IS NOT A FAILED UNLOAD. The
+        --   in-place EVTSellAtStore above is only watched for 1.5 s, so a sale
+        --   that lands a beat later leaves the load gone and this trip still
+        --   running — and `cur < cap0` with cap0 at 0 can never be true. Live
+        --   (v1.138, the owner's emulator): `no unload at DropOffs.Deposit_Warehouse
+        --   after 16 s (load 0, coins 644584 → 923235) — the pad didn't take it
+        --   while parked` followed by `⚠ still full`, about a tank that had been
+        --   emptied and paid out 278k. The drop below a baseline is the proof
+        --   when there IS a baseline; an empty read is the proof on its own.
+        if cap0 == 0 then
+            log(string.format("%s: the tank already reads empty here — the load is gone, coins %s → %s",
+                what, tostring(coins0), tostring(coinBalance())))
+            return true
+        end
         if autoPad then
             log("fulfillment pad " .. what
                 .. ": parked — this pad unloads by itself, pressing nothing")
@@ -6355,8 +6369,8 @@ local okBuild, errBuild = pcall(function()
         end
         for i, s in ipairs(spots) do
             if stopping() then sellingNow = false return false end
-            log(string.format("drop-off %d/%d: %s at (%.0f, %.0f) — arc hop, no pathfinding", i, #spots,
-                s.what, s.p.X, s.p.Z))
+            log(string.format("drop-off %d/%d: %s at (%.0f, %.0f, %.0f) — arc hop, no pathfinding", i, #spots,
+                s.what, s.p.X, s.p.Y, s.p.Z))
             local ok = hopTo(ride, s.p, SELL_HOP_SPEED)
             if not ok then
                 log("couldn't hop to " .. s.what .. " (hop interrupted)")
@@ -6371,7 +6385,20 @@ local okBuild, errBuild = pcall(function()
             end
         end
         sellingNow = false
-        log("⚠ still full — none of the pads took the load (the log above says which pad was tried and whether its menu opened; if it stayed closed, do the trip once by hand — Q then E — and tell me where the vehicle was parked)")
+        -- ▸ SAY WHAT THE TANK READS, NOT WHAT THIS BRANCH ASSUMES. Every pad
+        --   below this line was tried and none of them returned a drop, which
+        --   used to print `⚠ still full` — live, next to a tank reading 0 and a
+        --   balance 278k richer. The load is re-read here so the last line of a
+        --   trip cannot contradict the number the trip is judged on, and an
+        --   unreadable tank is named as unreadable (rule 7) rather than called full.
+        local left = harvesterLoad(ride)
+        if left == 0 then
+            log(string.format("✅ the tank reads empty after the pad trip — the load is gone (coins %s)",
+                tostring(coinBalance())))
+            return true
+        end
+        log(string.format("⚠ no pad took the load — the tank still reads %s (coins %s); the log above says which pad was tried and whether its menu opened; if it stayed closed, do the trip once by hand — Q then E — and tell me where the vehicle was parked",
+            left == nil and "UNREADABLE" or tostring(left), tostring(coinBalance())))
         return false
     end
 
@@ -10225,6 +10252,13 @@ local okBuild, errBuild = pcall(function()
             Multi = false,
             Default = milkStorePick,
             Callback = function(v)
+                -- ▸ A PROGRAMMATIC SetValue re-enters this Callback. The
+                --   refresh loop above assigns milkStorePick and then calls
+                --   SetValue, so every 15 s scan printed `milk store: (no
+                --   trailer or silo found)` as though the owner had chosen it
+                --   (live on the owner's emulator, whole console). A pick that
+                --   is already the current pick is not a choice.
+                if v == milkStorePick then return end
                 milkStorePick = v
                 milkStoreTarget = milkStoreMap and milkStoreMap[v] or nil
                 log("milk store: " .. tostring(v))
