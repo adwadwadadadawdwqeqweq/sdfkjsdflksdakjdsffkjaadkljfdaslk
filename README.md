@@ -801,6 +801,26 @@ Cow happiness decides milk quality (<60% spoiled, 60–89% regular, 90%+ free-ra
 The milk store step only loads **free-range** jugs — regular and spoiled are left
 on the ground for selling (`store: leaving N non-free-range jug(s)`).
 
+**A jug that will not come away is named, not retried.** The jugs at a plot all
+share one model name (`MilkContainer`), so the old refusal line —
+`store: E did not pick up Workspace.Objects.DraggableObjects.MilkContainer — the
+game offers: nothing visible` — could not tell one box from another, and the pass
+spent every attempt on the **same** one. Now each jug gets one try per pass, and
+the first three failures each print a survey of that box instead:
+
+```
+store: E did not pick up jug MilkContainer at (-412, 138, 83), I am (-412, 141, 86)
+3.2 studs off (2.1 flat) — 7 jug(s) stacked on it, owner Miou2251, on foot, tp ran,
+offers: Carry | registry: Carry(hidden) · Open Shop(visible)
+```
+
+Where the character actually arrived, how many boxes sit on top of that one, the
+jug's **own** owner tag (a parent's tag never counts), whether the teleport moved,
+what the game **shows** and what it **holds but hides**. The pass then ends with
+`store: the milk jugs could not be reached — N different jug(s) tried this pass`,
+because one buried box and a pile that all refuse this client are different
+problems, and the number says which one it is.
+
 ### Speed — what was actually slow
 Measured, not guessed. The deposit pass now prints its own time:
 `store: 20 jug(s) into LH150 in 5.8s (100/180)`.

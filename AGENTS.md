@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.141 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.142 ·
   fluent gui` (`VERSION`, line 15). ≈14k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -73,7 +73,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 
 13. **Luau's 200-local limit is real** (it was 2 away from the practical
     ceiling until the path engine was deleted in v1.81). Run
-    `python tools/local_budget.py`. As of v1.141:
+    `python tools/local_budget.py`. As of v1.142:
     `4-space locals before milkCycle: 180 (practical ceiling 185)`,
     whole body `187 / 200`, **headroom 5** (v1.129's four `*_STEMS` word tables
     are four build-closure locals — every name the equipment rewrite, the tow
@@ -99,7 +99,12 @@ description — it is the long-form manual and it is kept in sync with behaviour
     spent **nothing** either: the three new names are global assignments
     (`spudShopDangerWords`, `spudShopDanger`, `spudShopBuyChoice`), the split
     label/name record lives inside `harvestMenu`'s own prototype, and the buy-tier
-    rewrite reuses the `target`/`why` locals the old tiers already declared. Do **not**
+    rewrite reuses the `target`/`why` locals the old tiers already declared. v1.142
+    spent **nothing** either: the survey line is the global
+    `function milkJugMissText(...)` (a 4-space assignment, so no register) and its
+    eight new names are locals of that function's own prototype, while the
+    one-attempt-per-jug set (`tried`, `triedCount`) and `tpOk` are locals inside
+    `milkStoreDeposit`'s body — not the build closure. Do **not**
     add a `local` inside the main build closure. Reuse an existing local,
     convert the feature to a **global** (the established pattern), or
     restructure — and re-run the budget.
@@ -172,10 +177,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 38/38 checks on v1.141
+python tools/run_all.py        # 38/38 checks on v1.142
 ```
 
-Last full run (v1.141): **38/38 checks passed** (35 harnesses + 3 gates).
+Last full run (v1.142): **38/38 checks passed** (35 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment the script contained a string with those three
@@ -249,7 +254,14 @@ game exposes those fields, that a GUI appears, or that an action is accepted.
 Anything touching the game's own menus must be confirmed in game after a reload.
 
 Known gaps: the **jug-carry / Fill** half of the store deposit and the **feed
-top-up** path have no harness (they need a fake carrier + dispenser); the
+top-up** path have no harness (they need a fake carrier + dispenser); since
+v1.142 that carry half at least **instruments itself** — `milkJugMissText`
+prints the arrival distance, how many jugs are stacked on the box, the jug's
+**own** owner tag, whether the teleport moved and what the registry shows
+versus hides, and the pass ends with `N different jug(s) tried this pass` — so
+a live refusal is readable evidence rather than a repeated name, but **nothing
+proves which of those readings is the reason** the game will not hand the box
+over (§5's v1.142 entry); the
 **drain** half — a full carrier taken to the liquid deck — has run for real in
 `liquid_deck_test.py` since v1.137, but nothing in the suite proves the live deck
 drains a parked tanker, that the owner's `86, 141, -288` is still the sell-liquid
@@ -1707,7 +1719,7 @@ order-shaped, so **the board is not in the world and not on screen from the fiel
 | Barn lock | name + position, resolved by spot — see `milkBarnLive` / `milkBarnFor` |
 | Stall scan | `milkStalls` (narrow walk + whole-map fallback), global `spudStallScan(owner, cf, size, hopped)` (the re-read that waits for a just-hopped barn to stream — §3.4); `milkFarmReadyCount` reads `milkStalls` directly, no wait, since it is looking at a farm it is NOT standing on |
 | Cow reads | `milkCows`, `milkOwnerOf`, `milkPercentOf`, `milkStateOf`, `milkDrops` |
-| Store | `milkStoreAmount`, `milkStoreDeposit`, `milkPollFor`, `milkFrame`; remotes `EVTRequestToCarry`, `EVTFillLiquidCarrier` (key path is the fallback). **The drain trip** (v1.137, §3.17): global `milkSellLiquidCarrier(dest)` — character-only hop to `spudLiquidSellSpot()` (`86, 141, -288`), the carrier moved only by the game's own `managerAction(name, "spawn")` if it is outside global `spudLiquidDeckNear = 45`, parked **pressing nothing** first, then only the offers `milkStoreActs()` actually renders driven through `milkStorePress`, and the **only** proof is `milkStoreAmount` dropping; `milkLiquidOff` / `milkLiquidTries` switch it off for the build after three misses, a silo is refused outright, and every exit calls `home()` (declared before `noSale(`, rule 14). Wired in `milkStoreDeposit`'s FULL branch, which carries on with the fresh carrier instead of ending the pass |
+| Store | `milkStoreAmount`, `milkStoreDeposit`, `milkPollFor`, `milkFrame`; remotes `EVTRequestToCarry`, `EVTFillLiquidCarrier` (key path is the fallback). **The drain trip** (v1.137, §3.17): global `milkSellLiquidCarrier(dest)` — character-only hop to `spudLiquidSellSpot()` (`86, 141, -288`), the carrier moved only by the game's own `managerAction(name, "spawn")` if it is outside global `spudLiquidDeckNear = 45`, parked **pressing nothing** first, then only the offers `milkStoreActs()` actually renders driven through `milkStorePress`, and the **only** proof is `milkStoreAmount` dropping; `milkLiquidOff` / `milkLiquidTries` switch it off for the build after three misses, a silo is refused outright, and every exit calls `home()` (declared before `noSale(`, rule 14). Wired in `milkStoreDeposit`'s FULL branch, which carries on with the fresh carrier instead of ending the pass. **The grab** (v1.142): `milkStoreDeposit` keeps a `tried` set so each pass attempts **every different jug once** instead of twenty times on `jugs[1]` (the list is distance-sorted and a failed grab does not change it), and a refusal prints global `milkJugMissText(jug, jugs, brief, tpOk)` — the box's own position, the character's, the flat and 3-D miss, how many jugs sit within 4 studs of it, **the jug's own** `Configurations.Owner` (never the eight-parent walk), whether it is seated, whether `milkTp` moved, the visible offers and the whole `PCGP_ContextActions` registry with each button's `Visible` state; the rich registry read costs only the **first three** jugs of a pass, and a pass that moves nothing ends with `N different jug(s) tried this pass` |
 | GUI | Fluent shell, RIGHT SHIFT, 📡 webhook, 🥔 overlay; `spud-gui-preview.html` is a browser mock |
 
 **Read-only probes** (run in game, paste the report): `SpudStallProbe.lua`
@@ -4188,7 +4200,84 @@ v1.135's own honest rule-7 line doing its job, and
 `the seed crate didn't come up on attempt 1 (hands still empty) — the game offers: Carry`
 is a carry the game did not take on the first try and did on a later one.
 
-**Where it stands:** `rebuild v1.141 · fluent gui`, whole suite green (38/38),
+**The milk loop empties a pile, but one buried box can cost a whole pass
+(v1.142).** The owner's standing ask was *"finnishe the milk loop"*, and the
+store deposit was the half that looked broken: a session buffer full of
+
+```
+store: 118 milk jug(s) waiting — destination LH150 at 8/180
+store: E did not pick up Workspace.Objects.DraggableObjects.MilkContainer — the game offers: nothing visible
+store: nothing in hand after the double grab — retrying next pass
+store: store: the milk jugs could not be reached
+```
+
+Read on a **timestamped** buffer rather than the 60-line tail (the whole
+21:58:29–22:09:43 window, on the shipped v1.141 client), it is not a lockout —
+it is one box that refuses while the rest of the pile waits behind it:
+
+- The refusals and the successes **interleave on the same build**: `3 jug(s)
+  into LH150 in 53.3s (23/180)` at 22:01:08, then `9 … (33/180)`, `13 …
+  (46/180)`, `15 … (61/180)`, `12 … (83/180)`, `13 … (112/180)` and
+  `8 jug(s) … (126/180)` — **72** `carrying MilkContainer` lines against
+  **144** refusals, and only **5** of the ~12 passes ended `could not be
+  reached`. The pile went 118 → `0 left outside` and the pass then correctly
+  reported `no milk jugs waiting at this plot`.
+- **The stuck passes are the loop, not the game.** The jug list is sorted by
+  distance from the *character* and a failed grab changes nothing about it, so
+  `jugs[1]` was re-picked on every one of the twenty iterations. One refusal
+  costs ~2.7 s (0.5 remote + 0.6 carry-up + 0.9 E + 0.7 button, all bounded
+  waits, on an 11 fps client), so a pass that hammers one box spends its whole
+  budget there and leaves 117 boxes behind it — which is exactly the difference
+  between `1 jug in 54.3 s` and `13 jugs in 48.5 s`.
+
+Two changes, and no third (rule 16 — the mechanism that refuses a jug is still
+not measured, so it is instrumented, not guessed). **One attempt per jug**: a
+`tried` set keyed on the model, so a pass surveys different boxes instead of
+re-teleporting at one, and the pass that used to end at 1 jug now spends its
+iterations on the rest of the pile. And the failure line **becomes the probe**
+(global `milkJugMissText`, §3.4), because every jug at a plot is named
+`MilkContainer` and `GetFullName()` cannot tell one from another:
+
+```
+store: E did not pick up jug MilkContainer at (-412, 135, 59), I am (-417, 162, 54)
+57.3 studs off (5.8 flat) — 33 jug(s) stacked on it, owner no tag, on foot, tp ran,
+offers: nothing visible | registry: Carry(hidden) · FillLiquidCarrier(visible)
+```
+
+Each field separates a hypothesis the old line could not: **`tp ran` vs `tp
+REFUSED to move`** (the teleport not landing — `milkTp`'s return value was
+thrown away before this build), **`N jug(s) stacked on it`** (a trigger that can
+only hold one claimant, counted within 4 studs on all three axes), **`owner …`**
+read from the jug's **own** `Configurations`/attribute and never from a parent —
+`milkStoreOwnerOf` walks eight levels up, and a folder that says so is not an
+answer about this box — with no tag printed as `no tag`, never as `mine`
+(rule 7), **`on foot` vs `seated in X`** (a seated client presses nothing), and
+**`offers:` next to `registry:`** — the visible billboards versus every button
+the game's `PCGP_ContextActions.Buttons` holds, with the hidden ones **marked**,
+because a `Carry` that exists but is not *shown* is the picker refusing this
+jug, while a registry with no `Carry` at all is a different bug. The rich line
+prints for the first three jugs of a pass; after that the registry has already
+been read out, so a 20-jug pass cannot fill the console with the same dump. The
+pass ends `store: the milk jugs could not be reached — N different jug(s) tried
+this pass`, and the count is the diagnosis: `1` is a single buried box, `20` is
+the whole pile refusing this client.
+
+Compile OK, suite **38/38** (35 harnesses + 3 gates — no new harness: the jug
+carry still has none, §6.3, and the survey line's only judge is a live
+refusal), headroom **5** (unchanged — `milkJugMissText` is a 4-space global
+assignment and every other new name is a local of its own prototype or of
+`milkStoreDeposit`), name audit clean **385** (`milkJugMissText`, declared
+**after** `milkFeedActs`, which it calls — rule 14's ordering, the v1.130 crash
+class). **Harness green — v1.142 not yet reloaded in game**, and the evidence
+above is all from the v1.141 client, so the survey line has never run. What it
+will answer the next time a jug refuses: whether the character arrives, how many
+boxes sit on that one, and whether the game is holding a Carry it will not show.
+**Practical note for whoever reads it next:** the pile is currently **empty**
+(`0 left outside`, `no milk jugs waiting at this plot`) and the Milk tab is
+**off** (`farm off · milk off · delivery on`), so no new line appears until the
+cows are milked again.
+
+**Where it stands:** `rebuild v1.142 · fluent gui`, whole suite green (38/38),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **The client ran v1.138** for the Company-orders press above (unload +
 one re-EXECUTE of "faf", session 3), so **v1.141 is the build the next reload
@@ -4426,6 +4515,12 @@ versus the second crate left on the shelf. **(c)** A 600-slot seeder should read
    the suite proves that the live deck at `86, 141, -288` still drains a parked
    tanker, that that number is still the spot, or what the spot actually offers.
    The first liquid-full pass in game is the probe for all three.
+   **And the jug refusal still has no answer, only an instrument** (v1.142): the
+   pile read `0 left outside` and the Milk tab is **off** on the current client,
+   so `milkJugMissText` has never printed. The next pass that refuses is the one
+   that names whether a buried box, an owner tag, a teleport that did not land or
+   a hidden-but-present `Carry` button is the reason — until that line exists in
+   a console, no fix for the grab is more than a guess (rule 4).
 4. **"Modified client" is executor detection**, not movement or timing. No edit
    to this script changes it; the README's Stealth section says so explicitly
    and should keep saying so. The probes are louder than the farm script (they

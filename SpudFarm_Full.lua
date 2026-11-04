@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.141 · fluent gui"
+local VERSION    = "rebuild v1.142 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -13248,6 +13248,88 @@ local okBuild, errBuild = pcall(function()
         return links and #links:GetChildren() or 0
     end
 
+    -- ▸ THE FAILURE LINE IS THE PROBE (the rule §3.17 ships with). The live
+    --   console said `E did not pick up Workspace.Objects.DraggableObjects.MilkContainer
+    --   — the game offers: nothing visible` 228 times, and none of it could be
+    --   read as a diagnosis: every jug at a plot shares the name
+    --   "MilkContainer", so GetFullName() cannot tell one from another, and
+    --   "nothing visible" cannot tell whether the character arrived, whether the
+    --   jug is buried under a 118-jug pile, whether the game holds a Carry button
+    --   it refuses to SHOW, or whether this client is not allowed to carry it at
+    --   all. This names each of those readings in one line. It reads only what the
+    --   game already wrote on the jug (rule 4), and an absent tag prints
+    --   "no tag", never "mine" (rule 7).
+    function milkJugMissText(jug, jugs, brief, tpOk)
+        local model = jug and jug.model
+        local at = jug and jug.part and jug.part.Position
+        local ch = LocalPlayer.Character
+        local root = ch and ch:FindFirstChild("HumanoidRootPart")
+        local me = root and root.Position
+        local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+        -- how many of the waiting jugs sit ON this one: a pile shares the same
+        -- few studs, so a trigger that can only hold one jug has 118 claimants
+        local near = 0
+        if at then
+            for _, e in ipairs(jugs or {}) do
+                local p = e.part and e.part.Position
+                if p and math.abs(p.X - at.X) <= 4 and math.abs(p.Z - at.Z) <= 4
+                    and math.abs(p.Y - at.Y) <= 4 then
+                    near += 1
+                end
+            end
+        end
+        -- the jug's OWN tag, not a parent's: milkStoreOwnerOf walks eight levels
+        -- up, and a folder that says so is not an answer about this jug
+        local own = "no tag"
+        if model then
+            local conf = model:FindFirstChild("Configurations")
+            local o = (conf and conf:FindFirstChild("Owner")) or model:FindFirstChild("Owner")
+            local v = o and o.Value
+            if v ~= nil then
+                own = (typeof(v) == "Instance") and v.Name or tostring(v)
+            else
+                local a = model:GetAttribute("Owner")
+                if type(a) == "string" and a ~= "" then own = a end
+            end
+        end
+        local off, flat = -1, -1
+        if at and me then
+            off = (at - me).Magnitude
+            flat = math.sqrt((at.X - me.X) ^ 2 + (at.Z - me.Z) ^ 2)
+        end
+        local seat = "on foot"
+        if hum and hum.SeatPart then
+            seat = "seated in " .. tostring(hum.SeatPart.Name)
+        end
+        if not at or not me then
+            -- unreadable position is named, not guessed past (rule 7)
+            return string.format("jug %s at %s, my own position unreadable — owner %s, %s, tp %s, offers: %s",
+                tostring(model and model.Name or "?"), tostring(at), own, seat,
+                tpOk and "ran" or "REFUSED to move", milkFeedActs())
+        end
+        local head = string.format(
+            "jug %s at (%d, %d, %d), I am (%d, %d, %d) %.1f studs off (%.1f flat) — %d jug(s) stacked on it, owner %s, %s, tp %s",
+            tostring(model and model.Name or "?"),
+            math.floor(at.X), math.floor(at.Y), math.floor(at.Z),
+            math.floor(me.X), math.floor(me.Y), math.floor(me.Z),
+            off, flat, near, own, seat, tpOk and "ran" or "REFUSED to move")
+        if brief then return head end
+        -- every button the game's registry holds, with the hidden ones MARKED: a
+        -- Carry that EXISTS but is not shown is the picker refusing this jug,
+        -- which is a different bug from a HUD that has no Carry in it at all
+        local all = {}
+        local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        pcall(function()
+            for _, b in ipairs(pg.GuiViews.HUD.PCGP_ContextActions.Buttons:GetChildren()) do
+                if b:IsA("GuiObject") then
+                    all[#all + 1] = b.Name .. (b.Visible and "" or "(hidden)")
+                end
+            end
+        end)
+        return head .. ", offers: " .. milkFeedActs()
+            .. " | registry: " .. (#all > 0 and table.concat(all, " · ") or "no buttons at all")
+    end
+
     -- where to stand at the carrier: its own billboard Adornee first (that is
     -- the spot the game points its fill action at), then a trigger/centre
     -- part, then the model's pivot.
@@ -13740,6 +13822,15 @@ local okBuild, errBuild = pcall(function()
         milkFast.t0 = os.clock()
 
         local moved, missed, picked, full = 0, 0, false, false
+        -- ▸ ONE ATTEMPT PER JUG. The list is sorted by distance from the
+        --   CHARACTER, and a failed grab changes nothing about it, so the old
+        --   loop spent all twenty iterations on the SAME jug (a failed first grab
+        --   breaks the pair loop, so that is twenty attempts on one box per pass,
+        --   and 228 identical "MilkContainer" refusal lines across the session)
+        --   while 118 boxes sat there.
+        --   Skipping the jugs this pass already tried both stops that waste and
+        --   turns the failure line into a survey of the pile.
+        local tried, triedCount = {}, 0
         for _ = 1, 20 do
             if milkStopping() or farmTookBody() then break end
             jugs = milkStoreJugs(cf, size)
@@ -13764,14 +13855,19 @@ local okBuild, errBuild = pcall(function()
                 --   fails, and we leave carrying the one we have.
                 for grab = 1, 2 do
                     jugs = milkStoreJugs(cf, size)
-                    local jug = jugs[1]
+                    local jug
+                    for _, e in ipairs(jugs) do
+                        if not tried[e.model] then jug = e break end
+                    end
                     if not jug then break end
                     -- once this build has PROVED it takes one jug, never pay
                     -- the detour to the next jug again (it would be a wasted
                     -- teleport on every single barrel)
                     if grab > 1 and milkStoreDoubleKnown == false then break end
+                    tried[jug.model] = true
+                    triedCount += 1
                     local jugCountBefore = #jugs
-                    milkTp(jug.part.Position + Vector3.new(0, 3, 0), true)
+                    local tpOk = milkTp(jug.part.Position + Vector3.new(0, 3, 0), true)
                     -- ▸ ~50 ms of frames, not 0.15 s: physics replication runs at
                     --   about 20 Hz, so the server needs roughly that long to see
                     --   a CFrame move - one frame was too eager for a distance
@@ -13819,8 +13915,11 @@ local okBuild, errBuild = pcall(function()
                             milkPollFor(function() return milkStoreHolding() ~= nil end, 0.7)
                         end
                         if not milkStoreHolding() then
-                            log("store: E did not pick up " .. jug.model:GetFullName()
-                                .. " — the game offers: " .. milkFeedActs())
+                            -- the RICH line only for the first three jugs of a
+                            -- pass: they are the survey, and after that the
+                            -- registry has already been read out
+                            log("store: E did not pick up "
+                                .. milkJugMissText(jug, jugs, triedCount > 3, tpOk))
                             break
                         end
                     end
@@ -13961,8 +14060,12 @@ local okBuild, errBuild = pcall(function()
         end
 
         if moved == 0 and missed == 0 then
+            -- the count is the diagnosis: 1 means one buried box, 20 means the
+            -- whole pile refuses this client
             return held and ("store: hands are full (" .. tostring(held) .. ")")
-                or "store: the milk jugs could not be reached"
+                or string.format(
+                    "store: the milk jugs could not be reached — %d different jug(s) tried this pass, the lines above name what the game said about each",
+                    triedCount)
         end
         local final, fcap = milkStoreAmount(dest)
         return string.format("store: %d jug(s) into %s%s in %.1fs (%s/%s)",
