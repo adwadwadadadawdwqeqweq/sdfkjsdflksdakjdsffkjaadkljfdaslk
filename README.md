@@ -703,6 +703,20 @@ Everything merged into one paste-and-run file:
   machine that names its hitch differently are two different bugs and only one of
   them is fixable here. (`plow=Hitch` — the tool's named part — answered in every
   one of those runs, so the missing half was the ride.)
+- **The join is never forced, and a miss now says what it looked at** (v1.146).
+  The obvious way to make a tractor and an implement "hitch together" — a
+  client-side weld between the two hitch parts — was built (v1.133) and the
+  live server **accepted** it: the gap closed to 1.1 studs and the rig threw a
+  wheel onto the field, while the next grid took `0 of 98` cells on the same
+  field that had taken 1793 of 2388 free. The game's own hitch constraint
+  already puts ride and implement in one assembly, so a second joint between
+  the same pair is a loop. It is gone and stays gone. What is left is the
+  honest half: a tool like the HorschJoker answers `has no hitch point (309
+  instance(s) read)` — the client holds the machine but shows no socket to aim
+  at, so the precise park is given up and the creep alignment runs instead.
+  That refusal now lists up to eight instances on the model whose own name says
+  `hitch`, `socket`, `attach` or `connector`, with class and path, so one run
+  names the point to aim at rather than this build guessing a fourth name.
 - **Go to the farm** — with a Farm owner picked, the run **teleports to that  owner's plot first** (only when it is more than 60 studs away; the character
   is stood up first, because a teleport while seated does not travel). It then
   waits half a second for the fields and machines to stream in, finds **that

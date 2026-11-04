@@ -194,6 +194,19 @@ def main() -> int:
         and "tr:PivotTo(" not in line)
     tie("the miss line says whether the instance is still in the world",
         "IsDescendantOf(workspace)" in extract(src, "spudHitchMissText"))
+    # v1.146: counting instances says the client HAS the machine, not what the
+    # game calls its join — and the HorschJoker answers this line on every run
+    # (`has no hitch point (309 instance(s) read) — using creep alignment`), so
+    # the line has to name what it does hold or the socket stays a guess (rule 4).
+    miss = extract(src, "spudHitchMissText")
+    tie("the miss line NAMES the hitch-shaped instances it did read",
+        'nm:find("hitch", 1, true)' in miss and 'nm:find("socket", 1, true)' in miss
+        and 'nm:find("attach", 1, true)' in miss
+        and "what it does hold: " in miss)
+    tie("a tool with nothing hitch-shaped says so instead of printing nothing",
+        "nothing on it is named like a hitch" in miss)
+    tie("the walk is guarded and capped, so a huge tool cannot hang the run",
+        "pcall(function()" in miss and "#near < 8" in miss)
     at = src.rfind("hitch gap at arrival")  # rfind: the phrase is quoted in a comment first
     arrive = src[at - 700:at]
     tie("the arrival gap reads the same two points",

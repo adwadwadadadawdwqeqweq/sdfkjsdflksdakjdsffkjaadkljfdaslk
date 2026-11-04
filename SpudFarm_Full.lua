@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.145 · fluent gui"
+local VERSION    = "rebuild v1.146 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -720,9 +720,34 @@ local okBuild, errBuild = pcall(function()
         if not model then return who .. " is gone" end
         local n = 0
         pcall(function() n = #model:GetDescendants() end)
-        return string.format("%s %s has no hitch point (%d instance(s) read%s)",
+        -- ▸ AND NAME WHAT IT DOES HOLD (live 2026-11-04): the HorschJoker
+        --   answers this on every run — `tool HorschJoker has no hitch point
+        --   (309 instance(s) read) — using creep alignment` — so the line-up
+        --   has nothing to aim at and the creep spends the attempts. Counting
+        --   instances says the client has the machine; it does not say what
+        --   the game calls its join. Up to eight instances whose OWN name
+        --   sounds like a hitch, socket or attachment come back with their
+        --   class and path, so one run names the point to aim at instead of
+        --   this build guessing a fourth one (rule 4).
+        local near
+        pcall(function()
+            for _, d in ipairs(model:GetDescendants()) do
+                local nm = tostring(d.Name):lower()
+                if nm:find("hitch", 1, true) or nm:find("socket", 1, true)
+                    or nm:find("attach", 1, true) or nm:find("connector", 1, true) then
+                    near = near or {}
+                    if #near < 8 then
+                        near[#near + 1] = string.format("%s [%s]",
+                            d:GetFullName():gsub("^[^%.]+%.", ""), d.ClassName)
+                    end
+                end
+            end
+        end)
+        return string.format("%s %s has no hitch point (%d instance(s) read%s)%s",
             who, model.Name, n,
-            model:IsDescendantOf(workspace) and "" or ", and it is NOT in the world")
+            model:IsDescendantOf(workspace) and "" or ", and it is NOT in the world",
+            near and (" — what it does hold: " .. table.concat(near, " · "))
+                or " — nothing on it is named like a hitch, socket or attachment")
     end
 
     -- the game's own type word for a machine, lowercased and with everything that

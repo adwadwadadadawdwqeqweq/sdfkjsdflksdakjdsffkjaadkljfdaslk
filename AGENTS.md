@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.145 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.146 ·
   fluent gui` (`VERSION`, line 15). ≈14k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -116,7 +116,9 @@ description — it is the long-form manual and it is kept in sync with behaviour
     body of the function they serve. v1.145 spent **nothing** either: every new
     name (`hand0`, `left`, `ate`, `perCrate`, `beforeHand`, `left2`, `ate2`,
     `perCrate2`) is a local of the pour loop it serves, inside `buySeedAndFill`'s
-    nested helper, and no global was added. Do **not**
+    nested helper, and no global was added. v1.146 spent **nothing** either:
+    its three new names (`near`, and the `nm`/`d` of its own walk) are locals
+    of `spudHitchMissText`, which is already a global. Do **not**
     add a `local` inside the main build closure. Reuse an existing local,
     convert the feature to a **global** (the established pattern), or
     restructure — and re-run the budget.
@@ -189,10 +191,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 38/38 checks on v1.145
+python tools/run_all.py        # 38/38 checks on v1.146
 ```
 
-Last full run (v1.145): **38/38 checks passed** (35 harnesses + 3 gates).
+Last full run (v1.146): **38/38 checks passed** (35 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment a script contained a string with those three
@@ -1029,6 +1031,14 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   name, how many instances the client actually holds, and whether it is
   `IsDescendantOf(workspace)` at all — `tractor TempoL16 … has no hitch point
   (N instance(s) read, and it is NOT in the world)` — instead of a bare `none`.
+  **Since v1.146 that miss also names what it did read**: up to eight instances
+  on the model whose own name says `hitch` / `socket` / `attach` / `connector`,
+  each with class and path, or the honest `nothing on it is named like a hitch,
+  socket or attachment` — because live the HorschJoker answers `(309 instance(s)
+  read)` on every run and a count does not tell this build what the game calls
+  its join (rule 4). The tow is never *forced*: the client-side weld that would
+  do it was measured in v1.133 and deleted in v1.134, because the game's own
+  hitch constraint already puts both models in one assembly.
   The line-up's pivot carries the tow (`spudPivotRig(tr, newPivot, airborne and
   nil or plow)`); the pre-hitch arc deliberately flies the ride alone, because a
   welded-free carry through a 288-stud arc is what opens the gap. The same two
@@ -4663,12 +4673,63 @@ game.** The verdict is one line on the next refill: `… — N more town visit(s
 2 crate(s) a trip, 50 seed(s) a crate` with `N` at **5** for a 499 shortfall,
 not 3, and the tank climbing past 101 toward 600.
 
-**Where it stands:** `rebuild v1.145 · fluent gui`, whole suite green (38/38),
+**"when they hitch is there a way to force them to hitch together" — the weld
+is measured shut, so this build makes the miss readable (v1.146).** The question
+has a direct answer from the record, and the live buffer said which half of it
+is still open.
+
+**Already forced, and it works when the game exposes the join.** The line-up
+measures the ride's `Components.Hitchable` against the tool's
+`Chassis.HitchableSocket` and parks them together before it presses anything,
+and the join itself is the game's own door (`FNCAttemptHitch`, X as the
+fallback). Tonight's console: `lined up HitchRoot ↔ Hitch (gap 5.94 studs)` →
+`attempt 1: hitch prompt shows — pressing X` → `✅ hitched TempoL16 (attempt 1)`
+→ `✅ tug passed (3.9 studs)`, and `hitch gap at arrival: 2.2 studs`.
+
+**"Force them to be one rigid thing" was built and refused.** That is exactly
+v1.133's client `WeldConstraint` between the two hitch parts: live it did close
+the gap (`hitch gap at arrival: 1.1 studs`) and the rig answered by throwing a
+wheel onto the field next to a tractor reading `Speed 0`, while the very next
+grid took `0 of 98` cells on the field that had taken 1793 of 2388 without it.
+The reason is Roblox's own assembly rule, not a guess: the game's hitch
+constraint already joins ride and implement into **one assembly**, so a second
+joint between the same pair is a loop and a loop is over-constrained. v1.134
+deleted it and the source says *"Do not re-add a weld to the tow."*
+
+**What is actually left is a socket this client cannot see.** The same buffer:
+
+```
+✅ hitched HorschJoker (attempt 1)
+… still working (hitching the HorschJoker) ×5
+tool HorschJoker has no hitch point (309 instance(s) read) — using creep alignment
+park: hitch line-up parts missing — pressing the fallback anyway
+```
+
+309 descendants and neither `Chassis.HitchableSocket` nor a hitch-shaped
+`BasePart` among them — so there is nothing to aim at, the precise park is
+given up, and the creep spends the attempts. Counting instances proves the
+client holds the machine; it says nothing about what the game calls its join,
+and rule 4 forbids guessing a fourth attachment name. **So the miss line now
+names what it did read**: up to eight instances on that model whose own name
+says `hitch` / `socket` / `attach` / `connector`, each with its class and path,
+or the honest `nothing on it is named like a hitch, socket or attachment`. One
+run either hands the line-up its point or closes the question of whether this
+implement can be aimed at all — and the walk is `pcall`-guarded and capped, so
+a huge tool cannot hang the pass.
+
+Compile OK, suite **38/38**, headroom **5** (unchanged — `near`, `nm` and `d`
+are locals of the global `spudHitchMissText`'s own prototype), name audit clean
+**392** (no new top-level name). `tools/equip_name_test.py` gained three ties:
+the miss line names the hitch-shaped instances, it says so when there are none,
+and the walk is guarded and capped. **Harness green — NOT reloaded in game**,
+and the verdict is that one line from the next HorschJoker hitch attempt.
+
+**Where it stands:** `rebuild v1.146 · fluent gui`, whole suite green (38/38),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **The newest build proven in the client is v1.142** — the owner's
 pasted console header reads `place 2772610559 · player ok_simba3 · rebuild
-v1.142 · fluent gui`, which also settles v1.141's reload — so **v1.145 is the
-build the next reload brings in**, and **v1.143, v1.144 and v1.145 are all
+v1.142 · fluent gui`, which also settles v1.141's reload — so **v1.146 is the
+build the next reload brings in**, and **v1.143 through v1.146 are all
 harness green, not proven in game**; every verdict below that was waiting on a
 *reload* is waiting on a *run*, not on a load. The live buffer read on
 2026-11-04 carries v1.143's short-pour line
