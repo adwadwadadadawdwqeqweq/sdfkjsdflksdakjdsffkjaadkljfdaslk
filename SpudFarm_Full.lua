@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.139 · fluent gui"
+local VERSION    = "rebuild v1.140 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -2870,6 +2870,14 @@ local okBuild, errBuild = pcall(function()
     --   ever accepted — 30 was refused — and a stop that paints a cross has
     --   already paid for every corner, so the block is sized against 20.
     spudFieldTaken = 20
+    -- ▸ THE GAME'S OWN CELL PITCH, in studs. `cellsAtStage` maps a cell id to
+    --   `((x - (cols+1)/2) * 10, (y - (rows+1)/2) * 10)`, so neighbours sit 10
+    --   studs apart on the field plane — the same 10 the row plan and the
+    --   headland use. It is a named constant because the grid now groups cells
+    --   by DISTANCE, not by index, and a grouping that guesses the pitch
+    --   silently guesses the block shape (owner 2026-11-03: "why does it onyl
+    --   do half the field").
+    spudFieldPitch = 10
     -- ▸ HOW BIG AN EQUAL SQUARE CAN ONE STOP CLEAR (owner 2026-11-03: "when it
     --   plows, now it plows in a cross pattern, if it cant do a equal 3x3 or 4x4
     --   or 5x5 or 6x6 or 7x7 it should only do one of those, if it make a cross
@@ -2884,7 +2892,7 @@ local okBuild, errBuild = pcall(function()
     --   only while the NEXT square's own corner stays inside the reading that took,
     --   and on this build that is 3x3.
     function spudBlockSide(band)
-        local side, tile = 3, 10
+        local side, tile = 3, spudFieldPitch
         while side < 7 and math.sqrt(2) * side * tile / 2 <= (band or spudFieldTaken) do
             side = side + 1
         end
@@ -7835,9 +7843,10 @@ local okBuild, errBuild = pcall(function()
         end
         -- ▸ ONE STOP = ONE 3×3 BLOCK (owner 2026-10-31: "i wanted it to tp to a
         --   spot, do the closest 9 areas then go forwards then so on"). The
-        --   cells are grouped into rows, three rows at a time are cut into
-        --   three-column blocks, and each block gets one stop at its own
-        --   centre: the blade lands, fires those nine cells, then walks
+        --   cells are grouped into rows, rows that are within one block's own
+        --   span of each other form a band, and a band is cut into blocks of the
+        --   same span across it: each block gets one stop at its own centre, the
+        --   blade lands, fires those cells, then walks
         --   FORWARD to the next block (alternating direction per band), so
         --   nothing is skipped and nothing is fired twice.
         local rows, rowIndex = {}, {}
@@ -7860,32 +7869,77 @@ local okBuild, errBuild = pcall(function()
         --   the band (see spudBlockSide — a 4x4 loses its four corners to the
         --   server and paints the cross the owner reported).
         local side = spudBlockSide(spudFieldTaken)
+        -- ▸ AND GROUPED BY DISTANCE, NOT BY INDEX. A square of `side` cells
+        --   spans (side-1) pitches, so two cells further apart than that cannot
+        --   share a stop; a block is capped at `side` rows and `side` columns so
+        --   it stays an EQUAL square instead of growing a tail. The old cut took
+        --   the side-th row and the side-th column *of the lists*, which on a
+        --   part-worked field is a different set of cells in every row: the
+        --   "block" came out an L, its centre sat 20-70 studs from its own
+        --   corners, every call past the band was refused — and the stop still
+        --   read as landed, because the miss test compares the blade to that same
+        --   centre. Live (owner 2026-11-03: "why does it onyl do half the field"):
+        --   `remote plow: fired 361 of 361 cell(s) from 57 stop(s), 3x3 per stop —
+        --   180 took, 181 left` — 6.3 cells a stop where a 3x3 is 9, and no miss
+        --   line anywhere.
+        local span = (side - 1) * spudFieldPitch
         local flip = false
-        for band = 1, #rows, side do
-            local bandRows = {}
-            for k = band, math.min(band + side - 1, #rows) do
-                bandRows[#bandRows + 1] = rows[k].cells
+        local ri = 1
+        while ri <= #rows do
+            local bandRows, z0 = {}, rows[ri].z
+            while ri <= #rows and rows[ri].z - z0 <= span and #bandRows < side do
+                bandRows[#bandRows + 1] = rows[ri].cells
+                ri = ri + 1
             end
-            local ncols = 0
+            -- the columns THIS band actually holds, in X order — a short row
+            -- must not shift the cut for every other row in the band
+            local xs, haveX = {}, {}
             for _, cs in ipairs(bandRows) do
-                if #cs > ncols then ncols = #cs end
+                for _, c in ipairs(cs) do
+                    if not haveX[c.X] then
+                        haveX[c.X] = true
+                        xs[#xs + 1] = c.X
+                    end
+                end
             end
-            local chunks = math.max(1, math.ceil(ncols / side))
-            for ci = 1, chunks do
-                local idx = flip and (chunks - ci + 1) or ci
-                local block, sx, sz = {}, 0, 0
+            table.sort(xs)
+            local groups = {}
+            for _, x in ipairs(xs) do
+                local gi = #groups
+                -- the FIRST column, not the last: a hole in the lattice must not
+                -- let three counted columns span four pitches, or the block's own
+                -- corner falls outside the band it was sized against
+                if gi == 0 or x - groups[gi][1] > span or #groups[gi] >= side then
+                    gi = gi + 1
+                    groups[gi] = {}
+                end
+                groups[gi][#groups[gi] + 1] = x
+            end
+            for gi = 1, #groups do
+                local idx = flip and (#groups - gi + 1) or gi
+                local inGroup, block = {}, {}
+                local x0, x1, z0b, z1b = math.huge, -math.huge, math.huge, -math.huge
+                for _, x in ipairs(groups[idx]) do
+                    inGroup[x] = true
+                end
                 for _, cs in ipairs(bandRows) do
-                    for col = (idx - 1) * side + 1, math.min(idx * side, #cs) do
-                        local c = cs[col]
-                        if c then
+                    for _, c in ipairs(cs) do
+                        if inGroup[c.X] then
                             block[#block + 1] = c
-                            sx += c.X
-                            sz += c.Z
+                            if c.X < x0 then x0 = c.X end
+                            if c.X > x1 then x1 = c.X end
+                            if c.Z < z0b then z0b = c.Z end
+                            if c.Z > z1b then z1b = c.Z end
                         end
                     end
                 end
                 if #block > 0 then
-                    stops[#stops + 1] = { x = sx / #block, z = sz / #block, cells = block }
+                    -- the box's own centre, not the mean of its cells: a block
+                    -- that is one cell short of a square still parks where a
+                    -- square of these cells would have parked
+                    stops[#stops + 1] = {
+                        x = (x0 + x1) / 2, z = (z0b + z1b) / 2, cells = block
+                    }
                 end
             end
             flip = not flip

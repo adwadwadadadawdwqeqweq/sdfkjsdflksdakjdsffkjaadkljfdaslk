@@ -93,6 +93,9 @@ spudFieldReach = 24
 -- the strict "this reading actually took" band the BURST BLOCK is sized against:
 -- 20 is the widest sideways distance the live server ever accepted (30 refused)
 spudFieldTaken = 20
+-- the game's cell pitch: the block grouping measures its spans in this, and
+-- spudBlockSide sizes the square with it
+spudFieldPitch = 10
 -- the tow-settle gate's own numbers (a stubbed blade moves with the ride, so
 -- every hop reads as already settled and the existing counts stay valid)
 spudToolSwing = 3
@@ -1095,6 +1098,69 @@ check("a missed grid leaves every cell standing",
 TRAIL_STUCK, RIDE_JAMMED = false, false
 mode.atCell = false
 
+-- 18. A BLOCK IS A SQUARE, NOT A SLICE (owner 2026-11-03: "why does it onyl do
+--     half the field"). The live grid on a part-worked field reported
+--       remote plow: fired 361 of 361 cell(s) from 57 stop(s), 3x3 per stop — 180 took, 181 left
+--       remote cultivate: fired 368 of 368 cell(s) … — 165 took, 203 left
+--     361 cells over 57 stops is 6.3 per stop, where a 3x3 is 9 — and NOT ONE
+--     `the blade is N off stop` line appeared, because the miss test compares the
+--     blade to the stop, and the stop is the MEAN of whichever cells the INDEX
+--     slice landed in. On a ragged field the rows hold different cells, so a
+--     "block" is an L and its mean can sit past the band from its own corners:
+--     the calls are refused, the stop reads as landed, and half the field waits
+--     for the per-cell hop. Every fixture above is a FULL rectangle, where index
+--     slicing and lattice slicing are the same thing — which is why this never
+--     showed up in the harness. RAGGED = the missing cells are in the middle
+--     columns; APART = the present cells are two strips with a 40-stud gap.
+local function raggedField()
+    fieldState[field] = {}
+    for _, id in ipairs({ 1 * 128 + 1, 2 * 128 + 1, 4 * 128 + 2, 5 * 128 + 2,
+        1 * 128 + 3, 2 * 128 + 3, 4 * 128 + 3, 5 * 128 + 3 }) do
+        fieldState[field][id] = { Stage = "Cultivated" }
+    end
+end
+local function apartField()
+    fieldState[field] = {}
+    for _, x in ipairs({ 1, 5 }) do
+        for y = 1, 3 do
+            fieldState[field][x * 128 + y] = { Stage = "Cultivated" }
+        end
+    end
+end
+-- the blade parks EXACTLY on the stop in this fixture (the park is aimed from the
+-- tool's own reading and spudPivotRig carries it), so the only thing a stop can
+-- be judged on is where its cells are — which is the point of the two cases.
+local function raggedRun(who, builder, cells, stops)
+    RIDE_POS = Vector3.new(0, 0, 0)
+    ATTPARENT.Position = Vector3.new(0, 0, 0)
+    TRAIL_REST, TRAIL_STUCK, RIDE_JAMMED = nil, false, false
+    mode.seed = "all"
+    mode.atCell = true
+    acceptR = 20                     -- the band that took; 30 was refused live
+    capVal.Value = 50
+    builder()
+    resetState()
+    local calls0, rides0, lg0 = seedRemote.invokeCalls, rides, #logs + 1
+    local took = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+        baseCF, baseSize, hopAtt)
+    local line = table.concat(logs, "|", lg0)
+    check(who .. " field: every cell called",
+        seedRemote.invokeCalls - calls0 == cells,
+        (seedRemote.invokeCalls - calls0) .. " call(s) for " .. cells)
+    check(who .. " field: every cell TAKES the grid",
+        took == cells, tostring(took) .. " took of " .. cells)
+    check(who .. " field: it plans that many tight stops",
+        line:find("from " .. stops .. " stop") ~= nil,
+        line:match("from %d+ stop%s*") or "no stop line")
+    check(who .. " field: no block abandoned",
+        line:find("leaving this block") == nil)
+    check(who .. " field: nothing left standing",
+        #spudFieldCellIds(field, "Cultivated") == 0)
+    return rides - rides0
+end
+raggedRun("ragged", raggedField, 8, 2)
+raggedRun("apart", apartField, 6, 2)
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 """
 
@@ -1117,7 +1183,8 @@ def main() -> int:
     if not re.search(r"^    spudFieldReach = 24\b", src, re.M):
         print("spudFieldReach is no longer 24 — update this harness")
         return 2
-    for const in ("spudToolSwing = 3", "spudToolFar = 90", "spudFieldTaken = 20"):
+    for const in ("spudToolSwing = 3", "spudToolFar = 90", "spudFieldTaken = 20",
+                  "spudFieldPitch = 10"):
         if not re.search(r"^    " + const + r"\b", src, re.M):
             print("the tow-settle gate no longer declares " + const
                   + " — update this harness")
@@ -1134,6 +1201,22 @@ def main() -> int:
         return 2
     if "firing anyway" in radial:
         print("the grid still bursts at a blade it measured off the block")
+        return 2
+    # ▸ AND THE BLOCK IS CUT BY DISTANCE, NOT BY LIST POSITION (owner
+    #   2026-11-03: "why does it onyl do half the field"). `rows[k].cells[col]`
+    #   and the mean of the block's own cells are exactly the two lines that made
+    #   a part-worked field into L-shaped blocks whose centre sat past the band
+    #   from their own corners — `fired 361 … from 57 stop(s), 3x3 per stop —
+    #   180 took`, with no miss line, because the miss test measured the blade
+    #   against that same centre.
+    for gone in ("(idx - 1) * side + 1", "sx / #block", "sz / #block",
+                 "math.ceil(ncols / side)"):
+        if gone in radial:
+            print("the grid cuts blocks by index again (" + gone + ") — "
+                  "a ragged field makes L-shaped blocks and half of them is refused")
+            return 2
+    if "spudFieldPitch" not in radial:
+        print("the grid does not size its block from the game's own cell pitch")
         return 2
     # the gate has to sit BEFORE each teleport, and the teleport has to be the
     # carrying one — a bare `ride:PivotTo` leaves the implement on the ground

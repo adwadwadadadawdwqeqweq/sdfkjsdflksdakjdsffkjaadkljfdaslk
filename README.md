@@ -92,16 +92,41 @@ Everything merged into one paste-and-run file:
   positions or ids cannot be read keeps the unfiltered pass — an unreadable
   reach never skips a call, and a tool whose parts cannot be read adds **no**
   reach. After the call pass there is a
-  **block grid**: the remaining cells are grouped into rows, `side` rows at
-  a time are cut into `side`-column blocks, and each block gets one stop at its
-  own centre — the ride parks with the **blade** on it (the tool trails behind
+  **block grid**: the remaining cells are grouped into rows, rows that sit within
+  one block's own span of each other form a band, and the band is cut into blocks
+  by **distance** — never by list position (see below) — so each block is a tight
+  `side`×`side` square. Each block gets one stop at its own
+  centre — the ride parks with the **blade** on it (the tool trails behind
   the tractor, so the ride goes to `stop − blade offset`), fires that block's
   cells 40 ms apart, then walks **forward** to the next block (each
   band alternates direction). Every cell belongs to exactly one block, so
   nothing is skipped and nothing is fired twice; a 50-cell field is **8
   teleports** of nine calls each. The band it relies on was measured live: a
   take from **20 studs to the side** at +8 (30 refused) and from **+80 straight
-  up**. **One stop = one equal square** (owner: *"when it plows, now it plows in a
+  up**. **The cut is measured in the game's own pitch** (`spudFieldPitch = 10`,
+  what `cellsAtStage` spaces the cells by), and this is the fix for
+  *"why does it onyl do half the field"*: the grid used to take the `side`-th
+  **row** and the `side`-th **column of each row's own list**, then park at the
+  **mean** of whatever cells landed in the chunk. On a field that is fully
+  worked that is a square; on a **part-worked** field every row holds a
+  different set of cells, so the "block" comes out an **L**, its mean sits well
+  outside the band from its own corners, and every call there is refused — while
+  the pass reports no miss at all, because the miss test compares the blade to
+  that same mean. Live, on one field:
+  `remote plow: fired 361 of 361 cell(s) from 57 stop(s), 3x3 per stop — 180 took, 181 left`
+  and `remote cultivate: fired 368 of 368 … — 165 took, 203 left`. 361 cells over
+  57 stops is 6.3 a stop where a 3×3 is 9, and the ~50% that were refused is the
+  half the owner saw left standing (the per-cell hop then takes them one
+  teleport at a time, which is why it finishes — slowly). Now a band ends when
+  the next row is more than `(side−1) × 10` studs away (or the band is already
+  `side` rows), a block ends at the same span **measured from its first column**
+  (a hole in the lattice can't make three counted columns span four pitches), and
+  the stop is the block's **bounding-box centre**, not a centroid — so the
+  `spudBlockSide` corner rule holds for the cells actually in the block: worst
+  cell 14.1 studs out, inside the 20 that was measured to take. An 8-cell ragged
+  patch and two 3-cell strips 40 studs apart each get 2 stops and take **all**
+  their cells (`tools/field_remote_test.py`), and the full-rectangle fixtures
+  keep their exact old counts. **One stop = one equal square** (owner: *"when it plows, now it plows in a
   cross pattern, if it cant do a equal 3x3 or 4x4 or 5x5 or 6x6 or 7x7 it should
   only do one of those, if it make a cross pattern it goes back to a 3x3"*): a
   stop parks on the block's centre, so its corners are the farthest cells, and
