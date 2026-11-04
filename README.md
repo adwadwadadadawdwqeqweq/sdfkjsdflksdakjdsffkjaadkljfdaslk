@@ -613,7 +613,16 @@ Everything merged into one paste-and-run file:
   sell anyway, round after round. The pass now fires **no** call in that case
   and unloads first, so the harvester comes back with a whole tank
   (`remote harvest: 1 free slot(s) cannot cover 46 standing cell(s) — selling
-  first, then coming back`).
+  first, then coming back`). **That rule needs a load in the tank** (v1.151):
+  the same arithmetic on a 600-slot harvester facing a 2400-cell field is always
+  true — free space can never cover a field four times its size — so an **empty**
+  machine was being called full, sent to sell nothing
+  (`harvester is FULL (0/600)` → `the tank already reads empty here — coins
+  1664376 → 1664376`), came back, refused to fire a call for the same reason, and
+  ended the cycle with `2400 cell(s) never took a harvest call even with the
+  blade on them`. A field bigger than one tank is the normal case: the harvest
+  fills 600, sells, and comes back for the next 600. The rule now only bites
+  when the tank actually holds a load that the remaining space cannot cover.
 - **Trees are left alone** — the harvester never drives a field whose type or
   model name says wood / tree / log / forest / timber / lumber / sawmill / stump,
   so standing trees are not cut. A field whose cell read succeeds but returns

@@ -133,6 +133,18 @@ check("space: a full tank needs no second opinion", spudHarvestFull(50, 50, 46) 
 check("space: one free slot against 46 cells unloads", spudHarvestFull(49, 50, 46) == true)
 check("space: one free slot against 1 cell keeps working", spudHarvestFull(49, 50, 1) == false)
 check("space: an empty tank never unloads", spudHarvestFull(0, 50, 46) == false)
+-- ▸ The check above is the one that PASSED while the defect was live: 46 cells
+--   fit inside a 50-slot tank, so free(50) < need(46) was false for a reason
+--   that has nothing to do with the load. The live field is 2400 cells against
+--   a 600-slot harvester — free is ALWAYS less than need — and an empty tank
+--   was called full, sold nothing, and left 2400 cells unharvested every cycle.
+check("space: an empty tank facing a field BIGGER than it is not full",
+    spudHarvestFull(0, 600, 2400) == false, tostring(spudHarvestFull(0, 600, 2400)))
+check("space: the same field with a real load still unloads first",
+    spudHarvestFull(599, 600, 2400) == true)
+check("space: a partial load whose space cannot cover the field still unloads",
+    spudHarvestFull(150, 600, 2400) == true,
+    "the v1.86 rule, kept: it only stops applying to an EMPTY tank")
 check("space: an unreadable load never unloads", spudHarvestFull(nil, nil, 46) == false)
 check("space: a zero capacity never unloads", spudHarvestFull(0, 0, 46) == false)
 check("space: no standing cells means no excuse", spudHarvestFull(25, 50, 0) == false)

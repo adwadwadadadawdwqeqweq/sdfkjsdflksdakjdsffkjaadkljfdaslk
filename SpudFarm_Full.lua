@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.150 · fluent gui"
+local VERSION    = "rebuild v1.151 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6440,7 +6440,21 @@ local okBuild, errBuild = pcall(function()
     function spudHarvestFull(cur, max, need)
         if type(cur) ~= "number" or type(max) ~= "number" or max <= 0 then return false end
         if cur >= max then return true end
-        return type(need) == "number" and need > 0 and (max - cur) < need
+        -- ▸ AN EMPTY TANK IS NOT A FULL ONE (live 2026-11-04). This rule was
+        --   written for `49/50 against 46 standing cells`, where one free slot
+        --   could never cover the field and the run spun forever. The same
+        --   arithmetic on a 600-slot harvester facing a 2400-cell field says
+        --   free(600) < need(2400) — TRUE — so an EMPTY machine was called
+        --   full: it was sent to sell nothing (`the tank already reads empty
+        --   here — coins 1664376 → 1664376`), came back, refused to fire a
+        --   call for the same reason, and the pass ended with
+        --   `2400 cell(s) never took a harvest call even with the blade on
+        --   them`. A field bigger than one tank is the NORMAL case and is
+        --   handled by selling when the tank really is full; the rule only
+        --   bites when there is a load in the machine that the space left
+        --   cannot cover.
+        return cur > 0 and type(need) == "number" and need > 0
+            and (max - cur) < need
     end
 
     -- ▸ THE SPOTS THE OWNER STOOD ON AND MEASURED — 📍 Get coords, 2026-11-02.
