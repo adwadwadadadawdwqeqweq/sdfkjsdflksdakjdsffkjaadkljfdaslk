@@ -446,7 +446,22 @@ Everything merged into one paste-and-run file:
   a 50-seed crate became 100 and every shortfall was planned at half the visits
   (`the tank still wants 499 seed(s) of 600 — 3 more town visit(s)`, which is
   401 seeds at the real size). The rise is now divided by the crates the call
-  actually consumed, and the line prints the size it planned on. The
+  actually consumed, and the line prints the size it planned on. **And the crate
+  is asked, not inferred** (v1.153, the fourth report of the same symptom): that
+  divider proved as unreliable as the press — a two-crate trip raised the seeder
+  `402/600 → 502/600 → 600/600`, exactly 100 seeds, and the console still read
+  `99 seed(s) a crate`, so the carry folder had answered one box for two. The
+  number is not cosmetic: at 99 a crate an 803-cell field plans at **5** visits,
+  and the run printed `already made 6 shop trip(s) (the cap is 5, planned on a
+  remembered tank of 600 for 803 cell(s))` — a ceiling below the trips it had
+  already spent, which can only refuse — then `run ended … shop trip: the seeder
+  is empty` with 803 cells cultivated and never planted. The crate's own
+  `Configurations.Capacity` is the game's number for exactly this (it has long
+  been read to skip an empty box), so it is asked **first**: a crate that can
+  speak sets the size, even downward, and the rise divided by crates survives
+  only as the fallback for a box that cannot be read. At 50 a crate the same
+  803 cells plan at **9** visits, which is the truth — 17 crates at two a trip.
+  The
   crate's own price billboard is the only price read, and it is only readable
   standing in town — so the first trip makes that hop, and a seed found dearer
   than the balance is then refused **where the run stands** (`the Cabbage crate
@@ -758,12 +773,22 @@ Everything merged into one paste-and-run file:
   field that had taken 1793 of 2388 free. The game's own hitch constraint
   already puts ride and implement in one assembly, so a second joint between
   the same pair is a loop. It is gone and stays gone. What is left is the
-  honest half: a tool like the HorschJoker answers `has no hitch point (309
-  instance(s) read)` — the client holds the machine but shows no socket to aim
-  at, so the precise park is given up and the creep alignment runs instead.
-  That refusal now lists up to eight instances on the model whose own name says
-  `hitch`, `socket`, `attach` or `connector`, with class and path, so one run
-  names the point to aim at rather than this build guessing a fourth name.
+  honest half was a shape this build could not read: a tool like the
+  HorschJoker answered `has no hitch point (309 instance(s) read)`, the precise
+  park was given up, and the creep alignment ran ten attempts at 20 studs each
+  without ever bringing the prompt up. That refusal lists up to eight instances
+  on the model whose own name says `hitch`, `socket`, `attach` or `connector`,
+  with class and path (v1.146) — and **that list answered its own question**
+  (v1.153): the cultivator does have the game's socket, it is just wrapped —
+  `Chassis.HitchableSocket` is a **Folder** there, holding `SocketRoot` (a Part)
+  with `SocketOrigin` (an Attachment) inside it, while the Tempo planter answers
+  the same name as an Attachment directly. The line-up only accepted the second
+  shape, so a socketed tool read as socket-less on every pass. It now takes the
+  socket in any shape the game has shown — an Attachment, a Part, or the
+  nearest join inside the folder — and the log names which instance it measured
+  from (`HitchableSocket.SocketOrigin (the game's socket)`). Nothing is invented
+  when the read fails: the miss line still says so and the creep still runs,
+  because a guessed point would park the hitch somewhere the game never put it.
 - **Go to the farm** — with a Farm owner picked, the run **teleports to that  owner's plot first** (only when it is more than 60 studs away; the character
   is stood up first, because a teleport while seated does not travel). It then
   waits half a second for the fields and machines to stream in, finds **that

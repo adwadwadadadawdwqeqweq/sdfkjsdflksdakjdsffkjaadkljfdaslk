@@ -59,7 +59,7 @@ SRC = ROOT / "SpudFarm_Full.lua"
 WANTED = ["spudCrateSeedCount", "spudCrateHasSeed", "spudSeedTripAllowed",
           "spudSeedPriceBlocks", "spudSeedTripsNeeded", "spudSeedTripCeiling",
           "spudSeederWantsMore", "spudCratesInHand", "spudSeederCapFor",
-          "spudCratesTripActual"]
+          "spudCratesTripActual", "spudCrateSize"]
 
 
 def extract(text: str, name: str) -> str:
@@ -227,6 +227,31 @@ check("no 'have' reading is treated as empty",
     spudSeedTripsNeeded(600, nil, 50, 2) == 6, tostring(spudSeedTripsNeeded(600, nil, 50, 2)))
 check("a 600-seed crate fills it in one trip",
     spudSeedTripsNeeded(600, 0, 600, 2) == 1)
+
+-- ── 5b. THE CRATE'S OWN NUMBER IS THE SIZE, not a pour's rise (live 2026-11-04)
+--   The console taught this one the hard way: a two-crate trip raised the seeder
+--   by 100 (`402/600` → `502/600` → `600/600`) and the build wrote down
+--   `99 seed(s) a crate`, because the carry folder read ONE box. Every plan then
+--   halved — 803 cells came out as `the cap is 5` after six trips had already
+--   been spent, so the run refused to teleport and ended
+--   `shop trip: the seeder is empty` with 803 cells unplanted.
+check("a crate that can speak is the size — 50, not the 99 the rise taught",
+    spudCrateSize(50, 99) == 50, tostring(spudCrateSize(50, 99)))
+check("the crate's own number may CORRECT a bad lesson, up or down",
+    spudCrateSize(50, 400) == 50, tostring(spudCrateSize(50, 400)))
+check("a silent crate keeps what a pour taught", spudCrateSize(nil, 50) == 50)
+check("an empty crate (0) is not a crate SIZE", spudCrateSize(0, 50) == 50)
+check("a negative read is not a size", spudCrateSize(-50, 50) == 50)
+check("neither read is unknown, never a guessed 50", spudCrateSize(nil, nil) == nil)
+check("a numeric string still sizes a crate", spudCrateSize("50", nil) == 50)
+-- the arithmetic the wrong size broke, written as the two plans:
+check("803 cells at a 50-seed crate are NINE visits — the truth",
+    spudSeedTripsNeeded(803, 0, 50, 2) == 9, tostring(spudSeedTripsNeeded(803, 0, 50, 2)))
+check("the same field on the 99-seed lesson is the live cap of 5",
+    spudSeedTripsNeeded(803, 0, 99, 2) == 5, tostring(spudSeedTripsNeeded(803, 0, 99, 2)))
+check("so the wrong size is what refused the six already-made trips",
+    spudSeedTripCeiling(spudSeedTripsNeeded(803, 0, 99, 2), 4) == 5
+    and spudSeedTripCeiling(spudSeedTripsNeeded(803, 0, 50, 2), 4) == 9)
 
 -- ── 6. the ceiling is the promise OR the work, whichever is bigger ─────────
 check("an unknown crate size keeps the old 4", spudSeedTripCeiling(nil, 4) == 4)
@@ -498,15 +523,21 @@ def main() -> int:
         fails.append("the crate size is learned from the WHOLE rise again - one "
                      "FNCFillSeeder empties every crate in hand, so a two-crate "
                      "pour teaches 100 and the trip ceiling halves")
-    elif "spudSeedsPerCrate = perCrate" not in src or \
+    elif "local own = crate and spudCrateSeedCount(crate) or nil" not in src or \
+            "spudCrateSize(own, math.floor(gave / ate))" not in src:
+        fails.append("the crate is never ASKED its own size - live 2026-11-04 a "
+                     "two-crate trip whose carry folder read ONE box taught "
+                     "`99 seed(s) a crate`, and 803 cells came out as a cap of 5 "
+                     "visits after six had already been spent")
+    elif "spudSeedsPerCrate = size" not in src or \
             "spudSeedsPerCrate = perCrate2" not in src:
-        fails.append("spudSeedsPerCrate is never learned from a real pour")
+        fails.append("a pour site no longer records the crate size it read")
     elif src.count("local hand0 = spudCratesInHand()") + \
             src.count("local beforeHand = spudCratesInHand()") < 2:
         fails.append("the pour does not count the crates it consumed - the "
                      "divider is a guess")
     else:
-        print(f"{'the crate size is the rise divided by crates consumed':<56} PASS")
+        print(f"{'the crate is asked first; a rise only fills a silence':<56} PASS")
 
     # A second crate is proven by the CarryLinks COUNT, and an unpaid one is
     # put back down - carrying() is already true with the first one in hand.

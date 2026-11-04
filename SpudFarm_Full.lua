@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.152 · fluent gui"
+local VERSION    = "rebuild v1.153 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -1984,6 +1984,50 @@ local okBuild, errBuild = pcall(function()
         return 5
     end
 
+    -- THE WORLD POINT INSIDE THE GAME'S OWN SOCKET. v1.146 added the miss line
+    -- that names the hitch-shaped instances a tool does hold, and live (2026-11-04)
+    -- it answered its own question — the HorschJoker HAS the socket the captured
+    -- FNCAttemptHitch takes, it is just wrapped:
+    --   Chassis.HitchableSocket [Folder]
+    --     · Chassis.HitchableSocket.SocketRoot [Part]
+    --       · Chassis.HitchableSocket.SocketRoot.SocketOrigin [Attachment]
+    -- while the Tempo planter answers the very same name as an Attachment
+    -- directly. A line-up that reads only the second shape calls a socketed tool
+    -- socket-less, so it creep-aligns ten times and runs the whole pass unhitched
+    -- (`hitch: gave up on HorschJoker after 10 attempt(s)`). So: take the instance
+    -- when it is itself a point, else the SHALLOWEST join inside it — an
+    -- attachment first (that is the named origin), a part if there is no
+    -- attachment. Returns the frame and the name it came from, or nil when there
+    -- is nothing to read (rule 7: nil is unknown, never a guessed point).
+    function spudSocketPoint(socket)
+        if not socket then return nil end
+        local ok, cf, from = pcall(function()
+            if socket:IsA("Attachment") then return socket.WorldCFrame, socket.Name end
+            if socket:IsA("BasePart") then return socket.CFrame, socket.Name end
+            local function depth(d)
+                local _, dots = tostring(d:GetFullName()):gsub("%.", "")
+                return dots
+            end
+            local bestAtt, bestAttD, bestPart, bestPartD, seen
+            for _, d in ipairs(socket:GetDescendants()) do
+                seen = (seen or 0) + 1
+                if seen > 64 then break end
+                local isAtt, isPart = d:IsA("Attachment"), d:IsA("BasePart")
+                if isAtt and (not bestAttD or depth(d) < bestAttD) then
+                    bestAtt, bestAttD = d, depth(d)
+                elseif isPart and (not bestPartD or depth(d) < bestPartD) then
+                    bestPart, bestPartD = d, depth(d)
+                end
+            end
+            local p = bestAtt or bestPart
+            if not p then return nil end
+            local frame = p:IsA("Attachment") and p.WorldCFrame or p.CFrame
+            return frame, socket.Name .. "." .. p.Name
+        end)
+        if not ok or not cf then return nil end
+        return cf, from
+    end
+
     local function findHitchPart(model)
         local best, bestRank
         for _, d in ipairs(model:GetDescendants()) do
@@ -2002,16 +2046,18 @@ local okBuild, errBuild = pcall(function()
     -- HitchRoot minutes earlier, and plow=none on a tool that had given Hitch
     -- (live 2026-11-03), and a line-up with nothing to measure falls back to
     -- the creep — which moves 20 studs a try and never brings the prompt up.
+    -- The socket itself is read by spudSocketPoint because that name is an
+    -- Attachment on one machine and a FOLDER around the real point on another
+    -- (live 2026-11-04, the HorschJoker), and the folder shape is the one the
+    -- creep was eating ten attempts for.
     local function hitchPoint(model, folderName, childName)
         if not model then return nil end
         local p = findHitchPart(model)
         if p then return p.Position, p.CFrame, p.Name end
         local f = model:FindFirstChild(folderName)
         local a = f and f:FindFirstChild(childName)
-        if a and a:IsA("Attachment") then
-            local cf = a.WorldCFrame
-            return cf.Position, cf, childName .. " (the game's socket)"
-        end
+        local cf, from = spudSocketPoint(a)
+        if cf then return cf.Position, cf, from .. " (the game's socket)" end
         return nil
     end
 
@@ -3925,6 +3971,26 @@ local okBuild, errBuild = pcall(function()
         if old and old > 0 then return old, "remembered" end
         return nil, nil
     end
+    -- ▸ HOW MANY SEEDS A CRATE HOLDS, for the trip arithmetic. Ask the CRATE:
+    --   its own `Configurations.Capacity` is the game's number for exactly this
+    --   (v1.116 already reads it to skip an empty box). What a pour's rise taught
+    --   this build is only the fallback, because a crate that cannot be read is
+    --   not a crate of zero. Live 2026-11-04 the fallback was all there was, and
+    --   it was wrong: a two-crate trip raised the seeder by 100
+    --   (`402/600` → `502/600` → `600/600`) while the carry folder read ONE box,
+    --   so the build wrote down `99 seed(s) a crate` and every plan halved —
+    --   `the cap is 5, planned on a remembered tank of 600 for 803 cell(s)` after
+    --   six trips had already been spent, then `run ended — … shop trip: the
+    --   seeder is empty` with 803 cells unplanted. A readable crate may CORRECT a
+    --   bad lesson in either direction; an unreadable one keeps the old rule of
+    --   only ever raising, because an inference should never shrink a plan.
+    function spudCrateSize(own, learned)
+        own, learned = tonumber(own), tonumber(learned)
+        if own and own > 0 then return math.floor(own) end
+        if learned and learned > 0 then return math.floor(learned) end
+        return nil
+    end
+
     function spudSeedTripsNeeded(cap, have, perCrate, cratesPerTrip)
         cap, perCrate = tonumber(cap), tonumber(perCrate)
         have = tonumber(have) or 0
@@ -4435,9 +4501,18 @@ local okBuild, errBuild = pcall(function()
                 local left = spudCratesInHand()
                 local ate = (hand0 and left and hand0 - left > 0)
                     and (hand0 - left) or 1
-                local perCrate = math.floor(gave / ate)
-                if perCrate > (spudSeedsPerCrate or 0) then
-                    spudSeedsPerCrate = perCrate
+                -- ▸ THE CRATE ITSELF IS ASKED FIRST (live 2026-11-04, the fourth
+                --   "not filling the seeder" report): the hands read ONE box while
+                --   the trip had bought TWO, so a 100-seed rise taught `99 seed(s)
+                --   a crate` and the whole plan halved — 803 cells came out as a
+                --   cap of 5 visits after six had already been made, and the run
+                --   stopped with the field unplanted. The crate's own Capacity is
+                --   the game's number; the rise is only what is left when the box
+                --   cannot be read.
+                local own = crate and spudCrateSeedCount(crate) or nil
+                local size = spudCrateSize(own, math.floor(gave / ate))
+                if size and (own or size > (spudSeedsPerCrate or 0)) then
+                    spudSeedsPerCrate = size
                 end
                 local rounds = 0
                 while rounds < 4 * math.max(1, spudCratesPerTrip or 1)

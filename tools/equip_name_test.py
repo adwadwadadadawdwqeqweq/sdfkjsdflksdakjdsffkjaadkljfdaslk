@@ -36,6 +36,14 @@ FNCAttemptHitch takes — is the second source, and the refusal now names the
 model and how much of it the client actually has (rule 7: name what is
 unreadable instead of guessing past it).
 
+And that naming answered its own question on 2026-11-04: the HorschJoker DOES
+have the game's socket, at `Chassis.HitchableSocket.SocketRoot.SocketOrigin` —
+the name the line-up asks for is a FOLDER on this implement and an ATTACHMENT on
+the Tempo planter. A reader that only takes the second shape calls a socketed
+tool socket-less, so the creep ate all ten attempts and the cultivator ran the
+whole pass unhitched. `spudSocketPoint` now reads both shapes, and the section
+that runs it builds the two live trees out of fake instances.
+
     python tools/equip_name_test.py [path-to-luau.exe]
 """
 
@@ -49,7 +57,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "SpudFarm_Full.lua"
 
-WANTED = ["spudNameKey", "spudSameEquipName"]
+WANTED = ["spudNameKey", "spudSameEquipName", "spudSocketPoint"]
 
 POST = r"""
 local fails = 0
@@ -94,6 +102,69 @@ check("empty and nil never match anything",
     and spudSameEquipName(nil, "KADL") == false
     and spudSameEquipName("   ", "") == false)
 check("a label of only punctuation has no key", spudNameKey("—/#") == "", spudNameKey("—/#"))
+
+-- ▸ THE SOCKET ITSELF HAS TWO SHAPES (live 2026-11-04). The v1.146 miss line
+--   finally named the HorschJoker's join, and it is THERE — one level down:
+--     Chassis.HitchableSocket [Folder]
+--       · Chassis.HitchableSocket.SocketRoot [Part]
+--         · Chassis.HitchableSocket.SocketRoot.SocketOrigin [Attachment]
+--   The Tempo planter answers the same name as an Attachment directly. A
+--   line-up that only accepts `Chassis.HitchableSocket` when it IS an
+--   Attachment therefore reads `no hitch point` on a tool that has one, and the
+--   creep ate all ten attempts (`hitch: gave up on HorschJoker after 10
+--   attempt(s) — this pass runs without it`). This runs the real reader.
+local function fake(name, cls, path, cf, kids)
+    local t = { Name = name, _cls = cls, _path = path, _kids = kids or {},
+                WorldCFrame = cf, CFrame = cf }
+    function t:IsA(c) return c == self._cls end
+    function t:GetFullName() return self._path end
+    function t:GetDescendants() return self._kids end
+    return t
+end
+-- GetDescendants is RECURSIVE in the real API, so a folder carries its whole
+-- flat subtree; that is what the line-up has to read.
+local origin = { Position = { X = -812.5, Y = 138.2, Z = -260.75 } }
+local rootCf = { Position = { X = -812.5, Y = 138.0, Z = -260.75 } }
+local cf, label
+
+-- the Tempo shape: the named child IS the attachment
+local tempo = fake("HitchableSocket", "Attachment", "Chassis.HitchableSocket", origin)
+cf, label = spudSocketPoint(tempo)
+check("a socket that is itself an Attachment is taken as-is",
+    cf == origin and type(label) == "string" and label:find("HitchableSocket", 1, true),
+    tostring(label))
+
+-- the Horsch shape: the name is a FOLDER and the point is one level down
+local socketOrigin = fake("SocketOrigin", "Attachment",
+    "Chassis.HitchableSocket.SocketRoot.SocketOrigin", origin)
+local socketRoot = fake("SocketRoot", "BasePart",
+    "Chassis.HitchableSocket.SocketRoot", rootCf, { socketOrigin })
+local wrapped = fake("HitchableSocket", "Folder", "Chassis.HitchableSocket", nil,
+    { socketRoot, socketOrigin })
+cf, label = spudSocketPoint(wrapped)
+check("a socket the game wrapped in a FOLDER still gives a point",
+    cf == origin and label:find("SocketOrigin", 1, true), tostring(label))
+check("the label names the socket it read the point out of",
+    type(label) == "string" and label:find("HitchableSocket", 1, true) ~= nil, tostring(label))
+
+-- a folder with only a part in it is still a place to aim
+local partOnly = fake("Hitchable", "Folder", "Components.Hitchable", nil,
+    { fake("HitchRoot", "BasePart", "Components.Hitchable.HitchRoot", rootCf) })
+cf, label = spudSocketPoint(partOnly)
+check("a socket folder holding only a Part answers with that Part",
+    cf == rootCf, tostring(label))
+-- the shallowest join wins, so a long tool cannot aim at its own tail
+local deep = fake("SocketOrigin", "Attachment", "Chassis.HitchableSocket.SocketRoot.Head.Tip.SocketOrigin", origin)
+local shallow = fake("Join", "Attachment", "Chassis.HitchableSocket.Join", rootCf)
+cf, label = spudSocketPoint(fake("HitchableSocket", "Folder", "Chassis.HitchableSocket", nil, { deep, shallow }))
+check("the NEAREST socket point inside the folder is the one used",
+    cf == rootCf and label:find("Join", 1, true), tostring(label))
+-- nothing there is a readable nothing, never a crash and never a guess
+check("nil is nil", spudSocketPoint(nil) == nil)
+check("an empty folder has no point",
+    spudSocketPoint(fake("HitchableSocket", "Folder", "Chassis.HitchableSocket", nil, {})) == nil)
+check("a non-instance never raises",
+    spudSocketPoint("HitchableSocket") == nil and spudSocketPoint(7) == nil)
 
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 if fails > 0 then error("name-key checks failed") end
@@ -182,7 +253,10 @@ def main() -> int:
     point = block(src, "hitchPoint")
     tie("the hitch point asks the game's own socket second",
         "findHitchPart(model)" in point
-        and 'a:IsA("Attachment")' in point and "a.WorldCFrame" in point)
+        and "spudSocketPoint(a)" in point and 'a:IsA("Attachment")' not in point)
+    tie("the socket reader answers for a folder-wrapped socket too",
+        "local cf, from = spudSocketPoint(a)" in point
+        and "return cf.Position, cf, from" in point)
     line = block(src, "lineUpHitch")
     tie("the line-up uses the ride's Hitchable and the tool's socket",
         'hitchPoint(tr, "Components", "Hitchable")' in line
