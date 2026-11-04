@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.146 · fluent gui"
+local VERSION    = "rebuild v1.147 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -2992,6 +2992,12 @@ local okBuild, errBuild = pcall(function()
     --   silently guesses the block shape (owner 2026-11-03: "why does it onyl
     --   do half the field").
     spudFieldPitch = 10
+    -- ▸ THE BEAT BETWEEN TWO BLOCKS (owner 2026-11-04: "when it's doing the 3x3
+    --   make it wait 100ms after before going to the next 3x3"). A block's nine
+    --   calls leave the server mid-update, and the next stop's teleport used to
+    --   land on top of that. 100 ms a stop, in milliseconds so the next run can
+    --   say whether the number is right.
+    spudBlockPause = 100
     -- ▸ HOW BIG AN EQUAL SQUARE CAN ONE STOP CLEAR (owner 2026-11-03: "when it
     --   plows, now it plows in a cross pattern, if it cant do a equal 3x3 or 4x4
     --   or 5x5 or 6x6 or 7x7 it should only do one of those, if it make a cross
@@ -8429,6 +8435,12 @@ local okBuild, errBuild = pcall(function()
                 end
             end
             if dry then break end
+            -- ▸ ONE BEAT BEFORE THE NEXT BLOCK (owner 2026-11-04: "when it's
+            --   doing the 3x3 make it wait 100ms after before going to the next
+            --   3x3"). The nine calls of a block leave the server mid-update and
+            --   the next stop's teleport used to land on top of that. The last
+            --   stop has no next block, so the beat is not paid twice.
+            if i < #stops then task.wait(spudBlockPause / 1000) end
         end
         local after = cellsAtStage(field, stage, baseCF, baseSize)
         local left = after and #after or nil

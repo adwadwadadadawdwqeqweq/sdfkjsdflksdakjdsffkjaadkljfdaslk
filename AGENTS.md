@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.146 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.147 ·
   fluent gui` (`VERSION`, line 15). ≈14k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -118,7 +118,8 @@ description — it is the long-form manual and it is kept in sync with behaviour
     `perCrate2`) is a local of the pour loop it serves, inside `buySeedAndFill`'s
     nested helper, and no global was added. v1.146 spent **nothing** either:
     its three new names (`near`, and the `nm`/`d` of its own walk) are locals
-    of `spudHitchMissText`, which is already a global. Do **not**
+    of `spudHitchMissText`, which is already a global. v1.147 spent **nothing**
+    either: its one new name is the global `spudBlockPause = 100`. Do **not**
     add a `local` inside the main build closure. Reuse an existing local,
     convert the feature to a **global** (the established pattern), or
     restructure — and re-run the budget.
@@ -191,10 +192,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 38/38 checks on v1.146
+python tools/run_all.py        # 38/38 checks on v1.147
 ```
 
-Last full run (v1.146): **38/38 checks passed** (35 harnesses + 3 gates).
+Last full run (v1.147): **38/38 checks passed** (35 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment a script contained a string with those three
@@ -905,7 +906,12 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
   left for the per-cell hop to take one teleport at a time. With the span rule the
   worst cell of a block is `(span/2)·√2 = 14.1` studs out — inside the measured 20
   that took — which is `spudBlockSide`'s own corner invariant now true **per block**
-  rather than only per shape. **The stop waits for its blade, then re-aims** (v1.97 → v1.132):
+  rather than only per shape. **A beat between the blocks** (v1.147, owner:
+  *"when it's doing the 3x3 make it wait 100ms after before going to the next
+  3x3"*): after a block's nine calls the grid waits `spudBlockPause` ms — 100 by
+  default, declared in milliseconds because that is the number the owner names,
+  and the LAST stop pays nothing since there is no block after it.
+  **The stop waits for its blade, then re-aims** (v1.97 → v1.132):
   a hitched tool follows the ride through physics and settles at the ride's own
   rest trail, so the pass polls the attachment's position until the blade is on
   the block and only then fires. v1.97's single re-park was not enough — the
@@ -4724,12 +4730,29 @@ the miss line names the hitch-shaped instances, it says so when there are none,
 and the walk is guarded and capped. **Harness green — NOT reloaded in game**,
 and the verdict is that one line from the next HorschJoker hitch attempt.
 
-**Where it stands:** `rebuild v1.146 · fluent gui`, whole suite green (38/38),
+**"when it's doing the 3x3 make it wait 100ms after before going to the next
+3x3" (v1.147).** A feel number from the owner, taken as stated. The block grid
+already waits for the blade to land and takes 0.25 s after it arrives before
+firing (§3.12), but it jumped to the next stop the frame its nine calls were
+done — and a block's calls leave the server mid-update. The grid now waits
+`spudBlockPause` ms between blocks. The constant is declared in
+**milliseconds**, not seconds, because 100 is the number the owner gave and it
+should be editable without translating it; `i < #stops` keeps the last stop
+from paying a beat that leads nowhere. `tools/field_remote_test.py` counts the
+durations a real 2-stop grid waits, so the check is the number and its place,
+not a grep: `the beat is the owner's 100 ms, not a guessed sleep`,
+`a 2-stop grid pays the beat ONCE — the last stop waits for nothing`, and
+`the beat does not cost the field a cell` (still 15 took). Compile OK, suite
+**38/38**, headroom **5** (the one new name is a global), name audit clean
+**393**. **Harness green — NOT reloaded in game**, and the verdict is the grid's
+own timing: the same `fired N of N … 3x3 per stop` result, 0.1 s slower a stop.
+
+**Where it stands:** `rebuild v1.147 · fluent gui`, whole suite green (38/38),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **The newest build proven in the client is v1.142** — the owner's
 pasted console header reads `place 2772610559 · player ok_simba3 · rebuild
-v1.142 · fluent gui`, which also settles v1.141's reload — so **v1.146 is the
-build the next reload brings in**, and **v1.143 through v1.146 are all
+v1.142 · fluent gui`, which also settles v1.141's reload — so **v1.147 is the
+build the next reload brings in**, and **v1.143 through v1.147 are all
 harness green, not proven in game**; every verdict below that was waiting on a
 *reload* is waiting on a *run*, not on a load. The live buffer read on
 2026-11-04 carries v1.143's short-pour line

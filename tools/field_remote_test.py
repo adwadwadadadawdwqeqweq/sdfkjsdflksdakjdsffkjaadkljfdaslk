@@ -96,6 +96,9 @@ spudFieldTaken = 20
 -- the game's cell pitch: the block grouping measures its spans in this, and
 -- spudBlockSide sizes the square with it
 spudFieldPitch = 10
+-- the beat the grid takes between two blocks, in MILLISECONDS (the owner's
+-- 2026-11-04 number: "make it wait 100ms after before going to the next 3x3")
+spudBlockPause = 100
 -- the tow-settle gate's own numbers (a stubbed blade moves with the ride, so
 -- every hop reads as already settled and the existing counts stay valid)
 spudToolSwing = 3
@@ -668,6 +671,38 @@ check("radial: the log says what it did",
     loggedText():find("from 2 stop") ~= nil
         and loggedText():find("3x3 per stop") ~= nil)
 
+-- 13b. THE BEAT BETWEEN TWO BLOCKS (owner 2026-11-04: "when it's doing the 3x3
+--      make it wait 100ms after before going to the next 3x3"). The nine calls
+--      of a block leave the server mid-update and the next stop's teleport used
+--      to land on top of that. Counted here as a DURATION, not a sleep: the
+--      grid must wait spudBlockPause/1000 seconds once per block it moves on
+--      from, and the LAST stop must not pay a beat for nothing.
+RIDE_POS = Vector3.new(80, 0, 80)
+ATTPARENT.Position = RIDE_POS + Vector3.new(0, 0, -5)
+acceptR = 60
+mode.atCell = true
+capVal.Value = 50
+sweepGrid()
+resetState()
+local beatDur = {}
+local realBeat = task.wait
+task.wait = function(s)
+    beatDur[s] = (beatDur[s] or 0) + 1
+    return nil
+end
+local tookBeat = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+task.wait = realBeat
+check("the beat is the owner's 100 ms, not a guessed sleep",
+    beatDur[spudBlockPause / 1000] ~= nil,
+    "waited for " .. tostring(spudBlockPause / 1000) .. "s "
+        .. tostring(beatDur[spudBlockPause / 1000] or 0) .. " time(s)")
+check("a 2-stop grid pays the beat ONCE — the last stop waits for nothing",
+    beatDur[spudBlockPause / 1000] == 1,
+    tostring(beatDur[spudBlockPause / 1000] or 0) .. " beat(s)")
+check("the beat does not cost the field a cell", tookBeat == 15,
+    tostring(tookBeat))
+
 -- a seeder can only fire as many calls as it holds seeds
 capVal.Value = 4
 sweepGrid()
@@ -1184,7 +1219,7 @@ def main() -> int:
         print("spudFieldReach is no longer 24 — update this harness")
         return 2
     for const in ("spudToolSwing = 3", "spudToolFar = 90", "spudFieldTaken = 20",
-                  "spudFieldPitch = 10"):
+                  "spudFieldPitch = 10", "spudBlockPause = 100"):
         if not re.search(r"^    " + const + r"\b", src, re.M):
             print("the tow-settle gate no longer declares " + const
                   + " — update this harness")

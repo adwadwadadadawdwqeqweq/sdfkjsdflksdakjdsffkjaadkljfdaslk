@@ -159,7 +159,12 @@ Everything merged into one paste-and-run file:
   **fired** takes nothing, so a healthy field still ends like the
   live run that did
   (`remote seed: fired 46 of 46 cell(s) from 8 stop(s), 3x3 per stop — 46 took,
-  0 left`). **And it waits for the tow before it jumps at all** (owner: *"when it
+  0 left`). **And it takes a beat between the blocks** (owner 2026-11-04:
+  *"when it's doing the 3x3 make it wait 100ms after before going to the next
+  3x3"*): after a block's nine calls the grid waits `spudBlockPause` ms — 100 by
+  default, in milliseconds so the number is easy to change — before the next
+  stop's teleport, and the last stop pays nothing because there is no block
+  after it. **And it waits for the tow before it jumps at all** (owner: *"when it
   tp's the tools make the whole thing glitch and it falls out the map, make it
   wait for the tool to be behind the tractor before tping again"*): a second
   teleport while the implement is still swinging adds velocity to it rather than
