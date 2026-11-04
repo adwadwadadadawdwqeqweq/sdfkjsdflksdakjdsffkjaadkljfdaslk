@@ -454,7 +454,19 @@ Everything merged into one paste-and-run file:
   a price this run has already read`) instead of paying another 1,000-stud hop to
   rediscover it. The balance is re-read at every check, so the cache remembers
   the price and never the verdict: sell a load and the same seed is buyable
-  again. **What the till clicks is decided by its own words** (v1.141, live). A
+  again. **The trip budget is sized by the field, not by one tank** (v1.150,
+  owner: *"STILL not filling the planter all the way nor planting the whole
+  field"*). Filling a 600-slot machine at 50 seeds a crate and two crates a
+  visit is **six** trips, and that was the whole budget — so on a 2400-cell
+  field the run filled the tank once, planted 600 cells, and then refused every
+  later refill with its own ceiling (`the cap is 6, planned on a remembered tank
+  of 600` → `the refill put no seeds in the seeder — stopping this pass` →
+  `1800 cultivated, 600 seeded, 2400 total`). The budget is now the larger of
+  filling the machine and covering the cells that still need seed — 2400 cells is
+  48 crates, **24** visits — and each refill round re-sizes it from the count it
+  just re-read, so the field is what ends the run. An unreadable field is still
+  *unknown*, not one visit, and the shelf price is still what stops a run that
+  cannot pay. **What the till clicks is decided by its own words** (v1.141, live). A
   purchase dialog is open, and the build used to match a button by joining its
   readable label and its instance **name** into one string — so a control whose
   name is `ConfirmButton` but whose label on screen reads **`Delete Farm`**

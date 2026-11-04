@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.149 · fluent gui"
+local VERSION    = "rebuild v1.150 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -5387,12 +5387,29 @@ local okBuild, errBuild = pcall(function()
         local cratesPerTrip = spudCratesTripActual()
         local tripsNeeded = spudSeedTripsNeeded(capPlan, count,
             spudSeedsPerCrate, cratesPerTrip)
+        -- ▸ THE FIELD SIZES THE BUDGET, NOT THE TANK (live 2026-11-04, the
+        --   owner's "STILL not filling the planter all the way nor planting the
+        --   whole field"). Filling a 600-slot machine at 50 a crate and two
+        --   crates a visit is SIX trips — and this field has 2400 cells, so one
+        --   full tank seeds 600 of them and the run has already spent its six
+        --   trips getting there. Every later refill is then refused by that same
+        --   ceiling: `already made 6 shop trip(s) (the cap is 6, planned on a
+        --   remembered tank of 600)` → `the refill put no seeds in the seeder —
+        --   stopping this pass` → 1800 cells left Cultivated for the rest of the
+        --   session. The budget is the LARGER of filling the machine and
+        --   covering the cells that still need seed, so a 2400-cell field is
+        --   planned at 24 visits and the field is the thing that ends the run.
+        local fieldTrips = spudSeedTripsNeeded(needCells, 0,
+            spudSeedsPerCrate, cratesPerTrip)
+        if fieldTrips and (not tripsNeeded or fieldTrips > tripsNeeded) then
+            tripsNeeded = fieldTrips
+        end
         local tripsCeiling = spudSeedTripCeiling(tripsNeeded, spudSeedTripsMax)
         if not spudSeedTripAllowed(seedShopTries, tripsCeiling) then
-            log(string.format("the seeder still wants seed and this run already made %d shop trip(s) (the cap is %d, planned on a %s tank of %s at %d crate(s) a trip) — not teleporting again (pick a different seed, or fill it by hand)",
+            log(string.format("the seeder still wants seed and this run already made %d shop trip(s) (the cap is %d, planned on a %s tank of %s for %s cell(s) at %d crate(s) a trip) — not teleporting again (pick a different seed, or fill it by hand)",
                 seedShopTries, tripsCeiling,
                 capVia == "remembered" and "remembered" or (capPlan and "read" or "unreadable"),
-                tostring(capPlan), cratesPerTrip))
+                tostring(capPlan), tostring(needCells), cratesPerTrip))
             return false
         end
         seedShopTries += 1
@@ -9457,6 +9474,15 @@ local okBuild, errBuild = pcall(function()
                     --   the plant stage already uses) and carry on, at most 3
                     --   refills per pass; a refill that puts nothing in the
                     --   seeder stops it instead of spending coins in a loop.
+                    -- ▸ THE FIELD SIZES THIS TOO (v1.150): the ceiling computed
+                    --   above is ONE tank's worth (six visits for a 600-slot
+                    --   machine), and a 2400-cell field needs four tanks. Each
+                    --   refill round re-reads what is actually left standing and
+                    --   raises the budget to cover it — only ever up, and the
+                    --   trip's own price gate is still what stops a broke run.
+                    refillsMax = spudSeedTripCeiling(math.max(refillsMax,
+                        spudSeedTripsNeeded(after, 0, spudSeedsPerCrate,
+                            spudCratesTripActual()) or 0), 3)
                     if refills >= refillsMax then
                         log(string.format("still %d cell(s) across %d field(s) need seed after %d refill(s) — stopping this pass",
                             after, afields, refills))

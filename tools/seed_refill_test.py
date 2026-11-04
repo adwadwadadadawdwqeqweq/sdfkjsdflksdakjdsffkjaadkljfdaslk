@@ -332,6 +332,22 @@ check("and 5 visits x 2 crates x 50 really does cover the tank",
     5 * 2 * 50 >= 600 - 101)
 check("3 visits x 2 crates x 50 does NOT - it stops at 401",
     101 + 3 * 2 * 50 < 600)
+-- ── 9d. the FIELD sizes the budget, not the tank (v1.150) ─────────────────
+-- Live: a 2400-cell field, a 600-slot tank, six trips planned to fill the
+-- machine — and after those six visits the run had seeded 600 cells and every
+-- later refill was refused by its own ceiling. The budget has to cover the
+-- cells that need seed, which is four tanks, not one.
+check("a 2400-cell field needs TWENTY-FOUR visits at 2 crates of 50",
+    spudSeedTripsNeeded(2400, 0, 50, 2) == 24,
+    tostring(spudSeedTripsNeeded(2400, 0, 50, 2)))
+check("one tank's plan is the defect that left 1800 cells cultivated",
+    spudSeedTripsNeeded(600, 0, 50, 2) == 6)
+check("so the field number is the one that must win",
+    spudSeedTripsNeeded(2400, 0, 50, 2) > spudSeedTripsNeeded(600, 0, 50, 2))
+check("and the ceiling raises to it, never lowers",
+    spudSeedTripCeiling(math.max(6, spudSeedTripsNeeded(2400, 0, 50, 2)), 4) == 24)
+check("an unreadable field is unknown, not one visit",
+    spudSeedTripsNeeded(nil, 0, 50, 2) == nil)
 spudCratesPerTrip = 1
 spudCratesTripGot = 2
 check("a stray count never exceeds what the build asks the till for",
@@ -598,6 +614,22 @@ def main() -> int:
                      "loop on a read that never changes")
     else:
         print(f"{'the tank is filled to max before the field, or until the money stops':<56} PASS")
+
+    # ── v1.150: the FIELD sizes the trip budget, not the tank. A 600-slot
+    # machine needs six visits and a 2400-cell field needs twenty-four; planning
+    # on the tank is what left `1800 cultivated, 600 seeded` and a run that
+    # refused every later refill with its own ceiling.
+    if "spudSeedTripsNeeded(needCells, 0," not in check_region:
+        fails.append("the entry budget is still planned on one tank — the run "
+                     "spends six visits on 600 cells of a 2400-cell field")
+    elif "refillsMax = spudSeedTripCeiling(math.max(refillsMax," not in src:
+        fails.append("the refill rounds never re-size the budget from the cells "
+                     "still standing — the pass ends with 1800 cultivated cells")
+    elif "for %s cell(s)" not in src:
+        fails.append("the refusal line still names only the tank it planned on — "
+                     "the number that grew is the field's, and it must say so")
+    else:
+        print(f"{'the trip budget is sized by the field, at both sites':<56} PASS")
     if re.search(r"after = after or coinBalance\(\)", src):
         fails.append("the purchase line still reports the FIRST balance read — "
                      "the HUD counter animates, so 129026 → 87069 was printed "
