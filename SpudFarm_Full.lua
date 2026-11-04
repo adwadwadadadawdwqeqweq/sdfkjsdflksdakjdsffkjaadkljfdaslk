@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.140 · fluent gui"
+local VERSION    = "rebuild v1.141 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -632,6 +632,44 @@ local okBuild, errBuild = pcall(function()
     function spudSameEquipName(a, b)
         local ka = spudNameKey(a)
         return ka ~= "" and ka == spudNameKey(b)
+    end
+
+    -- ▸ WHAT A SHOP CLICK IS ALLOWED TO READ (live 2026-11-03, the owner's
+    --   console): the seed trip pressed
+    --   `GuiViews.HUD.Notifications.ConfirmAction.Content.ConfirmButton` three
+    --   times and logged it as "the Purchase button" — while that control's own
+    --   label read `Delete Farm`. The picker had built ONE string out of
+    --   `label .. " " .. Name`, so the word `confirm` came from the instance
+    --   NAME and outranked what the player actually reads, and the refuse list
+    --   had no destructive word in it at all.
+    --   Two rules, both **pure** so a harness can run them:
+    --   ▸ a danger word in EITHER half refuses the click — refusing is the
+    --     safe direction, and a control named `DeleteFarmButton` with no text
+    --     is exactly as dangerous as one that says it out loud;
+    --   ▸ a buy word counts in the LABEL, because `guiTextOf` only falls back
+    --     to the Name when the control has no readable text at all (the
+    --     image-only Purchase control of 2026-11-02 is that case). So the Name
+    --     may speak when — and only when — the label cannot.
+    spudShopDangerWords = { "robux", "premium", "gems", "gem", "sell", "cancel",
+        "close", "back", "exit", "delete", "destroy", "remove", "reset",
+        "unsubscribe", "leave" }
+
+    function spudShopDanger(label, name)
+        for _, w in ipairs(spudShopDangerWords) do
+            if tostring(label or ""):lower():find(w, 1, true) then return w end
+            if tostring(name or ""):lower():find(w, 1, true) then return w end
+        end
+        return nil
+    end
+
+    function spudShopBuyChoice(label, name)
+        local l = tostring(label or ""):lower()
+        local n = tostring(name or ""):lower()
+        local t = (l ~= "" and l ~= n) and l or n
+        return t:find("purchase", 1, true) ~= nil
+            or t:find("buy", 1, true) ~= nil
+            or t:find("confirm", 1, true) ~= nil
+            or t:find("checkout", 1, true) ~= nil
     end
 
     -- the line a hitch line-up prints when it has no point to aim at: WHICH
@@ -4490,21 +4528,12 @@ local okBuild, errBuild = pcall(function()
             end
             return nil
         end
-        -- never click these, whatever the menu calls them
-        local function forbidden(t)
-            for _, bad in ipairs({ "robux", "premium", "gems", "gem", "sell",
-                "cancel", "close", "back", "exit" }) do
-                if t:find(bad, 1, true) then return true end
-            end
-            return false
-        end
-        local function isPurchase(t)
-            return t:find("purchase", 1, true)
-                or t:find("confirm", 1, true)
-                or t:find("buy", 1, true)
-                or t:find("^yes") ~= nil
-                or t:find("^ok") ~= nil
-        end
+        -- never click these, whatever the menu calls them — and judge a buy only
+        -- on what the control SAYS: both rules live in spudShopDanger /
+        -- spudShopBuyChoice (globals, for the harness and for the 200-local
+        -- budget), because this picker once read an instance NAME as a promise.
+        -- `text` stays the joined label+name because the seed-tile tier below
+        -- matches the seed's own word, which the game may write in either half.
         -- every VISIBLE button of the open menu + its readable text. `top` is
         -- GuiViews normally, but the whole PlayerGui when the popup is parented
         -- somewhere else (a menu that never shows up in the GuiViews tree used
@@ -4521,9 +4550,12 @@ local okBuild, errBuild = pcall(function()
                 end
                 if shown then
                     if g:IsA("GuiButton") then
+                        local lbl = tostring(guiTextOf(g) or ""):lower()
                         out[#out + 1] = {
                             btn = g,
-                            text = ((guiTextOf(g) .. " " .. g.Name):lower()),
+                            label = lbl,
+                            name = tostring(g.Name):lower(),
+                            text = (lbl .. " " .. g.Name:lower()),
                         }
                     elseif g:IsA("TextLabel") then
                         local tx = guiTextOf(g)
@@ -4624,30 +4656,46 @@ local okBuild, errBuild = pcall(function()
                     return false
                 end
             end
-            local target, why
+            local target, why, refused
             for _, b in ipairs(btns) do
-                if not forbidden(b.text) and isPurchase(b.text) then
-                    target, why = b, "the Purchase button"
-                    break
+                if spudShopBuyChoice(b.label, b.name) then
+                    local bad = spudShopDanger(b.label, b.name)
+                    if bad then
+                        -- the name said "confirm", the label said what it
+                        -- actually does — name the refusal, do not swallow it
+                        refused = refused or string.format("%s reads '%s' (%s)",
+                            b.btn:GetFullName(), b.label, bad)
+                    else
+                        target, why = b, "the Purchase button"
+                        break
+                    end
                 end
+            end
+            if refused then
+                log("seed shop: ⚠ a buy-shaped control was REFUSED, not clicked — " .. refused)
             end
             if not target then
                 for _, b in ipairs(btns) do
-                    if not forbidden(b.text) and b.text:find(want, 1, true) then
+                    if not spudShopDanger(b.label, b.name) and b.text:find(want, 1, true) then
                         target, why = b, "the " .. seedName .. " tile"
                         break
                     end
                 end
             end
+            -- ▸ THERE IS NO THIRD TIER ANY MORE. It used to be "click the first
+            --   usable control", which on the live run (2026-11-03) meant 267
+            --   visible buttons and whatever happened to sort first got pressed.
+            --   A buy the game has not NAMED is not a buy: say what is on screen
+            --   and click nothing.
             if not target then
+                local named = {}
                 for _, b in ipairs(btns) do
-                    if not forbidden(b.text) then
-                        target, why = b, "the first usable control"
-                        break
-                    end
+                    if #named < 12 then named[#named + 1] = "'" .. b.label .. "'" end
                 end
+                log(string.format("seed shop: nothing on screen reads as a buy of %s (%d visible button(s): %s) — clicking nothing",
+                    seedName, #btns, table.concat(named, " · ")))
+                break
             end
-            if not target then break end
             clickedAny = true
             log(string.format("seed shop: clicking %s ('%s') — %s%s",
                 target.btn:GetFullName(), guiTextOf(target.btn), why,
@@ -7296,9 +7344,9 @@ local okBuild, errBuild = pcall(function()
                 local scope = notes or views
                 for _, g in ipairs(scope:GetDescendants()) do
                     if g:IsA("GuiButton") and shownBy(g) then
-                        local t = ((guiTextOf(g) or "") .. " " .. g.Name):lower()
-                        if t:find("purchase", 1, true) or t:find("buy", 1, true)
-                            or t:find("confirm", 1, true) then
+                        local lbl = tostring(guiTextOf(g) or ""):lower()
+                        local nm = tostring(g.Name):lower()
+                        if spudShopBuyChoice(lbl, nm) and not spudShopDanger(lbl, nm) then
                             target = g break
                         end
                     end

@@ -8,13 +8,13 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.140 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.141 ·
   fluent gui` (`VERSION`, line 15). ≈14k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
   `luau-analyze.exe`).
 - Nothing here is a library or a build system. There is no bundler, no package
-  manager, no CI. Validation is a compile check plus thirty-four harness scripts in
+  manager, no CI. Validation is a compile check plus thirty-five harness scripts in
   `tools/` (`python tools/run_all.py` runs the whole gate).
 
 ---
@@ -73,7 +73,7 @@ description — it is the long-form manual and it is kept in sync with behaviour
 
 13. **Luau's 200-local limit is real** (it was 2 away from the practical
     ceiling until the path engine was deleted in v1.81). Run
-    `python tools/local_budget.py`. As of v1.139:
+    `python tools/local_budget.py`. As of v1.141:
     `4-space locals before milkCycle: 180 (practical ceiling 185)`,
     whole body `187 / 200`, **headroom 5** (v1.129's four `*_STEMS` word tables
     are four build-closure locals — every name the equipment rewrite, the tow
@@ -95,7 +95,11 @@ description — it is the long-form manual and it is kept in sync with behaviour
     unload fix changes two existing bodies and adds no name, and the store-picker
     guard is one line inside a closure that already existed. v1.140 spent
     **nothing** either: the one new name is the global `spudFieldPitch`, and the
-    grid's new grouping reuses the locals the old cut already declared. Do **not**
+    grid's new grouping reuses the locals the old cut already declared. v1.141
+    spent **nothing** either: the three new names are global assignments
+    (`spudShopDangerWords`, `spudShopDanger`, `spudShopBuyChoice`), the split
+    label/name record lives inside `harvestMenu`'s own prototype, and the buy-tier
+    rewrite reuses the `target`/`why` locals the old tiers already declared. Do **not**
     add a `local` inside the main build closure. Reuse an existing local,
     convert the feature to a **global** (the established pattern), or
     restructure — and re-run the budget.
@@ -168,10 +172,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 37/37 checks on v1.140
+python tools/run_all.py        # 38/38 checks on v1.141
 ```
 
-Last full run (v1.140): **37/37 checks passed** (34 harnesses + 3 gates).
+Last full run (v1.141): **38/38 checks passed** (35 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment the script contained a string with those three
@@ -214,6 +218,7 @@ ghost build. |
 | `equip_name_test.py` | The game writes a display name the model name has no spaces in (v1.135): `spudNameKey` folds `Tempo L16`, `TempoL16` and a model tagged with a serial suffix to one key and keeps the **digits** (`%W`, not `%A` — `%A` folds `TempoL16` and `TempoL20` together), empty/nil never matches, and a card match stays a **prefix** match on the key. Ties: the Equipment Manager card lookup and the expanded-card proof fold the name, the stale-label check walks by key instead of `FindFirstChild`, the wrong-tool guard and the park pass compare folded names, `hitchPoint` falls back to the game's own socket Attachment at `WorldCFrame`, `lineUpHitch` measures the ride's `Components.Hitchable` against the tool's `Chassis.HitchableSocket`, carries the tow (`spudPivotRig(tr, newPivot, airborne and nil or plow)`) instead of a bare `tr:PivotTo`, and a miss NAMES the model and how much of it the client read; and `seedPasses` ends a round that took nothing (`leftStuck >= 2`). |
 | `dropoff_test.py` | The full-tank gate follows the Farm tab's Drop-off pick: a full tank unloads with Fulfillment or Sell chosen, a half tank works on, an unknown/nil destination never moves; the Fulfillment pad is read from `Stores.DropOffs` (Deposit_Warehouse preferred over Withdraw_Warehouse), aimed at its top surface, and — when that folder is empty, which is what the live game now does — **found by name anywhere in the world** with its real path in `what`, a Model pad giving a park spot but no fire part, and a refusal that names the folder's state and the number of instances read. An unstreamed/empty folder with no pad anywhere returns no pad instead of a guess, and a **goto marker is never the pad** (it comes back as the waypoint to hop to, with the pad re-read once that hop streams the area). **A walk match that is not AT the deck is refused too** (v1.128): the harness rebuilds the live `Ugc.CompanyArea.WarehouseArea` and asserts 0 pads, a log naming the **142-stud** miss, and the marker still returned as the waypoint — while an in-band match is still taken and logs no refusal, and the game's own `Stores.DropOffs` folder is never gated. **No pad instance and no waypoint still unloads** (v1.122, both picks since v1.126): the trip parks at the owner's 📍 Get coords readings — `spudFulfillPadSpot()` = `-353, 141, -92` and `spudCropSellSpot()` = `125, 142, -150` — fires no sell call it has no part for, and logs the spot as remembered rather than as a world part. Fulfillment presses **nothing** (auto pad); the remembered **Sell** board must keep `autoPad` false so `trySellAt`'s Q/E menu path still runs there, which is pinned. `trySellAt` itself runs on a virtual clock: the Fulfillment pad drops the load while pressing **zero** keys and making **zero** calls, a working Sell call presses nothing, and an ignored Sell call falls back to Q and E without claiming a sale. **An already-empty tank is a sale, not a failure** (v1.139, the live lie the owner's console caught): the real `trySellAt` parked in front of a tank reading 0 must return true, press nothing, fire no call and log `already reads empty`, and must **never** print `didn't take it`; and the real `sellHarvester` — whose `trySellAt` empties the tank and still says false — must end with `✅ the tank reads empty after the pad trip` rather than `⚠ still full`, while a tank that really is at 50 still gets `still reads 50`. |
 | `seed_refill_test.py` | A crate's own seed count is read from `Configurations.Capacity` (0 is empty, a failed read is NOT empty), an empty box is never poured as "seed", the run's shop-trip cap is at least the seed pass's `refill N/M` promise + 1 — the latch that made refills 2 and 3 unreachable is pinned out — and a shelf price dearer than the balance blocks the **next** trip locally (unreadable price or balance blocks nothing; the gate must sit before the trip is counted). **The full tank** (v1.133): `spudSeedTripsNeeded` is pinned at the arithmetic (600 empty at 50 a crate, 2 crates a trip → **6** trips; a 50-slot tank → 1; room left, not capacity; a partial crate rounds **up**; full/over-full → 0; 1 crate a trip doubles the visits; a nil cap/crate size is **unknown**, not one trip; a nil `have` reads as empty) and `spudSeedTripCeiling` **only ever raises** the floor (unknown keeps 4, 6 trips → 6, a 1-trip tank never lowers the 4); `spudSeederWantsMore` stops the pour at the machine's own `MaxCapacity` and reads an unreadable pair as "no room", never "hungry"; `spudCratesInHand` counts `CarryLinks` children (0/1/2, no character = 0, no folder = 0). Ties: the refill ceiling scales, the run's trips cover that promise, no once-per-run latch came back, the shelf price is stored, the trip gate reads the **scaled** ceiling (not the constant) with the price gate still **before** it, the fill is a loop to the cap, `spudSeedsPerCrate` is never given a literal, the second crate is proven by `CarryLinks`, an unpaid crate calls `spudDropRemote()`, crates-per-trip is one setting, and a held crate is still gated by `spudCrateHasSeed`. |
+| `shop_click_test.py` | **Which shop control the buy clicks** (v1.141, §3.13). The live incident: the dialog's own reader joined `label .. " " .. Name` into one string, so an instance named `ConfirmButton` whose label on screen said **`Delete Farm`** matched "confirm" and was clicked as "the Purchase button" — and when nothing buy-shaped was on screen the old third tier clicked **the first usable control** out of 267. The harness runs the **real** tier block, sliced verbatim out of `buySeedAndFill`, wrapped so its `break` is legal, against fixtures that carry a label and a name separately: the incident (`spudShopBuyChoice("Delete Farm", "ConfirmButton")` is **false**, `spudShopDanger` answers `"delete"`, and the block clicks neither), a buy-shaped-but-dangerous control is **refused and logged** rather than skipped quietly, a danger word in the **Name alone** refuses (`("Purchase", "CancelPurchase")` → `"cancel"`), the real buys are still clicked (`purchase` → `why == "the Purchase button"`, plus `buy now`, `confirm`, `checkout`), the **image-only** case (label and name identical → the name may speak; `("", "buyseeds")` is true, `("","")` and `(nil,nil)` are false), the money words (`buy with robux` is buy-shaped AND refused; `sell cart`, `close` each name their word), the seed tile still chosen by its own word (`why == "the Wheat tile"`) and a `cancelbutton` tile refused, **no arbitrary click** (nil target + `clicking nothing` + the visible count in the line), and a safe Purchase found **past** a refused one. Nine ties: `isPurchase`, `forbidden(` and the `first usable control` tier are **gone**; `spudShopDangerWords` is a global table holding all fourteen words; both predicates are 4-space globals; `spudShopDanger` reads **`label or` AND `name or`**; `spudShopBuyChoice` keeps the `l ~= ""` guard; the tier block calls both predicates on `(b.label, b.name)` (never `b.text`), carries the `a buy-shaped control was REFUSED` line and `clicking nothing`; `harvestMenu` records `label = lbl` and `name = tostring(g.Name):lower()` separately; and the **Shop counter** probe uses the same two predicates, so the probe cannot click what the farm refuses to. |
 | `stall_probe_test.py` | The stall probe's report shape (it must name every dirt candidate and count visible stains). |
 | `stall_stream_test.py` | The stall scan after a milk teleport, on a virtual clock: a pass that did **not** hop reads once and sleeps zero (the old behaviour), a pass that hopped re-reads until the game actually has stalls and hands those back, each try costs 0.25 s, the wait is **bounded** at 12 tries (3 s), Stop ends it between tries, the skipped count and the same plot/owner are carried through every re-read, and a barn that never streams is logged as **not streamed** (naming the farm, saying the plot reads, saying this is not "no barn") rather than as an empty answer. Plus the ties: `milkCycle` scans through `spudStallScan`, its two plot teleports each report whether they moved, and the timing stamp is taken after the scan. |
 | `fulfill_probe_test.py` | The fulfillment probe's **company-order** sections on a fake tree: every order-named instance with its value tree, the board's text read from **PlayerGui as well as workspace**, what `Stores` holds, each seed crate's `Configurations`, one field cell's full key list, and the honest grow-time verdict — a cell with only `PlantGrowth`/`GrowthMultiplier` must **not** be called a readable duration. Also pins the probe's read-only claim (no key press, no `FireServer`/`InvokeServer`, no `CFrame`/`PivotTo`, no metatable hook) and that the report reaches the panel, the multiline box and the clipboard. |
@@ -1285,6 +1290,41 @@ EVTRequestToCarry(draggable) / EVTRequestToDrop()
   new crate is the proof; the menu click is the fallback). **Fulfillment**
   makes no call and presses no key: the pad unloads a parked harvester itself
   (v1.41), so the trip only waits on the tank.
+- **The buy clicks a control for what its LABEL says** (v1.141, live). The dialog
+  reader used to join `guiTextOf(btn)` and `btn.Name` into one string and match
+  words against the join — and `guiTextOf` **falls back to the instance Name**
+  when a control has no readable text, so a name was always in the string. The
+  live console named what that bought:
+
+  ```
+  seed shop: clicking Players.ok_simba3.PlayerGui.GuiViews.HUD.Notifications.ConfirmAction.Content.ConfirmButton ('Delete Farm') — the Purchase button
+  seed shop: the menu is still showing after 267 visible control(s) — nothing bought.
+  ```
+
+  `ConfirmButton` is an `Action` confirm whose own `Content` label reads
+  **`Delete Farm`** — a notification about the farm, not the seed till — and the
+  old `forbidden` list held no destructive word, while a third tier clicked "the
+  first usable control" when nothing buy-shaped matched. Three rules, and they are
+  the only shop-click rules now: **(1)** a **danger** word
+  (`spudShopDangerWords`: robux / premium / gems / gem / sell / cancel / close /
+  back / exit / delete / destroy / remove / reset / unsubscribe / leave) in
+  **either** half refuses the click — reading a label is not permission to be
+  destructive, and the name is on the path for a reason; **(2)** a **buy** word
+  (`spudShopBuyChoice`: purchase / buy / confirm / checkout) counts in the
+  **label**, and the Name is consulted only when the label *cannot* speak — that
+  is `label == name`, the case `guiTextOf` returns the Name because the control is
+  drawn as an image (the game's green Purchase button really is one, §5 v1.113);
+  **(3)** there is **no arbitrary-click tier**. A buy-shaped control that is also
+  dangerous is logged (`a buy-shaped control was REFUSED, not clicked — …`) rather
+  than dropped quietly, and when nothing reads as a buy the run says
+  `nothing on screen reads as a buy of Wheat (267 visible button(s): …) —
+  clicking nothing` and stops. The same two predicates drive the **Shop counter**
+  probe, so a probe can no longer click what the farm refuses to; the words live
+  in **globals** (`spudShopDanger` / `spudShopBuyChoice` / `spudShopDangerWords`)
+  for the 200-local reason and because the harness slices and runs them directly
+  (`tools/shop_click_test.py`, 36 checks + 9 ties). `shownPurchase()` still reads
+  the joined text — it only *locates* the dialog container to close and never
+  clicks what it finds.
 - **The shop closes itself after a buy** (v1.96, owner 2026-10-31: *"after it
   buys a seed can you make it close the ui"*). The old close step searched the
   whole `GuiViews` tree for a "close" button and then pressed F whenever **any**
@@ -4080,10 +4120,78 @@ the ratio the report was about: on a part-worked field
 blade is N studs off stop` line now appears on a ragged field it is the honest
 kind (the blade really missed), not the silence of a mis-centred block.
 
-**Where it stands:** `rebuild v1.140 · fluent gui`, whole suite green (37/37),
+**The seed shop pressed a control that read `Delete Farm` (v1.141).** This one
+came out of the standing directive — drive MuMu myself and keep the build
+bug-free while the owner is away — not from a report. The buffer had the click
+and its answer next to each other:
+
+```
+seed shop: clicking Players.ok_simba3.PlayerGui.GuiViews.HUD.Notifications.ConfirmAction.Content.ConfirmButton ('Delete Farm') — the Purchase button
+seed shop: the menu is still showing after 267 visible control(s) — nothing bought.
+```
+
+**Root cause, read from the source, and it is a name/label confusion — the same
+family as v1.135's `Tempo L16`, run backwards.** `guiTextOf(btn)` returns the
+control's `Text`, else the first non-empty `TextLabel` descendant, else
+**`btn.Name`**; `harvestMenu` then put `label .. " " .. g.Name:lower()` into one
+`text` field and the picker matched buy words against that join. So `confirm`
+arrived from the **instance name** `ConfirmButton` and outranked the label the
+player actually reads — `Delete Farm` — and the old `forbidden` list
+(`robux`, `premium`, `gems`, `close`) held **no destructive word at all**. When
+nothing matched, the **third tier clicked the first usable control**, which on
+that screen meant picking one of 267. Three things were wrong and all three are
+now rules (§3.13): a **danger** word in *either* half refuses the click (the new
+list adds `sell`, `cancel`, `back`, `exit`, `delete`, `destroy`, `remove`,
+`reset`, `unsubscribe`, `leave`); a **buy** word counts in the **label**, and the
+name may speak only when the label cannot — i.e. when `label == name`, the
+image-only Purchase control v1.113 proved this game really draws, which is why
+the fallback exists and why throwing it away would break the working buy; and
+**there is no third tier**. A buy-shaped control that is also dangerous is not
+swallowed, it is named (`a buy-shaped control was REFUSED, not clicked — …`), and
+when nothing on screen reads as a buy the run prints the visible labels and
+`clicking nothing` — the honest dead end the repo's own rule 7 asks for, instead
+of a second destructive press. `harvestMenu` keeps `label` and `name` as separate
+fields now, and the **Shop counter** probe was fixed with the same two
+predicates, because a probe that clicks what the farm refuses to click is worse
+than no probe. `shownPurchase()` deliberately still reads the joined text: it
+only *locates* the dialog's container so the close step can shut it, and never
+clicks what it finds (rule 16).
+
+New `tools/shop_click_test.py` (36 checks + 9 ties) runs the **real** tier block —
+sliced out of `buySeedAndFill` and wrapped so its `break` is legal — against
+fixtures that carry a label and a name apart. The ones that carry weight: the
+incident itself (`spudShopBuyChoice("Delete Farm", "ConfirmButton")` is **false**
+and `spudShopDanger` returns `"delete"`, and the block clicks neither); a control
+whose name says `deletefarmbutton` but whose label says `confirm` is **refused
+and logged**; `("Purchase", "CancelPurchase")` is refused on the name alone; the
+real buys still get clicked, `why` and all (`purchase` → `the Purchase button`,
+plus `buy now`, `confirm`, `checkout`); the image-only case still works
+(`purchasebutton`/`purchasebutton`, `("", "buyseeds")`) while `("", "")` and
+`(nil, nil)` are never a buy; `buy with robux` is buy-shaped **and** refused; the
+seed tile tier still earns its click (`why == "the Wheat tile"`) but a
+`cancelbutton` tile is refused; and with two candidates — a refused one in front
+of a safe Purchase — the safe one wins rather than the first. The ties refuse the
+build if `isPurchase`, `forbidden(` or the `first usable control` tier comes
+back, if either predicate is handed `b.text` instead of `(b.label, b.name)`, or if
+`harvestMenu` stops recording the two halves separately.
+
+Compile OK, suite **38/38** (35 harnesses + 3 gates), headroom **5** (unchanged —
+`spudShopDangerWords`/`spudShopDanger`/`spudShopBuyChoice` are global
+assignments, the split record is inside `harvestMenu`'s own prototype, and the
+tier rewrite reuses `target`/`why`/`refused`), name audit clean **384**. **Harness
+green — NOT reloaded in game.** Same buffer, four things noticed and deliberately
+**not** changed (rule 4: they need evidence, not my guess): the seed pass was
+buying **Rice** with no `seed default: Tomato` line anywhere (v1.135's verdict
+still open), `remote seed: fired 9 of 2105 … 0 took` is the **pre-v1.140** grid on
+a stale build, `tool HorschJoker has no hitch point (309 instance(s) read)` is
+v1.135's own honest rule-7 line doing its job, and
+`the seed crate didn't come up on attempt 1 (hands still empty) — the game offers: Carry`
+is a carry the game did not take on the first try and did on a later one.
+
+**Where it stands:** `rebuild v1.141 · fluent gui`, whole suite green (38/38),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **The client ran v1.138** for the Company-orders press above (unload +
-one re-EXECUTE of "faf", session 3), so **v1.140 is the build the next reload
+one re-EXECUTE of "faf", session 3), so **v1.141 is the build the next reload
 brings in**; the v1.138 report header proved **Run all** works on it, and every
 verdict below that was waiting on a *reload* is now waiting on a *run*, not on a
 load. **v1.134

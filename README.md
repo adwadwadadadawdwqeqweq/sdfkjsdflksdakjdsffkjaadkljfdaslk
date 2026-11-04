@@ -382,7 +382,33 @@ Everything merged into one paste-and-run file:
   a price this run has already read`) instead of paying another 1,000-stud hop to
   rediscover it. The balance is re-read at every check, so the cache remembers
   the price and never the verdict: sell a load and the same seed is buyable
-  again. After a
+  again. **What the till clicks is decided by its own words** (v1.141, live). A
+  purchase dialog is open, and the build used to match a button by joining its
+  readable label and its instance **name** into one string — so a control whose
+  name is `ConfirmButton` but whose label on screen reads **`Delete Farm`**
+  matched "confirm" and was clicked as "the Purchase button":
+
+  ```
+  seed shop: clicking …ConfirmAction.Content.ConfirmButton ('Delete Farm') — the Purchase button
+  seed shop: the menu is still showing after 267 visible control(s) — nothing bought.
+  ```
+
+  An instance name is not a label, and a name that says *Confirm* tells you
+  nothing about what the button does. The two are read and judged separately now:
+  a **danger** word (`robux`, `premium`, `gems`, `sell`, `cancel`, `close`, `back`,
+  `exit`, `delete`, `destroy`, `remove`, `reset`, `unsubscribe`, `leave`) in
+  **either** half refuses the click, and a **buy** word (`purchase`, `buy`,
+  `confirm`, `checkout`) only counts in the label — the name is consulted when the
+  label cannot speak, which is the image-only control this game really draws. A
+  buy-shaped control that is also dangerous is not skipped quietly, it is logged
+  (`a buy-shaped control was REFUSED, not clicked — …`), because a shop that will
+  not take money needs naming. And the last tier is **gone**: the old build, given
+  267 visible controls and nothing buy-shaped, clicked the first usable one. Now
+  it clicks nothing and prints what is on screen
+  (`nothing on screen reads as a buy of Wheat (267 visible button(s): …) —
+  clicking nothing`), which is the answer the next run needs rather than a second
+  destructive press. The **Shop counter** probe reads a control the same way, so
+  the probe can no longer click what the farm refuses to. After a
   seed is bought the **shop menu is closed** on the way out: the open menu is
   read from `GuiViews.Menus`, its own close control is clicked inside it, the
   result is re-read, and F is only the fallback — so the UI does not stay up
