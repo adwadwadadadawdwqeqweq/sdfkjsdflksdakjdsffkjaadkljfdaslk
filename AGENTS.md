@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.147 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.148 ·
   fluent gui` (`VERSION`, line 15). ≈14k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -119,7 +119,10 @@ description — it is the long-form manual and it is kept in sync with behaviour
     nested helper, and no global was added. v1.146 spent **nothing** either:
     its three new names (`near`, and the `nm`/`d` of its own walk) are locals
     of `spudHitchMissText`, which is already a global. v1.147 spent **nothing**
-    either: its one new name is the global `spudBlockPause = 100`. Do **not**
+    either: its one new name is the global `spudBlockPause = 100`. v1.148 spent
+    **nothing** either: every new name (`hungry`, `settled`, and the fill loop's
+    `seeder2`/`have2`/`cap2` and `seederEnd`/`heldCap`) is a local of the function
+    it serves — `seedCheck` and the buy path — not the build closure. Do **not**
     add a `local` inside the main build closure. Reuse an existing local,
     convert the feature to a **global** (the established pattern), or
     restructure — and re-run the budget.
@@ -192,10 +195,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 38/38 checks on v1.147
+python tools/run_all.py        # 38/38 checks on v1.148
 ```
 
-Last full run (v1.147): **38/38 checks passed** (35 harnesses + 3 gates).
+Last full run (v1.148): **38/38 checks passed** (35 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment a script contained a string with those three
@@ -1159,6 +1162,29 @@ ReplicatedStorage.Modules.Larry.FNCFillSeeder:InvokeServer(Workspace.Objects.Equ
     and the round line says both numbers:
     `round N poured 100 more from 2 crate(s) (50 a crate)`. The short-pour line
     prints the size it planned on too.
+  - **…and the tank is filled BEFORE the field, until the money says stop**
+    (v1.148, owner: *"it should fill untill max or there is not mroe moeny"*,
+    asked a third time as *"it's not filling the seeder all the way full before
+    starting to seed"*). Two ways the build started planting on a partly-full
+    machine. **(a)** `seedCheck` returned "ready" on **any** seed —
+    `if count > 0 then … going to hitch it; return true` — so a seeder the last
+    pass left at 48/600 went to the field and planted 48 cells. In the planting
+    stage that branch now asks the machine: `hungry = allowBuy and cap and cap >
+    0 and spudSeederWantsMore(count, cap)`, and a hungry tank falls through to
+    the fill instead of returning true. **(b)** an empty tank made **one** trip
+    and went — live: `✅ the seeder holds 50 seed(s) now — seeding this run`
+    then `remote seed: fired 48 of 1898 cell(s) … 48 took`. `seedCheck` now
+    loops the proven trip while the tank still reads room, counting each
+    iteration against the same scaled ceiling, and the owner's "or there is not
+    more money" is already the trip's price gate: an unaffordable crate returns
+    false without spending, so the loop ends on the wallet rather than hammering
+    it. The end line says which stop it hit — `the tank is full, seeding this
+    run`, or `the money or the trip budget stopped the fill — planting with what
+    it holds`. **A balance the log prints is the wallet, not a frame of the
+    animation** (same build): the buy line reported `129026 → 87069` for a
+    120,000 crate whose real remainder was **9,026** — the proof-of-purchase
+    breaks on the first drop it sees and the HUD counter ticks down — so the
+    report now takes one settled re-read while the drop stays the proof.
 - **Buying seeds from anywhere is NOT a thing** (owner: *"in earlier explot check
   diddnt you say that we could buy seedcs from anywhere? if no then drop it"*).
   It was never measured — the only answered shop questions are **Fill from afar**
@@ -1850,7 +1876,7 @@ order-shaped, so **the board is not in the world and not on screen from the fiel
 | Tree soil | global `spudTreeField(typeName, modelName)` (wood/tree/log/forest/timber/lumber/sawmill/stump → no crop harvest) and `spudNoCells(st)` (successful 0-cell read is empty, `nil` read is unknown); used in `probeWork`, `runPass`, `needLeft`, `grownLeft`, growth wait |
 | Field remotes | global `spudFieldRemoteKit()` (Modules.Larry: plow/cultivate/seed/harvest/fillSeeder), `spudFieldCellIds(field, stage)` (GetCells keys), `spudToolAttachment(impl)`, `spudFieldRemoteCall`, `spudFieldRemoteCallMany` (Tests batch), `spudFieldRemotePass` (fires, re-reads, self-disables a job), `spudRadialFire` (one EQUAL square per stop, sized by global `spudBlockSide(spudFieldTaken)` — the blade re-aims until it lands, fires that block's cells and skips a block it demonstrably missed, serpentine order), `spudHopCells` (one teleport per cell — the tween sweep was deleted in v1.95), `spudFillSeederRemote`; the tow gate `spudWaitTool(ride, att, who)` + `spudToolTrail` (constants `spudToolSwing = 3`, `spudToolFar = 90`) runs before **every** move, and the move itself is global `spudPivotRig(ride, cf, tool)` — pivot the ride, then translate the implement by the same delta (§3.12); the width helper `spudToolExtraTiles(impl)` scales **only** `spudFieldReach` (the block sizes off `spudFieldTaken = 20`, the band that was measured to take); state `spudFieldRemoteState`, `spudBatchRemotes` (Tests toggle, **default true** since v1.88); wired at the top of `sweepField` and in `buySeedAndFill` |
 | Tow anchor | **there is no weld** (v1.133 added one, v1.134 deleted it — §3.12). The anchor is global `spudPivotRig(ride, cf, tool)` alone: pivot the ride, translate the implement by the same delta, keep its own rotation. `spudAnchorTool` / `spudUnanchorTool` / `spudAnchor` must not come back, and the only `SetNetworkOwner` in the build is `claimOwnership(tr)` on the ride the player drives; `tools/tow_anchor_test.py` is the guard |
-| Seed fill | globals `spudCratesPerTrip` (**2** crates a town visit), `spudSeedsPerCrate` (**learned** from a real pour, nil until then), `spudCrateSeedCount(crate)`, `spudCrateHasSeed(n)`, and the pure arithmetic `spudSeedTripsNeeded(cap, have, perCrate, cratesPerTrip)` / `spudSeedTripCeiling(needed, floorMax)` / `spudSeederWantsMore(count, cap)` / `spudCratesInHand()` (`CarryLinks` children) — v1.133: the pour runs to the machine's own `MaxCapacity` and the trip budget scales to it instead of the constant 4; wired in `seedCheck`, the `seedCrateIntoSeeder` loop, the second-crate block and `seedPasses`' `refillsMax`. **The standing pick** (v1.135, §3.15) is remembered `spudSavedSeed` (only while the game still offers it) → **Tomato** by folded name against the game's own `FieldHelper.SEED_TYPE` → the game's **first crop** (lowest `SEED_TYPE` id) → `list[1]`, and `seed default: …` says which rule won. **A bounded round** (v1.135): `seedPasses` counts rounds that take nothing (`leftStuck >= 2` on `after >= leftWas`) and ends with `N cell(s) still need seed after 2 round(s) that took nothing — leaving them for the next pass`; a refill resets the count. **The cap is remembered** (v1.143): global `spudSeederCap` (written only by a readable, positive `MaxCapacity` inside `seederSeedState`) and global `spudSeederCapFor(cap, remembered)` — a fresh read wins, else the remembered one with `via == "remembered"`, else **nil** — are what **both** trip budgets plan on, so a 600-slot tank that streams badly is planned on the size this build already saw rather than collapsing to the floor's 4; and `seedCrateIntoSeeder` prints a seeds-left + town-visits line when the hands empty on a hungry tank instead of letting `✅ seeder now holds 50/600` read as loaded. **The visits count crates the trip ACTUALLY bought** (v1.144): global `spudCratesTripGot` (set to `1 + extraCrates` at the end of a confirmed buy) and global `spudCratesTripActual()` (the learned count, never above the ask, the constant until a trip has finished) are what **every** trip budget divides by — `spudCratesPerTrip` stays only the request the second-crate loop makes, so a till that refuses the second box plans 12 visits for a 600 tank instead of six that can carry 300. **One fill is not one crate** (v1.145): `FNCFillSeeder` drains every crate in hand, so both pour sites divide the rise by the crates `spudCratesInHand()` lost (`perCrate` / `perCrate2`), never by the press — a 1→101 pour used to teach a 100-seed crate and halve every trip plan that read it |
+| Seed fill | globals `spudCratesPerTrip` (**2** crates a town visit), `spudSeedsPerCrate` (**learned** from a real pour, nil until then), `spudCrateSeedCount(crate)`, `spudCrateHasSeed(n)`, and the pure arithmetic `spudSeedTripsNeeded(cap, have, perCrate, cratesPerTrip)` / `spudSeedTripCeiling(needed, floorMax)` / `spudSeederWantsMore(count, cap)` / `spudCratesInHand()` (`CarryLinks` children) — v1.133: the pour runs to the machine's own `MaxCapacity` and the trip budget scales to it instead of the constant 4; wired in `seedCheck`, the `seedCrateIntoSeeder` loop, the second-crate block and `seedPasses`' `refillsMax`. **The standing pick** (v1.135, §3.15) is remembered `spudSavedSeed` (only while the game still offers it) → **Tomato** by folded name against the game's own `FieldHelper.SEED_TYPE` → the game's **first crop** (lowest `SEED_TYPE` id) → `list[1]`, and `seed default: …` says which rule won. **A bounded round** (v1.135): `seedPasses` counts rounds that take nothing (`leftStuck >= 2` on `after >= leftWas`) and ends with `N cell(s) still need seed after 2 round(s) that took nothing — leaving them for the next pass`; a refill resets the count. **The cap is remembered** (v1.143): global `spudSeederCap` (written only by a readable, positive `MaxCapacity` inside `seederSeedState`) and global `spudSeederCapFor(cap, remembered)` — a fresh read wins, else the remembered one with `via == "remembered"`, else **nil** — are what **both** trip budgets plan on, so a 600-slot tank that streams badly is planned on the size this build already saw rather than collapsing to the floor's 4; and `seedCrateIntoSeeder` prints a seeds-left + town-visits line when the hands empty on a hungry tank instead of letting `✅ seeder now holds 50/600` read as loaded. **The visits count crates the trip ACTUALLY bought** (v1.144): global `spudCratesTripGot` (set to `1 + extraCrates` at the end of a confirmed buy) and global `spudCratesTripActual()` (the learned count, never above the ask, the constant until a trip has finished) are what **every** trip budget divides by — `spudCratesPerTrip` stays only the request the second-crate loop makes, so a till that refuses the second box plans 12 visits for a 600 tank instead of six that can carry 300. **One fill is not one crate** (v1.145): `FNCFillSeeder` drains every crate in hand, so both pour sites divide the rise by the crates `spudCratesInHand()` lost (`perCrate` / `perCrate2`), never by the press — a 1→101 pour used to teach a 100-seed crate and halve every trip plan that read it. **The tank is filled before the field** (v1.148): `seedCheck`'s planting branch asks `spudSeederWantsMore(count, cap)` instead of returning ready on `count > 0`, and loops `buySeedAndFill` while the machine reads room — each iteration counted against the scaled `tripsCeiling`, and the trip's own price gate is the "not more money" stop. The buy line reports a **settled** `coinBalance()` re-read (the drop is still the proof) |
 | Tests tab | `spudTestRun(kind)` (busy guard + pcall), `spudTestWork(kind)` (`remotes` / `fieldremotes` / `growth` / `shop` / **`orders`** — v1.138, §3.18), `spudTestRunAll`, `spudTestCopy` (`setclipboard`, test run + last 60 farm lines), `spudTestCopyConsole` (`setclipboard`, last 150 farm lines only), `spudTestSay`, `spudTestLog`, `spudTestPara`/`spudTestShow`; buttons **Remote list**, **Field remotes**, **Grow now** (v1.123), **Shop counter** (v1.103), **Company orders** (v1.138), **Run all**, **Copy report**, **Copy console** (the settled one-shots were removed in v1.60, **Wrong tool** in v1.69, **Lift test** in v1.74, **Tool apart** in v1.80) |
 | Equipment remotes | global `spudEquipRemoteKit/State` (enter/hitch/unhitch/spawn/store/carry/drop/sell/purchase), `spudEquipRemoteCall`, `spudEquipRemoteMiss`, `spudEquipRemoteAct` (spawn/store proof — v1.135: it looks the model up **by folded name**, and every way out **names itself** — no kit, no model in `Objects.Equipment` (with the child count read), already in that state, the action switched off after 3 ignored calls, the remote not in this build, the call threw), `spudEnterRemote`, `spudHitchParts`, `spudHitchRemote`, `spudUnhitchRemote`, `spudCarryRemote`, `spudDropRemote`, `spudSellRemote`, `spudPurchaseRemote`; wired in `managerAction`, `mountTractor`, `attemptHitch`, `dropImplementAtOrigin`, `carryCrate`, the two held-item drops, `trySellAt` and `buySeedAndFill`. **`managerAction` card search** reads `GarageMenu.Background.Content.Cards` by **prefixed folded key**, and a miss clicks the game's own **`All` tab** (`Content.Tabs`, through its own handler, no mouse) and re-polls before declaring the card absent — the Cards list is filtered to the tab the game last showed (§3.13). **v1.144**: that search gathers **every** card carrying the folded name and answers the `which`-th (wrapping) — the live list shows `Tempo L16` **twice** — `managerAction(vehicleName, action, which)` carries the attempt number, and `storeOne` passes it, so a store retry cannot click the same twin five times; its final refusal names the instance it still holds and `spudEquipHereText()`. **v1.143** adds two globals the buy and the carry each refused on: `spudShopBuyPick(cands)` — the picker the tier block hands **every** safe buy-shaped control to, so a `PalletStoreMenu`/`forklift` path is passed over for the real dialog and a till-only screen clicks nothing (§3.13) — and `spudOfferSaysCarry(acts)` beside the global `spudCarryNear = 8`, which `carryCrate` uses to stand **beside** the crate (a teleport *onto* one throws the player off it, §5 v1.108) and ask the game what it offers before pressing, logging its verdict **verbatim** and pressing anyway when the read is nil (§3.13) |
 | Hitch line-up | global `hitchPoint(model, folder, child)` — the named attachment, else the game's own socket `Attachment.WorldCFrame`, else the best-ranked hitch `BasePart` from `findHitchPart`; `lineUpHitch(ride, plow, newPivot, airborne)` measures **both** the ride's `Components.Hitchable` and the tool's `Chassis.HitchableSocket` (the exact pair the captured `FNCAttemptHitch` takes) and, with nothing to measure, calls global `spudHitchMissText(model)` — the model name, how many descendants the client actually has and whether it is still in the world (rule 7). The pre-park line-up carries the tow through the pivot; the pre-hitch arc does not |
@@ -4747,12 +4773,76 @@ not a grep: `the beat is the owner's 100 ms, not a guessed sleep`,
 **393**. **Harness green — NOT reloaded in game**, and the verdict is the grid's
 own timing: the same `fired N of N … 3x3 per stop` result, 0.1 s slower a stop.
 
-**Where it stands:** `rebuild v1.147 · fluent gui`, whole suite green (38/38),
+**"again, it's not filling the seeder all the way full before starting to seed"
+— fill the tank, then plant (v1.148).** The owner reported the same symptom a
+third time, and this time the live buffer said plainly that the arithmetic was
+no longer the problem — the **order of operations** was:
+
+```
+seeder fill: the hands are empty and the tank still wants 550 seed(s) of 600 —
+             11 more town visit(s) at 1 crate(s) a trip, 50 seed(s) a crate
+seed crate: the second Potato crate costs 120000 and the balance is 9026 after
+            the first buy — stopping at the crate that is paid for
+✅ the seeder holds 50 seed(s) now — seeding this run (no second run needed)
+remote seed: fired 48 of 1898 cell(s) from 221 stop(s), 3x3 per stop — 48 took, 1850 left
+still 1850 cell(s) across 1 field(s) need seed after 5 refill(s) — stopping this pass
+run ended — the last stage it reached was: shop trip: the seeder is empty
+```
+
+`50 seed(s) a crate` and `11 more town visit(s)` are v1.145's fix working, and
+the single-crate delivery is the **price gate doing its job** — a Potato crate is
+120,000 and the balance was 9,026. So the tank could not be filled by money
+that run, but it also would not have been filled by *behaviour*: two defects in
+`seedCheck`, both read from the source.
+
+**(a) Any seed counted as ready.** `if count > 0 then … going to hitch it;
+return true` — a machine the previous pass left at 48/600 went straight to the
+field and planted 48 cells. In the planting stage the branch now asks the
+machine itself (`hungry = allowBuy and cap and cap > 0 and
+spudSeederWantsMore(count, cap)`) and a hungry tank falls through to the fill.
+Outside the planting stage (`allowBuy` false) it still returns ready without
+spending — the read-only rule from v1.116 is untouched.
+
+**(b) One trip, then plant.** An empty tank bought one crate and left, because
+the trip is one call and the pour stops when the hands are empty. `seedCheck`
+now loops the **same proven trip** while the tank reads room, counting every
+iteration against the scaled ceiling the arithmetic already computes (11 for a
+550-seed shortfall at one crate a trip). The owner's *"or there is not mroe
+moeny"* needed no new code: the trip's own price gate refuses an unaffordable
+crate **without spending** and returns false, so the loop ends on the wallet
+rather than hammering a 120,000-coin till it cannot pay. The end line names
+which stop it hit, because `the seeder holds 50 seed(s) now — seeding this run`
+was the line that made all of this look like success.
+
+**And the balance the log prints was not the wallet.** `seed shop: balance
+129026 → 87069` sat next to `the balance is 9026 after the first buy` in the
+same trip, and 129,026 − 120,000 is exactly 9,026: the proof-of-purchase breaks
+on the **first drop it sees**, and the HUD's coin counter animates down, so the
+captured number was a frame of the animation. The drop stays the proof; the
+reported figure is now a settled re-read, because these are the numbers the
+owner reads to decide whether a fill is affordable.
+
+Compile OK, suite **38/38**, headroom **5** (unchanged — `hungry`, `settled`,
+`seeder2`/`have2`/`cap2` and `seederEnd`/`heldCap` are all locals of the
+function they serve), name audit clean **393** (no new global).
+`tools/seed_refill_test.py` gained five ties that refuse the old shapes: a
+`count > 0` return without the `hungry` question, a fill path that is not a
+loop, a loop that does not count its own trips, and `after = after or
+coinBalance()` as a report. **Harness green — NOT reloaded in game.** The
+verdict is the trip line: `seeder fill: 50/600 — back to town for more Potato
+(trip 2 of 11)`, ending either at `the tank is full, seeding this run` or at
+the honest `the money or the trip budget stopped the fill — planting with what
+it holds`. **Practical note the owner should decide on, not this build:** at
+120,000 a crate, a full 600-slot Potato tank is **1,440,000 coins** of seed for
+600 planted cells, and the balance in that buffer was 9,026 — the fill will stop
+on the wallet every time until the farm is earning again.
+
+**Where it stands:** `rebuild v1.148 · fluent gui`, whole suite green (38/38),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **The newest build proven in the client is v1.142** — the owner's
 pasted console header reads `place 2772610559 · player ok_simba3 · rebuild
-v1.142 · fluent gui`, which also settles v1.141's reload — so **v1.147 is the
-build the next reload brings in**, and **v1.143 through v1.147 are all
+v1.142 · fluent gui`, which also settles v1.141's reload — so **v1.148 is the
+build the next reload brings in**, and **v1.143 through v1.148 are all
 harness green, not proven in game**; every verdict below that was waiting on a
 *reload* is waiting on a *run*, not on a load. The live buffer read on
 2026-11-04 carries v1.143's short-pour line

@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.147 · fluent gui"
+local VERSION    = "rebuild v1.148 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -4978,7 +4978,16 @@ local okBuild, errBuild = pcall(function()
         end
         -- final settle + one last read of both signals
         task.wait(0.4)
-        after = after or coinBalance()
+        -- ▸ THE NUMBER THE LINE PRINTS IS THE SETTLED ONE (live 2026-11-04).
+        --   The loop above breaks the moment the balance is seen to DROP, and
+        --   the HUD's coin counter ANIMATES down, so the captured `after` read
+        --   87069 on a 120000 purchase from 129026 — the wallet really sits at
+        --   9026, which is exactly what the next trip's own price gate read.
+        --   The drop stays the proof; the report must not be one frame of the
+        --   animation, because the owner reads these numbers to decide whether
+        --   the tank can be afforded.
+        local settled = coinBalance()
+        if settled then after = settled end
         if not box and crateCount() > cratesBefore then
             box = string.format("%s crate count %d → %d", seedName, cratesBefore, crateCount())
             bought = true
@@ -5306,10 +5315,25 @@ local okBuild, errBuild = pcall(function()
                 kind and kind ~= "" and (" (" .. kind .. ")") or "",
                 seeder:GetAttribute("InStorage") and ", in storage" or "")
             if count > 0 then
-                log("seeder has " .. label .. " — going to hitch it")
-                return true
+                -- ▸ A PARTLY-FULL TANK IS NOT A FULL ONE (owner 2026-11-04, the
+                --   same report a third time: "it's not filling the seeder all
+                --   the way full before starting to seed"). This branch returned
+                --   true on ANY seed in the machine, so a seeder the last pass
+                --   left at 48/600 went straight to the field and planted 48
+                --   cells. In the PLANTING stage a tank that reads room is
+                --   topped up first — the same trip loop the empty case uses,
+                --   stopped by the same price gate.
+                local hungry = allowBuy and cap and cap > 0
+                    and spudSeederWantsMore(count, cap)
+                if not hungry then
+                    log("seeder has " .. label .. " — going to hitch it")
+                    return true
+                end
+                log(string.format("seeder has %d/%d and the tank still reads room — topping it up first (%s)",
+                    count, cap, exitIntent))
+            else
+                log("seeder is EMPTY: " .. label .. " — " .. exitIntent)
             end
-            log("seeder is EMPTY: " .. label .. " — " .. exitIntent)
         elseif not seeder then
             log("no seeder the game calls a Planter is readable (" .. spudEquipHereText()
                 .. ") — seed state unknown — " .. exitIntent)
@@ -5365,7 +5389,7 @@ local okBuild, errBuild = pcall(function()
             spudSeedsPerCrate, cratesPerTrip)
         local tripsCeiling = spudSeedTripCeiling(tripsNeeded, spudSeedTripsMax)
         if not spudSeedTripAllowed(seedShopTries, tripsCeiling) then
-            log(string.format("the seeder is still empty and this run already made %d shop trip(s) (the cap is %d, planned on a %s tank of %s at %d crate(s) a trip) — not teleporting again (pick a different seed, or fill it by hand)",
+            log(string.format("the seeder still wants seed and this run already made %d shop trip(s) (the cap is %d, planned on a %s tank of %s at %d crate(s) a trip) — not teleporting again (pick a different seed, or fill it by hand)",
                 seedShopTries, tripsCeiling,
                 capVia == "remembered" and "remembered" or (capPlan and "read" or "unreadable"),
                 tostring(capPlan), cratesPerTrip))
@@ -5377,7 +5401,10 @@ local okBuild, errBuild = pcall(function()
         --   EMPTY seeder + a picked seed + real planting to do = buy it.
         --   The old start-of-run call is now report-only (user: "it should
         --   only buy seeds when it is at the planting loop").
-        log(string.format("the seeder is empty — going to buy %s (%d cell(s) need seed right now)",
+        log(string.format("%s — going to buy %s (%d cell(s) need seed right now)",
+            (count and count > 0) and string.format("the seeder holds %d seed(s) of %s",
+                count, tostring(capPlan or cap))
+                or "the seeder is empty",
             seedChoice, needCells))
         -- the fill at the shop only works on a seeder that is OUT in the
         -- world — bring it back from storage first. If that fails, do NOT
@@ -5393,6 +5420,33 @@ local okBuild, errBuild = pcall(function()
         setStage("shop trip: buying " .. tostring(seedChoice) .. " seeds")
         local bought = buySeedAndFill(seedChoice)
         if stopping() then return false end
+        -- ▸ FILL IT TO THE TOP BEFORE PLANTING (owner 2026-11-04: "it should
+        --   fill untill max or there is not mroe moeny"). One trip buys
+        --   `spudCratesPerTrip` crates and the pour stops when the hands are
+        --   empty, so a 600-slot tank with 50-seed crates used to leave the
+        --   shop holding 50 and go plant anyway — the live console said
+        --   `the seeder holds 50 seed(s) now — seeding this run` and then
+        --   `fired 48 of 1898 cell(s) … 48 took`. Keep going back to town
+        --   while the machine still reads room. The owner's "or there is not
+        --   more money" is already the trip's own price gate: an unaffordable
+        --   crate returns false without spending, so this ends on the wallet
+        --   instead of hammering it, and the scaled trip ceiling
+        --   (11 visits for a 550-seed shortfall) is the other stop.
+        while bought and not stopping() do
+            local seeder2 = findImplement("Planter", tr:GetPivot().Position, tr)
+            local have2, cap2
+            if seeder2 then have2, cap2 = seederSeedState(seeder2) end
+            if not (have2 and cap2 and spudSeederWantsMore(have2, cap2)) then break end
+            if not spudSeedTripAllowed(seedShopTries, tripsCeiling) then
+                log(string.format("the seeder reads %d/%d and this run's %d shop trip(s) are spent — planting with what it holds",
+                    have2, cap2, seedShopTries))
+                break
+            end
+            seedShopTries += 1
+            log(string.format("seeder fill: %d/%d — back to town for more %s (trip %d of %d)",
+                have2, cap2, tostring(seedChoice), seedShopTries, tripsCeiling))
+            bought = buySeedAndFill(seedChoice)
+        end
         -- ▸ GET BACK IN AND SEED (user's step list ends with it: "get back in
         --   and seed"). The shop trip leaves the character on foot next to
         --   the seeder; walk back, sit down, and the check-back re-enters the
@@ -5424,7 +5478,12 @@ local okBuild, errBuild = pcall(function()
         --   seeds in THIS run, which is the whole point of the trip.
         local held = seederSeeds(tr)
         if held and held > 0 then
-            log(string.format("✅ the seeder holds %d seed(s) now — seeding this run (no second run needed)", held))
+            local seederEnd = findImplement("Planter", tr:GetPivot().Position, tr)
+            local heldCap = seederEnd and (seederSeedState(seederEnd)) or nil
+            log(string.format("✅ the seeder holds %d%s seed(s) now — %s",
+                held, heldCap and ("/" .. heldCap) or "",
+                (heldCap and held >= heldCap) and "the tank is full, seeding this run"
+                    or "the money or the trip budget stopped the fill — seeding with what it holds"))
             return true
         end
         log(bought

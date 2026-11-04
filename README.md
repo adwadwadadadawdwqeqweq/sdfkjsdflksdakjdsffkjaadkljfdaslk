@@ -383,8 +383,23 @@ Everything merged into one paste-and-run file:
   trips scales to fix. by the way you can carry to seed crates at once"*, v1.133):
   the pour keeps carrying crates to the till and pouring them until the seeder
   reads `Capacity == MaxCapacity`, so a 600-slot machine gets 600 seeds instead of
-  the first box's 50. The shop-trip budget **scales to that arithmetic** instead of
-  staying the old constant four: `spudSeedTripsNeeded(cap, have, perCrate,
+  the first box's 50. **Fill the tank before the field, not one crate of it**
+  (v1.148, owner: *"it should fill untill max or there is not mroe moeny"*): two
+  things used to start planting on a partly-full machine — the check returned
+  "ready" on **any** seed in it, so a seeder the last pass left at 48/600 went out
+  and planted 48 cells, and an empty one made **one** town trip, took the 50 seeds
+  that trip delivered, and went anyway. In the planting stage the run now tops the
+  machine up first: it re-reads the tank after each trip and goes back to town
+  while it still reads room, and it stops on either half of the owner's rule — the
+  till's own price gate (an unaffordable crate is refused without spending, so the
+  loop ends on the wallet) or the scaled trip ceiling (`the seeder reads 400/600
+  and this run's 11 shop trip(s) are spent — planting with what it holds`). The
+  line that used to read `the seeder holds 50 seed(s) now — seeding this run` now
+  says which of those it ended on. Related: the purchase line reported the **first**
+  balance read after the click, and the HUD's coin counter animates down, so a
+  120,000 crate bought from 129,026 printed `→ 87069` while the wallet sat at 9,026
+  — the drop is still the proof, but the number printed is now the settled one.
+  The shop-trip budget **scales to that arithmetic** instead of  staying the old constant four: `spudSeedTripsNeeded(cap, have, perCrate,
   cratesPerTrip)` works out `ceil(ceil(room / perCrate) / cratesPerTrip)` trips and
   `spudSeedTripCeiling` only ever **raises** the old floor (4 for the entry check, 3
   for a mid-field refill), so a machine whose capacity no crate can cover still

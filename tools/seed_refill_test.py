@@ -576,6 +576,38 @@ def main() -> int:
     else:
         print(f"{'the visit budget plans on crates actually bought':<56} PASS")
 
+    # ── v1.148: FILL TO MAX BEFORE PLANTING (owner: "it should fill untill max
+    # or there is not mroe moeny"). Two separate ways the build used to start
+    # planting with a partly-full tank: it returned true on ANY seed in the
+    # machine, and it made ONE town trip for an empty one and went anyway.
+    check_region = region(src, "local function seedCheck(", "local function seedHitchStep(")
+    if "local hungry = allowBuy and cap and cap > 0" not in check_region:
+        fails.append("a seeder holding any seed is still 'full enough' — the "
+                     "48/600 tank goes to the field and plants 48 cells")
+    elif "spudSeederWantsMore(count, cap)" not in check_region:
+        fails.append("the planting-stage check never asks the machine whether "
+                     "it still reads room")
+    elif "while bought and not stopping() do" not in check_region:
+        fails.append("the trip is still a one-shot — an empty tank buys one "
+                     "crate and goes planting instead of filling to the cap")
+    elif check_region.count("seedShopTries += 1") < 2:
+        fails.append("the fill loop does not count its own trips — the ceiling "
+                     "cannot stop it and the wallet is hammered instead")
+    elif "bought = buySeedAndFill(seedChoice)" not in check_region:
+        fails.append("the fill loop does not re-run the proven trip — it would "
+                     "loop on a read that never changes")
+    else:
+        print(f"{'the tank is filled to max before the field, or until the money stops':<56} PASS")
+    if re.search(r"after = after or coinBalance\(\)", src):
+        fails.append("the purchase line still reports the FIRST balance read — "
+                     "the HUD counter animates, so 129026 → 87069 was printed "
+                     "for a buy that really left 9026")
+    elif "local settled = coinBalance()" not in src:
+        fails.append("no settled balance is read after a confirmed buy — the "
+                     "report is a frame of the animation, not the wallet")
+    else:
+        print(f"{'the buy line reports the settled balance':<56} PASS")
+
     with tempfile.NamedTemporaryFile("w", suffix=".lua", delete=False, encoding="utf-8") as fh:
         fh.write("\n\n".join(parts) + "\n" + POST)
         path = fh.name
