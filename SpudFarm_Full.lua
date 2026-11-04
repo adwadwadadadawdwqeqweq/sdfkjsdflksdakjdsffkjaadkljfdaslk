@@ -12,7 +12,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.144 · fluent gui"
+local VERSION    = "rebuild v1.145 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -4359,6 +4359,7 @@ local okBuild, errBuild = pcall(function()
             log(string.format("seeder fill: at the %s — the crate is %.0f studs away (%s)",
                 seeder2.Name, cD, cD >= 0 and (cD < 15 and "it came with us" or "it did NOT follow") or "gone"))
             local n0 = seederSeedState(seeder2)
+            local hand0 = spudCratesInHand()
             local viaRemote = spudFillSeederRemote(seeder2)
             log(string.format("seeder fill: %s — the seeder had %s seeds",
                 viaRemote and "FNCFillSeeder(seeder)" or "V (FillSeeder)", tostring(n0)))
@@ -4389,7 +4390,24 @@ local okBuild, errBuild = pcall(function()
                 --   at an empty box. The rise itself is what teaches the crate
                 --   size the trip ceiling uses.
                 local gave = n1 - n0
-                if gave > (spudSeedsPerCrate or 0) then spudSeedsPerCrate = gave end
+                -- ▸ ONE PRESS IS NOT ONE CRATE (live 2026-11-04, the owner's
+                --   "still only putting 100 seeds in"): `FNCFillSeeder` drains
+                --   EVERYTHING in hand in a single call — the console shows the
+                --   seeder at 1 seed, one fill line, no pour round at all, and
+                --   101/600 after a two-crate trip. The rise was being learned
+                --   as the size of ONE crate, so a 50-seed crate became 100 and
+                --   the tank's own arithmetic halved: 499 seeds left came out
+                --   as `3 more town visit(s)` (3 x 2 x 100) when the real
+                --   answer is 10 crates. Divide the rise by the crates the call
+                --   actually consumed, and keep the max so a half-poured box
+                --   cannot teach a size smaller than a full one.
+                local left = spudCratesInHand()
+                local ate = (hand0 and left and hand0 - left > 0)
+                    and (hand0 - left) or 1
+                local perCrate = math.floor(gave / ate)
+                if perCrate > (spudSeedsPerCrate or 0) then
+                    spudSeedsPerCrate = perCrate
+                end
                 local rounds = 0
                 while rounds < 4 * math.max(1, spudCratesPerTrip or 1)
                     and spudSeederWantsMore(n1, cap1)
@@ -4397,6 +4415,7 @@ local okBuild, errBuild = pcall(function()
                     if stopping() then break end
                     rounds += 1
                     local before = n1
+                    local beforeHand = spudCratesInHand()
                     local again = spudFillSeederRemote(seeder2)
                     if not again then pressKey(Enum.KeyCode.V) end
                     task.wait(1.0)
@@ -4417,9 +4436,19 @@ local okBuild, errBuild = pcall(function()
                         break
                     end
                     local gave2 = n1 - before
-                    if gave2 > (spudSeedsPerCrate or 0) then spudSeedsPerCrate = gave2 end
-                    log(string.format("seeder fill: round %d poured %d more — the seeder reads %d%s",
-                        rounds, gave2, n1, cap1 and ("/" .. cap1) or ""))
+                    -- the same rule as the first press: this round's rise is
+                    -- divided by the crates THIS call consumed, never called
+                    -- "one crate" because one press emptied two of them.
+                    local left2 = spudCratesInHand()
+                    local ate2 = (beforeHand and left2 and beforeHand - left2 > 0)
+                        and (beforeHand - left2) or 1
+                    local perCrate2 = math.floor(gave2 / ate2)
+                    if perCrate2 > (spudSeedsPerCrate or 0) then
+                        spudSeedsPerCrate = perCrate2
+                    end
+                    log(string.format("seeder fill: round %d poured %d more from %d crate(s) (%d a crate) — the seeder reads %d%s",
+                        rounds, gave2, ate2, perCrate2, n1,
+                        cap1 and ("/" .. cap1) or ""))
                 end
                 -- ▸ A CRATE IN THE HAND IS NOT A FULL TANK. When the hands are
                 --   empty and the machine still reads room, this trip is over —
@@ -4432,11 +4461,12 @@ local okBuild, errBuild = pcall(function()
                     local more = capFor and (capFor - n1) or nil
                     local visits = spudSeedTripsNeeded(capFor, n1,
                         spudSeedsPerCrate, spudCratesTripActual())
-                    log(string.format("seeder fill: the hands are empty and the tank still wants %s seed(s)%s — %s more town visit(s) at %d crate(s) a trip%s",
+                    log(string.format("seeder fill: the hands are empty and the tank still wants %s seed(s)%s — %s more town visit(s) at %d crate(s) a trip, %s seed(s) a crate%s",
                         more and tostring(more) or "an unreadable amount",
                         capFor and (" of " .. capFor .. (via == "remembered" and " (the cap read from earlier this build)" or "")) or "",
                         visits and tostring(visits) or "an unknown number",
                         spudCratesTripActual(),
+                        tostring(spudSeedsPerCrate or "an unreadable"),
                         visits and visits > 0 and "" or " — nothing more is carried"))
                 end
                 log(string.format("✅ seeder now holds %d%s seeds%s — the planting pass takes it from here",

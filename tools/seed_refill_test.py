@@ -316,6 +316,22 @@ check("and the ceiling raises the floor to that",
 spudCratesTripGot = 2
 check("a two-crate till still needs six",
     spudSeedTripsNeeded(600, 0, 50, spudCratesTripActual()) == 6)
+-- ── 9c. the crate size is per CRATE, not per PRESS (v1.145) ───────────────
+-- Live: the seeder read 1 seed, ONE FNCFillSeeder call ran, no pour round
+-- followed, and the tank read 101/600 — the call drained both crates in hand.
+-- Learning the crate size from that rise teaches 100, and a 499-seed shortfall
+-- then plans 3 visits (3 x 2 x 100) when the game sells 50 a crate: the owner's
+-- "still only putting 100 seeds in" is this arithmetic stopping early.
+check("the same shortfall with a 50-seed crate needs FIVE visits",
+    spudSeedTripsNeeded(600, 101, 50, 2) == 5,
+    tostring(spudSeedTripsNeeded(600, 101, 50, 2)))
+check("the two-crate rise read as one crate is the defect",
+    spudSeedTripsNeeded(600, 101, 100, 2) == 3,
+    tostring(spudSeedTripsNeeded(600, 101, 100, 2)))
+check("and 5 visits x 2 crates x 50 really does cover the tank",
+    5 * 2 * 50 >= 600 - 101)
+check("3 visits x 2 crates x 50 does NOT - it stops at 401",
+    101 + 3 * 2 * 50 < 600)
 spudCratesPerTrip = 1
 spudCratesTripGot = 2
 check("a stray count never exceeds what the build asks the till for",
@@ -455,13 +471,26 @@ def main() -> int:
 
     # The crate size must be LEARNED from a rise, never guessed: a guessed 50
     # would size every trip ceiling for a crate the game may have filled with 12.
+    # And since v1.145 the rise is divided by the crates the call CONSUMED —
+    # live, one FNCFillSeeder drained both crates in hand (1 seed -> 101/600,
+    # no pour round at all), so the raw rise taught the build that a 50-seed
+    # crate holds 100, and every tank was planned at half the visits it needs.
     if re.search(r"spudSeedsPerCrate = \d", src):
         fails.append("spudSeedsPerCrate is given a literal number - the crate "
                      "size is guessed, not measured")
-    elif "spudSeedsPerCrate = gave" not in src:
+    elif re.search(r"spudSeedsPerCrate = gave2?\b", src):
+        fails.append("the crate size is learned from the WHOLE rise again - one "
+                     "FNCFillSeeder empties every crate in hand, so a two-crate "
+                     "pour teaches 100 and the trip ceiling halves")
+    elif "spudSeedsPerCrate = perCrate" not in src or \
+            "spudSeedsPerCrate = perCrate2" not in src:
         fails.append("spudSeedsPerCrate is never learned from a real pour")
+    elif src.count("local hand0 = spudCratesInHand()") + \
+            src.count("local beforeHand = spudCratesInHand()") < 2:
+        fails.append("the pour does not count the crates it consumed - the "
+                     "divider is a guess")
     else:
-        print(f"{'the crate size is learned from a rise':<56} PASS")
+        print(f"{'the crate size is the rise divided by crates consumed':<56} PASS")
 
     # A second crate is proven by the CarryLinks COUNT, and an unpaid one is
     # put back down - carrying() is already true with the first one in hand.

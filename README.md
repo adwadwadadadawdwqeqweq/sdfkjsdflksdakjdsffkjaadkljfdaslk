@@ -418,7 +418,15 @@ Everything merged into one paste-and-run file:
   only receive 300 seeds in them. Each finished trip records
   `spudCratesTripGot`, every budget divides by `spudCratesTripActual()`, and a
   one-crate till is planned at **12** visits (`the cap is 12, planned on a read
-  tank of 600 at 1 crate(s) a trip`), never at six it cannot keep. The
+  tank of 600 at 1 crate(s) a trip`), never at six it cannot keep. **And the
+  crate size is per crate, not per press** (v1.145, the rest of the same
+  report): one `FNCFillSeeder` call drains **every** crate in hand — live the
+  seeder read 1 seed, a single fill line ran, no pour round followed, and the
+  tank read `101/600`. That rise was being learned as the size of one crate, so
+  a 50-seed crate became 100 and every shortfall was planned at half the visits
+  (`the tank still wants 499 seed(s) of 600 — 3 more town visit(s)`, which is
+  401 seeds at the real size). The rise is now divided by the crates the call
+  actually consumed, and the line prints the size it planned on. The
   crate's own price billboard is the only price read, and it is only readable
   standing in town — so the first trip makes that hop, and a seed found dearer
   than the balance is then refused **where the run stands** (`the Cabbage crate
