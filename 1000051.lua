@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.156 · fluent gui"
+local VERSION    = "rebuild v1.157 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -8529,25 +8529,56 @@ local okBuild, errBuild = pcall(function()
         local off = att.Parent.Position - cf.Position
         local rot = cf - cf.Position
         local fired, done, charged = 0, {}, {}
+        local pastBand = 0
         -- ▸ THE BURST AT ONE STOP: exactly that block's cells. `done` is
         --   "already called at this stop" and is cleared for the one retry
         --   below; `charged` is "already paid for by the seeder/tank", so a
-        --   retried cell is never counted twice.
-        local function burst(stop)
+        --   retried cell is never counted twice. The blade position comes from
+        --   the caller, measured after the settle — a cell the blade cannot
+        --   reach from where it actually stands is not called at all.
+        local function burst(stop, bp)
             for _, c in ipairs(stop.cells) do
                 local key = c.id or ("i" .. tostring(c))
                 if not done[key] then
-                    if budget and not charged[key] and fired >= budget then
-                        dry = true
-                        return
+                    -- ▸ A CELL PAST THE BAND IS NOT CALLED, IT IS LEFT (live
+                    --   2026-11-05, the owner's "when it does the cultivating or
+                    --   the thing after the plowing it is often missing 1-2
+                    --   peices of land"). One cultivate grid measured it:
+                    --   `fired 1200 of 1200 cell(s) from 140 stop(s), 3x3 per
+                    --   stop — 935 took, 265 left`. 140 stops x 9 is 1260, so the
+                    --   blocks are full squares and the grouping is right — the
+                    --   refusals are the block's own FAR cells. A square is sized
+                    --   so a centred blade reaches its corners (14.1 studs,
+                    --   inside the 20 that took), but the arrival test accepts
+                    --   4 * side = 12 studs and the fire test only refuses a stop
+                    --   past 20, so a blade 10 off its centre spends three calls
+                    --   the server cannot take. Those three are the tiles that
+                    --   stay bare, and they stay bare every round, because the
+                    --   same stop misses the same way. Not calling them costs
+                    --   nothing (a refused call is refused either way) and hands
+                    --   them to the hop pass, which puts the blade on each one.
+                    --   An unreadable blade position fires the block as before
+                    --   (rule 7 — unreadable is not out of reach).
+                    local far = false
+                    if bp then
+                        local dx, dz = c.X - bp.X, c.Z - bp.Z
+                        far = (dx * dx + dz * dz) > spudFieldTaken * spudFieldTaken
                     end
-                    done[key] = true
-                    if not charged[key] then
-                        charged[key] = true
-                        fired += 1
+                    if far then
+                        pastBand += 1
+                    else
+                        if budget and not charged[key] and fired >= budget then
+                            dry = true
+                            return
+                        end
+                        done[key] = true
+                        if not charged[key] then
+                            charged[key] = true
+                            fired += 1
+                        end
+                        spudFieldRemoteCall(job.verb, field, c.id, att)
+                        task.wait(0.04)
                     end
-                    spudFieldRemoteCall(job.verb, field, c.id, att)
-                    task.wait(0.04)
                 end
             end
         end
@@ -8663,7 +8694,7 @@ local okBuild, errBuild = pcall(function()
                 end
             else
                 misses = 0
-                burst(stop)
+                burst(stop, bs)
                 if not firedOnce then
                     firedOnce = true
                     -- ▸ THE FIRST CALL AFTER A LONG RIDE IS ROUTINELY REFUSED while
@@ -8677,7 +8708,9 @@ local okBuild, errBuild = pcall(function()
                         if chk and not stopping() then
                             done = {}
                             task.wait(0.5)
-                            burst(stop)
+                            -- a fresh reading: the retry is fired half a second
+                            -- later, and the tow has had that long to move
+                            burst(stop, bladePos())
                             chk = cellsAtStage(field, stage, baseCF, baseSize)
                         end
                         if not chk or #chk >= before then break end
@@ -8696,9 +8729,12 @@ local okBuild, errBuild = pcall(function()
         local left = after and #after or nil
         local took = left and math.max(0, before - left) or 0
         log(string.format(
-            "remote %s: fired %d of %d cell(s) from %d stop(s), %dx%d per stop — %d took, %s left",
+            "remote %s: fired %d of %d cell(s) from %d stop(s), %dx%d per stop — %d took, %s left%s",
             job.verb, fired, before, #stops, side, side, took,
-            left and tostring(left) or "unreadable"))
+            left and tostring(left) or "unreadable",
+            pastBand > 0 and string.format(
+                " — %d cell(s) were past the %d-stud band from where the blade actually sat, left for the hop",
+                pastBand, spudFieldTaken) or ""))
         return took, dry
     end
 

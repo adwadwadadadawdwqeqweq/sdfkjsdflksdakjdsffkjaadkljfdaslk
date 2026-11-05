@@ -172,6 +172,21 @@ end
 
 local mode = { seed = "all", fill = "ok" }
 local acceptR = 2 -- how close the blade must be for the server to take a cell
+-- ▸ THE BAND IS FLAT, NOT A SPHERE. The lift probe measured a cell TAKEN with
+--   the blade 20 studs to the SIDE at +8 of height, refused at 30 to the side,
+--   and TAKEN from +80 studs straight above — so height is free and the reach is
+--   the sideways distance (the corner pass filters the same way, "sideways only
+--   — height is free up to +80"). A 3D magnitude here would make the fake server
+--   stricter than the game by the grid's own +10 hover, and the grid's reach
+--   filter would look like it was wasting calls when it was not.
+local function inBand(p, cellPos)
+    -- a NEGATIVE band is this harness's idiom for "the server takes nothing
+    -- from a parked blade" (acceptR = -1); a squared comparison would read it
+    -- as +1, so it is honoured explicitly rather than by the sign of a number.
+    if not p or acceptR < 0 then return false end
+    local dx, dz = p.X - cellPos.X, p.Z - cellPos.Z
+    return (dx * dx + dz * dz) <= acceptR * acceptR
+end
 local tries = {}
 spudBatchRemotes = false
 
@@ -197,8 +212,9 @@ local function seedHandler(field, ids)
             end
             if take and mode.atCell then
                 -- the live rule: only a cell the blade is over is accepted
-                local p = ATTPARENT and ATTPARENT.Position
-                if not (p and (p - cellPosOf(id)).Magnitude <= acceptR) then take = false end
+                if not inBand(ATTPARENT and ATTPARENT.Position, cellPosOf(id)) then
+                    take = false
+                end
             end
             if take then cell.Stage = "Seeded" end
         end
@@ -221,8 +237,7 @@ local function cultHandler(field, ids)
     for _, id in ipairs(ids) do
         local cell = cells and cells[id]
         if cell and cell.Stage == "Cultivated" then
-            local p = ATTPARENT and ATTPARENT.Position
-            if not mode.atCell or (p and (p - cellPosOf(id)).Magnitude <= acceptR) then
+            if not mode.atCell or inBand(ATTPARENT and ATTPARENT.Position, cellPosOf(id)) then
                 cell.Stage = "Seeded"
             end
         end
@@ -277,6 +292,7 @@ CARRIED = 0
 -- (section 17), and TRAIL_STUCK an implement caught on something, for which a
 -- park command changes nothing at all.
 TRAIL_REST = nil
+TRAIL_BIAS = nil
 TRAIL_STUCK = false
 RIDE_JAMMED = false
 function tool:GetPivot()
@@ -291,6 +307,12 @@ function tool:PivotTo(cf)
     else
         ATTPARENT.Position = cf.pos
     end
+    -- a tow that arrives PAST where it was aimed: the aim is computed from the
+    -- blade's own reading, so an offset introduced after that reading cannot be
+    -- cancelled by it. TRAIL_BIAS models the residual — the blade lands inside
+    -- the stop's arrival tolerance, so the grid believes it arrived, while its
+    -- far cells are no longer inside the band the block was sized against.
+    if TRAIL_BIAS then ATTPARENT.Position = ATTPARENT.Position + TRAIL_BIAS end
 end
 
 local decoyTool = newInst("S4204", "Model")
@@ -715,8 +737,13 @@ check("radial: 4 seeds fire 4 calls", seedRemote.invokeCalls - cj0 == 4,
 check("radial: the seeder runs dry", dryRB == true and tookRB == 4,
     string.format("%s,%s", tostring(tookRB), tostring(dryRB)))
 
--- a blade that reaches nothing takes nothing, and leaves every cell standing
-acceptR = 5
+-- a blade that reaches nothing takes nothing, and leaves every cell standing.
+-- This used to be acceptR = 5, which only meant "reaches nothing" because the
+-- fake server measured a SPHERE and the grid hovers the blade +10 above the
+-- cells — a 5-stud sphere the blade could never enter. With the band flat (how
+-- the game measures it), 5 reaches the cell under the blade, so the premise is
+-- stated directly instead of inherited from the height term.
+acceptR = -1
 capVal.Value = 50
 sweepGrid()
 resetState()
@@ -1195,6 +1222,54 @@ local function raggedRun(who, builder, cells, stops)
 end
 raggedRun("ragged", raggedField, 8, 2)
 raggedRun("apart", apartField, 6, 2)
+
+-- 19. A CELL PAST THE BAND IS NOT CALLED AT ALL (live 2026-11-05, the owner's
+--     "when it does the cultivating or the thing after the plowing it is often
+--     missing 1-2 peices of land"). One cultivate grid, measured:
+--       remote cultivate: fired 1200 of 1200 cell(s) from 140 stop(s), 3x3 per stop — 935 took, 265 left
+--     140 stops x 9 = 1260, so the blocks are full squares and the grouping is
+--     fine — but 22% of the calls were refused. The grid sizes a block so the
+--     CORNERS of a perfectly-centred square sit inside the band (14.1 studs,
+--     inside the 20 that took and the 30 that refused), yet it fires all nine
+--     cells from wherever the blade actually ended up: the arrival test accepts
+--     4 * side = 12 studs and the fire test only refuses a stop past 20, so a
+--     blade 10 off its centre spends three calls the server cannot take — and
+--     those three are exactly the "1-2 pieces" left standing, round after round,
+--     because the same stop misses the same way every round.
+RIDE_POS = Vector3.new(0, 0, 0)
+ATTPARENT.Position = Vector3.new(0, 0, 0)
+TRAIL_REST, TRAIL_STUCK, RIDE_JAMMED = nil, false, false
+mode.seed, mode.atCell, acceptR = "all", true, 20
+capVal.Value = 50
+sweepGrid()
+resetState()
+-- the control first: a blade that lands ON its stop still calls the whole field
+local cellsAll = 15
+local c0 = seedRemote.invokeCalls
+local tookOk = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+check("aimed blade: the whole field is called",
+    seedRemote.invokeCalls - c0 == cellsAll, (seedRemote.invokeCalls - c0) .. " call(s)")
+check("aimed blade: and every call takes", tookOk == cellsAll, tostring(tookOk))
+TRAIL_BIAS = Vector3.new(0, 0, -10)   -- arrives 10 studs past the stop, inside tol
+sweepGrid()
+resetState()
+local c1, lg1 = seedRemote.invokeCalls, #logs + 1
+local tookOff = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+local offLine = table.concat(logs, "|", lg1)
+local calledOff = seedRemote.invokeCalls - c1
+check("a blade 10 off its stop calls FEWER cells than it has",
+    calledOff < cellsAll, calledOff .. " call(s) for " .. cellsAll)
+check("a blade 10 off its stop wastes no call", tookOff == calledOff,
+    tostring(tookOff) .. " took of " .. calledOff)
+check("the cells it left are named with the band, not silently refused",
+    offLine:find("past the 20%-stud band") ~= nil, offLine:match("[^|]*band[^|]*") or "no band line")
+check("and they are still standing for the hop pass",
+    #spudFieldCellIds(field, "Cultivated") > 0)
+check("a near-landed stop is not written off as a miss",
+    offLine:find("leaving this block") == nil)
+TRAIL_BIAS = nil
 
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 """
