@@ -16,7 +16,7 @@
 --      point now), with the vehicle you unload with spawned nearby — the farm
 --      loop can be off.
 --   2. run this loader:
---        loadstring(game:HttpGet("https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/spud-farm/main/1000054.lua?t=" .. os.time()))()
+--        loadstring(game:HttpGet("https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000054.lua?t=" .. os.time()))()
 --   3. a panel shows the report: COPY REPORT puts it on the clipboard, CLOSE
 --      hides it. The same lines go to the console, prefixed [FULFILL]. The
 --      report is also copied the moment it finishes building.

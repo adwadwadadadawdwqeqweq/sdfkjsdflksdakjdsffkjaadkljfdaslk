@@ -3,7 +3,7 @@
 --
 -- HOW TO RUN
 --   1. stand at the farm you saw it fail on (farm 1) and run this loader:
---        loadstring(game:HttpGet("https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/spud-farm/main/1000045.lua?t=" .. os.time()))()
+--        loadstring(game:HttpGet("https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000045.lua?t=" .. os.time()))()
 --   2. it prints the barn tree straight away, then watches for herd mode for
 --      60 seconds — START THE MILK LOOP NOW, so it catches the HerdTargets
 --      while the herd is open.
