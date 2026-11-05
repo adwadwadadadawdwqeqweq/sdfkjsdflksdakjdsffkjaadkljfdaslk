@@ -13,7 +13,7 @@
 --   1. stand at your fields (the loop can be off). Have one field of each soil
 --      kind streamed in; planting something in each makes the mapping visible.
 --   2. run this loader:
---        loadstring(game:HttpGet("https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFieldProbe.lua?t=" .. os.time()))()
+--        loadstring(game:HttpGet("https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/spud-farm/main/SpudFieldProbe.lua?t=" .. os.time()))()
 --   3. a panel shows the report: COPY REPORT puts it on the clipboard, CLOSE
 --      hides it. The same lines go to the console, prefixed [FIELD].
 --

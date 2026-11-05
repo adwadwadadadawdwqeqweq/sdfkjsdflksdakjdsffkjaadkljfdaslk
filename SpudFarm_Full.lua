@@ -11,8 +11,8 @@ local FLUENT_TAG = "latest"
 local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/releases/"
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
-local SCRIPT_URL = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
-local VERSION    = "rebuild v1.153 · fluent gui"
+local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/spud-farm/main/SpudFarm_Full.lua"
+local VERSION    = "rebuild v1.154 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -495,7 +495,7 @@ local okBuild, errBuild = pcall(function()
     task.spawn(function()
         local ok, data = pcall(function()
             local src = game:HttpGet(
-                "https://api.github.com/repos/simba13231/spud-farm/commits?per_page=6", true)
+                "https://api.github.com/repos/adwadwadadadawdwqeqweq/spud-farm/commits?per_page=6", true)
             return game:GetService("HttpService"):JSONDecode(src)
         end)
         if ok and type(data) == "table" and data[1] then
@@ -15265,13 +15265,13 @@ local okBuild, errBuild = pcall(function()
             local url = SCRIPT_URL
             local okc, sha = pcall(function()
                 local src = game:HttpGet(
-                    "https://api.github.com/repos/simba13231/spud-farm/commits?per_page=1", true)
+                    "https://api.github.com/repos/adwadwadadadawdwqeqweq/spud-farm/commits?per_page=1", true)
                 local data = game:GetService("HttpService"):JSONDecode(src)
                 return data and data[1] and tostring(data[1].sha)
             end)
             if okc and sha and #sha >= 7 then
                 url = string.format(
-                    "https://raw.githubusercontent.com/simba13231/spud-farm/%s/SpudFarm_Full.lua", sha)
+                    "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/spud-farm/%s/SpudFarm_Full.lua", sha)
                 log("reload: newest commit is " .. string.sub(sha, 1, 7))
             end
             local bust = string.format("%s?t=%d&r=%d", url,

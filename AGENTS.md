@@ -8,7 +8,7 @@ asked and fixed, and the exact loop to prove a change works.
 description — it is the long-form manual and it is kept in sync with behaviour.
 
 - Main script: [SpudFarm_Full.lua](SpudFarm_Full.lua) — one paste-and-run Luau
-  file for the Roblox game *Farming and Friends*, currently `rebuild v1.153 ·
+  file for the Roblox game *Farming and Friends*, currently `rebuild v1.154 ·
   fluent gui` (`VERSION`, line 15). ≈14k lines.
 - Target: Windows + Git Bash. Luau toolchain lives in
   `%LOCALAPPDATA%\Temp\opencode\luau\` (`luau.exe`, `luau-compile.exe`,
@@ -205,10 +205,10 @@ The one command that runs everything — compile, budget, name audit and every
 harness, checking both the exit code and the text — is:
 
 ```bash
-python tools/run_all.py        # 38/38 checks on v1.153
+python tools/run_all.py        # 38/38 checks on v1.154
 ```
 
-Last full run (v1.153): **38/38 checks passed** (35 harnesses + 3 gates).
+Last full run (v1.154): **38/38 checks passed** (35 harnesses + 3 gates).
 The compile row is judged by the **exit code and stderr only**: `luau-compile
 --binary` writes the bytecode to stdout, so the old `"FAIL" not in stdout` scan
 called a build broken the moment a script contained a string with those three
@@ -5200,11 +5200,26 @@ pass that says `lined up … HitchableSocket.SocketOrigin (the game's socket)` a
 `✅ hitched HorschJoker` instead of ten creeping attempts, and a seed trip line
 reading `50 seed(s) a crate` with a `for 803 cell(s)` cap of **9** rather than 5.
 
-**Where it stands:** `rebuild v1.153 · fluent gui`, whole suite green (38/38),
+**The repo moved to an organization (v1.154).** `simba13231/spud-farm` was
+**transferred** to `adwadwadadadawdwqeqweq/spud-farm` (the same repo id, so the
+history, stars and issues came with it), which is what keeps the build off the
+owner's profile Repositories tab while the raw URL still serves anyone — a
+private repo cannot do that, because an executor fetches without credentials.
+Fourteen hardcoded URLs in `SpudFarm_Full.lua` (SCRIPT_URL, the DOCTOR's
+`commits?per_page=6` call, and the reload's commit probe plus its SHA-built raw
+URL), `SpudBoot.lua` (its `RAW` fallback), the five standalone probes' header
+comments and the README's Quick start now name the org, and the local
+`origin` was repointed. Measured on the transferred repo: the OLD raw path still
+answers **200** (GitHub keeps it redirecting), so a loadstring someone saved
+before the move keeps working, while `api.github.com/repos/simba13231/...`
+answers **301** — the build no longer asks it, but a stale executor copy would
+be relying on Roblox following a same-domain redirect.
+
+**Where it stands:** `rebuild v1.154 · fluent gui`, whole suite green (38/38),
 harness verified, **and v1.117 was reloaded and run in game** (the seed chain
 above). **The newest build proven in the client is v1.149** — the owner's
 **Copy report** header reads `place 2772610559 · player ok_simba3 · rebuild
-v1.149 · fluent gui`, and **Run all** ran on it — so **v1.153 is the build the
+v1.149 · fluent gui`, and **Run all** ran on it — so **v1.154 is the build the
 next reload brings in**. That reload also closed the oldest open seed verdict:
 the v1.148 fill-to-max loop ran end to end on the live client — `seeder fill:
 200/600 — back to town for more Rice (trip 3 of 6)` through `trip 6 of 6`, then
@@ -5447,7 +5462,7 @@ versus the second crate left on the shelf. **(c)** A 600-slot seeder should read
    the verdict is `reads Seeded` = TAKEN (a real abuse) or `reads Cultivated`
    = IGNORED (client-only lie). Paste that one line).
    **The newest build proven in the client is v1.149** (its **Copy report** header
-   reads `rebuild v1.149`); **v1.150 through v1.153 are all unrun**, and
+   reads `rebuild v1.149`); **v1.150 through v1.154 are all unrun**, and
    today's logcat tail cannot name its own build — its lines exist in v1.149 too.
    The three verdicts stacked up: a field whose trip budget covers the **cells**
    (2400 = 24 visits, `for 2400 cell(s)` in the refusal), a harvest that fires

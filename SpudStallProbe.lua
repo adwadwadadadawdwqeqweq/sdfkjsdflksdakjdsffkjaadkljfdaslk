@@ -11,7 +11,7 @@
 -- HOW TO RUN
 --   1. stand at the farm you run the milk loop on (the loop can be off).
 --   2. run this loader:
---        loadstring(game:HttpGet("https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudStallProbe.lua?t=" .. os.time()))()
+--        loadstring(game:HttpGet("https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/spud-farm/main/SpudStallProbe.lua?t=" .. os.time()))()
 --   3. a small panel shows the whole report: COPY puts it on the clipboard,
 --      CLOSE hides it. The same lines go to the console, prefixed [STALL].
 --

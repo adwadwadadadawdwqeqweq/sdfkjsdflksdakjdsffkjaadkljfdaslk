@@ -18,7 +18,7 @@ the session history, and the exact compile/test loop. Read it before editing.
 
 ## Quick start (using the script)
 1. Copy the raw script link:
-   `https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua`
+   `https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/spud-farm/main/SpudFarm_Full.lua`
 2. Paste that link into your executor's script box (or open the file here, click
    **Raw**, copy everything) and execute.
 3. In game: **RIGHT SHIFT** = menu · **📡** = webhook panel · **🥔** = hide/show all.
@@ -1246,7 +1246,7 @@ small on-screen panel with **COPY REPORT** / **CLOSE** (the report is put on the
 clipboard as soon as it finishes). Stand on the farm and run:
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudStallProbe.lua?t=" .. os.time()))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/spud-farm/main/SpudStallProbe.lua?t=" .. os.time()))()
 ```
 
 Paste everything it prints (one block, prefixed `[STALL]`); the path list at the
@@ -1296,7 +1296,7 @@ report. Stand **at the Company / Fulfillment board** (the area has to be streame
 and run:
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFulfillProbe.lua?t=" .. os.time()))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/spud-farm/main/SpudFulfillProbe.lua?t=" .. os.time()))()
 ```
 
 **COPY REPORT** puts the whole thing on the clipboard (it is copied as soon as it
@@ -1312,7 +1312,7 @@ compile or runtime error if one happens (also copied to the clipboard so it can
 be pasted into chat). Paste this one line:
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudBoot.lua?t=" .. os.time()))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/spud-farm/main/SpudBoot.lua?t=" .. os.time()))()
 ```
 
 ## Contributing / fixing names

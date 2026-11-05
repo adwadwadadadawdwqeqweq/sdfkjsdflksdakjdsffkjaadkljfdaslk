@@ -11,7 +11,7 @@
 
   HOW TO USE:
     loadstring(game:HttpGet(
-      "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudBoot.lua?t="
+      "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/spud-farm/main/SpudBoot.lua?t="
       .. os.time()))()
 
   Paste that ONE line. If something fails, the panel shows the message and also
@@ -27,7 +27,7 @@ if not LP then
     LP = okWait and who or nil
 end
 
-local RAW = "https://raw.githubusercontent.com/simba13231/spud-farm/main/SpudFarm_Full.lua"
+local RAW = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/spud-farm/main/SpudFarm_Full.lua"
 
 local function findParent()
     for _ = 1, 20 do
