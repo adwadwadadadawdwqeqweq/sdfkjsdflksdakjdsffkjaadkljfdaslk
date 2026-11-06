@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.164 · fluent gui"
+local VERSION    = "rebuild v1.165 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6955,6 +6955,53 @@ local okBuild, errBuild = pcall(function()
     --   nothing touches money, animals or another player's plot. Every line is
     --   kept in spudTestLog, so COPY puts the whole run on the clipboard.
     spudTestLog = {}
+    -- ▸ ONE SHARED, BOUNDED DOOR CALL. A RemoteFunction WAITS for the server, and
+    --   a handler that never replies parks whoever called it (live v1.159: one
+    --   silent FNCGetNewspaperViewTime froze the whole Tests tab, and because the
+    --   busy flag is a global it stayed frozen through a reload). So anything that
+    --   asks a door asks it through here: the call runs in its own thread, this
+    --   thread waits a bounded time, and a non-answer comes back as a verdict
+    --   instead of a hang. Paths are resolved LONGEST FIRST because a door can
+    --   carry a dot in its own name (FNCModTool.GetFarmVersions is one
+    --   RemoteFunction, not a folder).
+    function spudDoorCall(path, timeout, ...)
+        local args = table.pack(...)
+        local door
+        pcall(function()
+            local n = game:GetService("ReplicatedStorage")
+            local segs = string.split(path, ".")
+            local i = 1
+            while i <= #segs do
+                local found, nextI = nil, i
+                for j = #segs, i, -1 do
+                    local cand = n:FindFirstChild(table.concat(segs, ".", i, j))
+                    if cand then found, nextI = cand, j + 1 break end
+                end
+                if not found then door = nil return end
+                n = found
+                i = nextI
+            end
+            door = n
+        end)
+        if not door then return false, nil, "not in this build" end
+        if door.ClassName ~= "RemoteFunction" then
+            return false, nil, "a " .. door.ClassName
+        end
+        local done, ok, res = false, false, nil
+        task.spawn(function()
+            ok, res = pcall(function()
+                return door:InvokeServer(table.unpack(args, 1, args.n))
+            end)
+            done = true
+        end)
+        local limit = timeout or 4
+        local t0 = os.clock()
+        while not done and os.clock() - t0 < limit do task.wait(0.05) end
+        if not done then return false, nil, "no answer in " .. limit .. "s" end
+        if not ok then return false, nil, tostring(res) end
+        return true, res, nil
+    end
+
     function spudTestSay(line)
         line = tostring(line)
         spudTestLog[#spudTestLog + 1] = line
@@ -8307,6 +8354,92 @@ local okBuild, errBuild = pcall(function()
             return
         end
 
+        -- ▸ NEW READS — the four doors v1.161…v1.164 proved exist, read in one
+        --   go. The carry table is keyed by a NUMBER (live: `.10.Capacity=357
+        --   .10.Item=Sugar Cane`), and until that number is tied to a machine the
+        --   table cannot drive a real pass — so this leg prints the table AND
+        --   every machine with its numeric Configurations and attributes beside
+        --   it. Guessing the key is how a wrong tank level decides an unload.
+        --   Company comes back with the board the fulfillment probe went looking
+        --   for, and the ModTool getter is read-only: versions listed, nothing
+        --   loaded, nothing saved.
+        if kind == "newreads" then
+            local function clip3(s, n)
+                s = tostring(s or "")
+                if #s > n then return s:sub(1, n) .. "…" end
+                return s
+            end
+            local function dump(t, depth, prefix, lines, cap)
+                if type(t) ~= "table" then
+                    if #lines < cap then lines[#lines + 1] = prefix .. "=" .. clip3(t, 44) end
+                    return
+                end
+                for k, v in pairs(t) do
+                    if #lines >= cap then return end
+                    if type(v) == "table" then
+                        if depth < 3 then dump(v, depth + 1, prefix .. "." .. tostring(k), lines, cap)
+                        else lines[#lines + 1] = prefix .. "." .. tostring(k) .. "={table}" end
+                    else
+                        lines[#lines + 1] = prefix .. "." .. tostring(k) .. "=" .. clip3(v, 44)
+                    end
+                end
+            end
+            local function emit(tag, res, cap)
+                local lines = {}
+                dump(res, 1, "", lines, cap or 40)
+                if #lines == 0 then
+                    spudTestSay(tag .. " answered with nothing at all")
+                    return
+                end
+                for i = 1, #lines, 4 do
+                    local chunk = {}
+                    for j = i, math.min(#lines, i + 3) do chunk[#chunk + 1] = lines[j] end
+                    spudTestSay(tag .. " · " .. table.concat(chunk, " · "))
+                end
+            end
+
+            local ok, res, err = spudDoorCall("Modules.Larry.FNCGetEquipmentCarryInfo", 5)
+            spudTestSay(string.format("newreads: carry table %s%s",
+                ok and "ANSWERED" or ("refused — " .. clip3(err, 120)), ""))
+            if ok then emit("newreads: carry", res, 40) end
+
+            local folder = equipmentFolder()
+            local kids = folder and folder:GetChildren() or {}
+            spudTestSay(string.format("newreads: %d machine(s) in the equipment folder, with the numbers each one carries", #kids))
+            for _, m in ipairs(kids) do
+                if #m.Name > 0 then
+                    local bits = { "type=" .. tostring(m:GetAttribute("EquipmentType") or "?") }
+                    pcall(function()
+                        for k, v in pairs(m:GetAttributes()) do
+                            if type(v) == "number" or type(v) == "string" then
+                                bits[#bits + 1] = k .. "=" .. tostring(v)
+                            end
+                        end
+                        local conf = m:FindFirstChild("Configurations")
+                        for _, c in ipairs((conf or m):GetChildren()) do
+                            if c:IsA("IntValue") or c:IsA("NumberValue") then
+                                bits[#bits + 1] = "cfg." .. c.Name .. "=" .. tostring(c.Value)
+                            end
+                        end
+                    end)
+                    spudTestSay(string.format("newreads:   · %s [%s] %s",
+                        m.Name, m.ClassName, table.concat(bits, " ")))
+                end
+            end
+
+            local okC, resC, errC = spudDoorCall("Modules.Larry.FNCGetCompany", 5)
+            spudTestSay("newreads: company board " ..
+                (okC and "ANSWERED" or ("refused — " .. clip3(errC, 120))))
+            if okC then emit("newreads: company", resC, 60) end
+
+            local okM, resM, errM = spudDoorCall("Modules.Larry.FNCModTool.GetFarmVersions", 5)
+            spudTestSay("newreads: ModTool GetFarmVersions " ..
+                (okM and "ANSWERED" or ("refused — " .. clip3(errM, 160))))
+            if okM then emit("newreads: modtool", resM, 30) end
+            spudTestSay("newreads: nothing here wrote — no LoadFarm, no SaveSlot, no order accepted")
+            return
+        end
+
         -- ▸ DOOR SHAPES — v1.158 walked 10564 nodes WITHOUT touching its cap and
         --   still counted 342, so the old "CAP 3000 REACHED" never hid a tail: the
         --   inventory is complete, and 320 of those doors have never been named in
@@ -8414,146 +8547,14 @@ local okBuild, errBuild = pcall(function()
             return
         end
 
-        -- ▸ STREAM TEST — v1.161 answered the biggest open question in the repo
-        --   with an accident: FNCStreamAroundPosition() with no arguments came
-        --   back `ServerScriptService.Handlers.AdaptiveStreamingHandler:7:
-        --   attempt to index nil with 'Value'`. That is the server naming its own
-        --   file and line, and it says the handler reads ONE argument's `.Value`.
-        --   If one call can make the server stream any region, then "the barn is
-        --   not loaded" stops being a reason to travel (see the streaming note in
-        --   the docs), and every distant read gets honest.
-        --   A client-made Instance does not travel through a remote, so the
-        --   carrier has to be a TABLE with a Value field. Three shapes are tried,
-        --   each against a point ~1,100 studs away (the Fulfillment pad the owner
-        --   measured), and the verdict is the client's own instance count: nothing
-        --   here moves the character, so any new parts arrived because the server
-        --   streamed them.
-        if kind == "stream" then
-            local function countNodes()
-                local ok, n = pcall(function()
-                    return #workspace:GetDescendants() + #game:GetService("ReplicatedStorage"):GetDescendants()
-                end)
-                return ok and n or -1
-            end
-            local function modTool()
-                local ok, txt = pcall(function()
-                    local l = game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
-                    l = l and l:FindFirstChild("Larry")
-                    if not l then return "no Modules.Larry in this build" end
-                    local names = {}
-                    for _, c in ipairs(l:GetChildren()) do
-                        if c.Name:sub(1, 10) == "FNCModTool" then
-                            names[#names + 1] = c.Name .. " (" .. c.ClassName .. ")"
-                        end
-                    end
-                    if #names == 0 then return "no FNCModTool* door under Modules.Larry" end
-                    return string.format("FNCModTool doors: %s", table.concat(names, " · "))
-                end)
-                return ok and txt or "the ModTool walk itself failed"
-            end
-            spudTestSay("stream: " .. modTool())
-
-            local target = Vector3.new(-353, 138, -90)
-            local door = findPath("Modules.Larry.FNCStreamAroundPosition")
-            if not door or door.ClassName ~= "RemoteFunction" then
-                spudTestSay("stream: FNCStreamAroundPosition is not a RemoteFunction in this build — nothing to try")
-                return
-            end
-            local base = countNodes()
-            spudTestSay(string.format("stream: %d replicated nodes with the character at %s and nothing moved since",
-                base, where()))
-            local shapes = {
-                { "Vector3 in .Value",  function() return { Value = target } end },
-                { "CFrame in .Value",   function() return { Value = CFrame.new(target) } end },
-                { "a bare Vector3",     function() return target end },
-            }
-            for _, s in ipairs(shapes) do
-                local label, mk = s[1], s[2]
-                local done, ok, res = false, false, nil
-                task.spawn(function()
-                    ok, res = pcall(function() return door:InvokeServer(mk()) end)
-                    done = true
-                end)
-                local t0 = os.clock()
-                while not done and os.clock() - t0 < 5 do task.wait(0.1) end
-                if not done then
-                    spudTestSay(string.format("stream: %s — never answered in 5s", label))
-                elseif not ok then
-                    spudTestSay(string.format("stream: %s — refused: %s",
-                        label, tostring(res):sub(1, 170)))
-                else
-                    task.wait(3)
-                    local after = countNodes()
-                    spudTestSay(string.format(
-                        "stream: %s — ANSWERED (%s) · nodes %d → %d (%s)",
-                        label, tostring(res), base, after,
-                        after > base and string.format("+%d ARRIVED — the server streamed it", after - base)
-                        or "nothing new arrived"))
-                end
-            end
-            -- ▸ THE HANDLER WANTS AN INSTANCE, NOT A COORDINATE (live v1.163):
-            --   {Value=Vector3} and {Value=CFrame} both came back `GetPivot is
-            --   not a valid member` and a bare Vector3 came back `Value is not a
-            --   valid member`, so it reads arg.Value and calls :GetPivot() on it
-            --   — an Instance method. A client-made Instance never reaches the
-            --   server, so the only anchors are ones BOTH sides already hold. The
-            --   docs say Plots and Animals stay replicated at any distance while a
-            --   barn streams with the camera, which is exactly the seam to test:
-            --   hand it a distant Plot and see whether the server streams around
-            --   it. Nothing here moves the character, so any new parts arrived
-            --   because the server pulled them in.
-            local anchors, seenA = {}, {}
-            pcall(function()
-                for _, c in ipairs(workspace:GetDescendants()) do
-                    if #anchors >= 3 then break end
-                    if c:IsA("BasePart") or c:IsA("Model") then
-                        local key = c.Name:lower()
-                        if key:find("plot") or key:find("animal") or key:find("cow") then
-                            local ok2, pos = pcall(function() return c:GetPivot().Position end)
-                            if ok2 and typeof(pos) == "Vector3" then
-                                local d = (pos - root.Position).Magnitude
-                                local full = c:GetFullName()
-                                if d > 400 and not seenA[full] then
-                                    seenA[full] = true
-                                    anchors[#anchors + 1] = { c, d }
-                                end
-                            end
-                        end
-                    end
-                end
-            end)
-            spudTestSay(string.format(
-                "stream: %d replicated Instance(s) over 400 studs away (Plot/Animal/Cow named)", #anchors))
-            if #anchors == 0 then
-                spudTestSay("stream:   · no distant anchor on this client — the door cannot be aimed from here, which is NOT the same as the door being closed")
-            end
-            for _, a in ipairs(anchors) do
-                local inst, dist = a[1], a[2]
-                local b0 = countNodes()
-                local done, ok, res = false, false, nil
-                task.spawn(function()
-                    ok, res = pcall(function() return door:InvokeServer({ Value = inst }) end)
-                    done = true
-                end)
-                local t0 = os.clock()
-                while not done and os.clock() - t0 < 5 do task.wait(0.1) end
-                if not done then
-                    spudTestSay(string.format("stream: %s (%.0f away) — never answered in 5s", inst:GetFullName(), dist))
-                elseif not ok then
-                    spudTestSay(string.format("stream: %s (%.0f away) — refused: %s",
-                        inst:GetFullName(), dist, tostring(res):sub(1, 150)))
-                else
-                    task.wait(3)
-                    local b1 = countNodes()
-                    spudTestSay(string.format("stream: %s (%.0f away) — ANSWERED (%s) · nodes %d → %d (%s)",
-                        inst:GetFullName(), dist, tostring(res), b0, b1,
-                        b1 > b0 and string.format("+%d ARRIVED — the server streamed around it", b1 - b0)
-                        or "nothing new"))
-                end
-            end
-            return
-        end
-
+        -- ▸ STREAM — ANSWERED live 2026-11-05 and retired. FNCStreamAroundPosition
+        --   reads arg.Value and calls :GetPivot() on it, so it wants an INSTANCE,
+        --   not a coordinate (the no-arg refusal named the server's own file:
+        --   ServerScriptService.Handlers.AdaptiveStreamingHandler:7). Three real
+        --   distant Instances 1421–1568 studs away were ACCEPTED and went silent,
+        --   and the replicated node count moved 50231 → 50232: the door takes the
+        --   call and streams nothing we can see. 'Not streamed' stays a real
+        --   constraint, so no leg should wait on a distant area arriving.
         -- ▸ WRONG TOOL — ANSWERED live 2026-10-31 and retired: a plow's own
         --   attachment firing cultivate on a Plowed cell the blade was hopped
         --   onto was IGNORED (Plowed → Plowed), so the server checks WHICH
@@ -10368,8 +10369,8 @@ local okBuild, errBuild = pcall(function()
     Tabs.Tests:CreateButton({ Title = "Door shapes", Callback = function()
         task.spawn(function() spudTestRun("doors") end)
     end })
-    Tabs.Tests:CreateButton({ Title = "Stream test", Callback = function()
-        task.spawn(function() spudTestRun("stream") end)
+    Tabs.Tests:CreateButton({ Title = "New reads", Callback = function()
+        task.spawn(function() spudTestRun("newreads") end)
     end })
     Tabs.Tests:CreateButton({ Title = "Field remotes", Callback = function()
         task.spawn(function() spudTestRun("fieldremotes") end)
