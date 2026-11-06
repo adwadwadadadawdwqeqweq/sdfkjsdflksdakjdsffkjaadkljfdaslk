@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.160 · fluent gui"
+local VERSION    = "rebuild v1.161 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -7021,8 +7021,18 @@ local okBuild, errBuild = pcall(function()
     end
 
     function spudTestRun(kind)
-        if spudTestBusy then spudTestSay("a test is already running") return end
+        -- ▸ A WEDGED TEST MUST NOT OWN THE TAB FOREVER. spudTestBusy is a global
+        --   (the build keeps its registers under Luau's limit that way), so when
+        --   v1.159's leg parked on a RemoteFunction the server never answered,
+        --   the flag stayed true THROUGH A RELOAD — the new build read the old
+        --   thread's flag and every Tests button said "a test is already
+        --   running". The flag now carries its own age and is abandoned after
+        --   five minutes, which is longer than any leg here actually takes.
+        if spudTestBusy and (os.clock() - (spudTestBusyAt or -600) < 300) then
+            spudTestSay("a test is already running") return
+        end
         spudTestBusy = true
+        spudTestBusyAt = os.clock()
         local ok, err = pcall(spudTestWork, kind)
         spudTestBusy = false
         if not ok then spudTestSay("the test crashed: " .. tostring(err)) end
