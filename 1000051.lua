@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.162 · fluent gui"
+local VERSION    = "rebuild v1.163 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -7058,17 +7058,38 @@ local okBuild, errBuild = pcall(function()
         local fields = findMyFields(here)
 
         -- ▸ shared by the door legs: resolve a dotted remote path under
-        --   ReplicatedStorage without assuming any segment exists.
+        --   ReplicatedStorage without assuming any segment exists. The names are
+        --   tried LONGEST FIRST because a door can carry a dot itself — live
+        --   v1.162: `Modules.Larry.FNCModTool.GetFarmVersions` is one
+        --   RemoteFunction named "FNCModTool.GetFarmVersions", not a folder, so
+        --   descending segment by segment reported a door that is really there.
         local function findPath(path)
             local ok, node = pcall(function()
                 local n = game:GetService("ReplicatedStorage")
-                for _, seg in ipairs(string.split(path, ".")) do
-                    n = n and n:FindFirstChild(seg)
-                    if not n then return nil end
+                local segs = string.split(path, ".")
+                local i = 1
+                while i <= #segs do
+                    local found, nextI = nil, i
+                    for j = #segs, i, -1 do
+                        local cand = n:FindFirstChild(table.concat(segs, ".", i, j))
+                        if cand then found, nextI = cand, j + 1 break end
+                    end
+                    if not found then return nil end
+                    n = found
+                    i = nextI
                 end
                 return n
             end)
             return ok and node or nil
+        end
+        local function where()
+            local ok, s = pcall(function()
+                local ch = LocalPlayer.Character
+                local r = ch and ch:FindFirstChild("HumanoidRootPart")
+                if not r then return "no root" end
+                return string.format("%.0f, %.0f, %.0f", r.Position.X, r.Position.Y, r.Position.Z)
+            end)
+            return ok and s or "?"
         end
 
         local function jobFor(verb)
@@ -8317,15 +8338,6 @@ local okBuild, errBuild = pcall(function()
                 if #s > n then return s:sub(1, n) .. "…" end
                 return s
             end
-            local function where()
-                local ok, s = pcall(function()
-                    local ch = LocalPlayer.Character
-                    local r = ch and ch:FindFirstChild("HumanoidRootPart")
-                    if not r then return "no root" end
-                    return string.format("%.0f, %.0f, %.0f", r.Position.X, r.Position.Y, r.Position.Z)
-                end)
-                return ok and s or "?"
-            end
             local function probe(path, tier)
                 local short = path:gsub("Modules.Larry.", "")
                 local door = findPath(path)
@@ -8425,16 +8437,17 @@ local okBuild, errBuild = pcall(function()
             end
             local function modTool()
                 local ok, txt = pcall(function()
-                    local f = workspace and game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
-                    f = f and f:FindFirstChild("Larry")
-                    f = f and f:FindFirstChild("FNCModTool")
-                    if not f then return "no FNCModTool folder under Modules.Larry" end
+                    local l = game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
+                    l = l and l:FindFirstChild("Larry")
+                    if not l then return "no Modules.Larry in this build" end
                     local names = {}
-                    for _, c in ipairs(f:GetChildren()) do
-                        names[#names + 1] = c.Name .. " (" .. c.ClassName .. ")"
+                    for _, c in ipairs(l:GetChildren()) do
+                        if c.Name:sub(1, 10) == "FNCModTool" then
+                            names[#names + 1] = c.Name .. " (" .. c.ClassName .. ")"
+                        end
                     end
-                    return string.format("FNCModTool holds %d child(ren): %s",
-                        #names, table.concat(names, " · "))
+                    if #names == 0 then return "no FNCModTool* door under Modules.Larry" end
+                    return string.format("FNCModTool doors: %s", table.concat(names, " · "))
                 end)
                 return ok and txt or "the ModTool walk itself failed"
             end
