@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.158 · fluent gui"
+local VERSION    = "rebuild v1.159 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -8262,6 +8262,115 @@ local okBuild, errBuild = pcall(function()
             return
         end
 
+        -- ▸ DOOR SHAPES — v1.158 walked 10564 nodes WITHOUT touching its cap and
+        --   still counted 342, so the old "CAP 3000 REACHED" never hid a tail: the
+        --   inventory is complete, and 320 of those doors have never been named in
+        --   this script. The open question is no longer what exists but what each
+        --   one wants. Only RemoteFunctions are touched, only from the literal
+        --   paths below, and always with NO arguments: a handler that wants
+        --   something refuses and its error names the missing argument, and a
+        --   refusal cannot change the world. Coins and the character's own
+        --   position bracket every call, so a surprise shows up in the same line
+        --   instead of in the owner's wallet or a field they did not choose.
+        --   CmdrClient is deliberately NOT in this leg — it is the developer
+        --   console, not a farm door, and it needs the owner's decision first.
+        if kind == "doors" then
+            local READ = {
+                "Modules.Larry.FNCGetCompany", "Modules.Larry.FNCGetCurrentFarmSlot",
+                "Modules.Larry.FNCGetEquipmentCarryInfo", "Modules.Larry.FNCGetLayouts",
+                "Modules.Larry.FNCGetNewspaperViewTime", "Modules.Larry.FNCGetPermissionedBudget",
+                "Modules.Larry.FNCLayoutsUnlocked", "Modules.Larry.FNCPlayerHasPremium",
+                "Modules.Larry.FNCGetClientLog",
+            }
+            local SHAPE = {
+                "Modules.Larry.FNCStreamAroundPosition",
+                "Modules.Larry.FNCTeleportToEvent",
+                "Modules.Larry.FNCCutTree",
+                "Modules.Larry.FNCModTool.GetFarmVersions",
+            }
+            local function clip2(s, n)
+                s = tostring(s or "")
+                if #s > n then return s:sub(1, n) .. "…" end
+                return s
+            end
+            local function findPath(path)
+                local ok, node = pcall(function()
+                    local n = game:GetService("ReplicatedStorage")
+                    for _, seg in ipairs(string.split(path, ".")) do
+                        n = n and n:FindFirstChild(seg)
+                        if not n then return nil end
+                    end
+                    return n
+                end)
+                return ok and node or nil
+            end
+            local function where()
+                local ok, s = pcall(function()
+                    local ch = LocalPlayer.Character
+                    local r = ch and ch:FindFirstChild("HumanoidRootPart")
+                    if not r then return "no root" end
+                    return string.format("%.0f, %.0f, %.0f", r.Position.X, r.Position.Y, r.Position.Z)
+                end)
+                return ok and s or "?"
+            end
+            local function probe(path, tier)
+                local short = path:gsub("Modules.Larry.", "")
+                local door = findPath(path)
+                if not door then
+                    spudTestSay("doors: " .. short .. " is not in this build — not invoked")
+                    return
+                end
+                if door.ClassName ~= "RemoteFunction" then
+                    spudTestSay("doors: " .. short .. " is a " .. door.ClassName .. " — not invoked")
+                    return
+                end
+                local c0, p0 = coinBalance(), where()
+                local ok, res = pcall(function() return door:InvokeServer() end)
+                local c1, p1 = coinBalance(), where()
+                if not ok then
+                    spudTestSay(string.format("doors: %s() %s refused — %s",
+                        short, tier, clip2(tostring(res), 150)))
+                    spudTestSay(string.format("doors:   · coins %s → %s · you %s → %s",
+                        tostring(c0), tostring(c1), p0, p1))
+                    return
+                end
+                spudTestSay(string.format("doors: %s() %s ANSWERED — coins %s → %s · you %s → %s",
+                    short, tier, tostring(c0), tostring(c1), p0, p1))
+                local lines, n = {}, 0
+                local function dump(t, depth, prefix)
+                    if type(t) ~= "table" then
+                        n += 1
+                        if n <= 24 then lines[#lines + 1] = prefix .. "=" .. clip2(tostring(t), 48) end
+                        return
+                    end
+                    for k, v in pairs(t) do
+                        n += 1
+                        if n > 24 then return end
+                        if type(v) == "table" then
+                            if depth < 2 then dump(v, depth + 1, prefix .. "." .. tostring(k))
+                            else lines[#lines + 1] = prefix .. "." .. tostring(k) .. "={table}" end
+                        else
+                            lines[#lines + 1] = prefix .. "." .. tostring(k) .. "=" .. clip2(tostring(v), 48)
+                        end
+                    end
+                end
+                dump(res, 1, "")
+                if n == 0 then
+                    spudTestSay("doors:   · it answered with nothing at all — no payload, no refusal")
+                else
+                    for i = 1, #lines, 4 do
+                        local chunk = {}
+                        for j = i, math.min(#lines, i + 3) do chunk[#chunk + 1] = lines[j] end
+                        spudTestSay("doors:   · " .. table.concat(chunk, " · "))
+                    end
+                end
+            end
+            for _, p in ipairs(READ) do probe(p, "reader") end
+            for _, p in ipairs(SHAPE) do probe(p, "shape") end
+            spudTestSay("doors: nothing here was called WITH an argument — a refusal names the argument the real call has to pass")
+            return
+        end
+
         -- ▸ WRONG TOOL — ANSWERED live 2026-10-31 and retired: a plow's own
         --   attachment firing cultivate on a Plowed cell the blade was hopped
         --   onto was IGNORED (Plowed → Plowed), so the server checks WHICH
@@ -10072,6 +10181,9 @@ local okBuild, errBuild = pcall(function()
     end
     Tabs.Tests:CreateButton({ Title = "Remote list", Callback = function()
         task.spawn(function() spudTestRun("remotes") end)
+    end })
+    Tabs.Tests:CreateButton({ Title = "Door shapes", Callback = function()
+        task.spawn(function() spudTestRun("doors") end)
     end })
     Tabs.Tests:CreateButton({ Title = "Field remotes", Callback = function()
         task.spawn(function() spudTestRun("fieldremotes") end)
