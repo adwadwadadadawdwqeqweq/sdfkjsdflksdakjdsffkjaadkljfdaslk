@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.161 · fluent gui"
+local VERSION    = "rebuild v1.162 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -7057,6 +7057,20 @@ local okBuild, errBuild = pcall(function()
         local here = root.Position
         local fields = findMyFields(here)
 
+        -- ▸ shared by the door legs: resolve a dotted remote path under
+        --   ReplicatedStorage without assuming any segment exists.
+        local function findPath(path)
+            local ok, node = pcall(function()
+                local n = game:GetService("ReplicatedStorage")
+                for _, seg in ipairs(string.split(path, ".")) do
+                    n = n and n:FindFirstChild(seg)
+                    if not n then return nil end
+                end
+                return n
+            end)
+            return ok and node or nil
+        end
+
         local function jobFor(verb)
             for _, j in ipairs(JOBS) do
                 if j.verb == verb then return j end
@@ -8303,17 +8317,6 @@ local okBuild, errBuild = pcall(function()
                 if #s > n then return s:sub(1, n) .. "…" end
                 return s
             end
-            local function findPath(path)
-                local ok, node = pcall(function()
-                    local n = game:GetService("ReplicatedStorage")
-                    for _, seg in ipairs(string.split(path, ".")) do
-                        n = n and n:FindFirstChild(seg)
-                        if not n then return nil end
-                    end
-                    return n
-                end)
-                return ok and node or nil
-            end
             local function where()
                 local ok, s = pcall(function()
                     local ch = LocalPlayer.Character
@@ -8396,6 +8399,85 @@ local okBuild, errBuild = pcall(function()
             for _, p in ipairs(SHAPE) do probe(p, "shape") end
             for _, p in ipairs(READ) do probe(p, "reader") end
             spudTestSay("doors: nothing here was called WITH an argument — a refusal names the argument the real call has to pass")
+            return
+        end
+
+        -- ▸ STREAM TEST — v1.161 answered the biggest open question in the repo
+        --   with an accident: FNCStreamAroundPosition() with no arguments came
+        --   back `ServerScriptService.Handlers.AdaptiveStreamingHandler:7:
+        --   attempt to index nil with 'Value'`. That is the server naming its own
+        --   file and line, and it says the handler reads ONE argument's `.Value`.
+        --   If one call can make the server stream any region, then "the barn is
+        --   not loaded" stops being a reason to travel (see the streaming note in
+        --   the docs), and every distant read gets honest.
+        --   A client-made Instance does not travel through a remote, so the
+        --   carrier has to be a TABLE with a Value field. Three shapes are tried,
+        --   each against a point ~1,100 studs away (the Fulfillment pad the owner
+        --   measured), and the verdict is the client's own instance count: nothing
+        --   here moves the character, so any new parts arrived because the server
+        --   streamed them.
+        if kind == "stream" then
+            local function countNodes()
+                local ok, n = pcall(function()
+                    return #workspace:GetDescendants() + #game:GetService("ReplicatedStorage"):GetDescendants()
+                end)
+                return ok and n or -1
+            end
+            local function modTool()
+                local ok, txt = pcall(function()
+                    local f = workspace and game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
+                    f = f and f:FindFirstChild("Larry")
+                    f = f and f:FindFirstChild("FNCModTool")
+                    if not f then return "no FNCModTool folder under Modules.Larry" end
+                    local names = {}
+                    for _, c in ipairs(f:GetChildren()) do
+                        names[#names + 1] = c.Name .. " (" .. c.ClassName .. ")"
+                    end
+                    return string.format("FNCModTool holds %d child(ren): %s",
+                        #names, table.concat(names, " · "))
+                end)
+                return ok and txt or "the ModTool walk itself failed"
+            end
+            spudTestSay("stream: " .. modTool())
+
+            local target = Vector3.new(-353, 138, -90)
+            local door = findPath("Modules.Larry.FNCStreamAroundPosition")
+            if not door or door.ClassName ~= "RemoteFunction" then
+                spudTestSay("stream: FNCStreamAroundPosition is not a RemoteFunction in this build — nothing to try")
+                return
+            end
+            local base = countNodes()
+            spudTestSay(string.format("stream: %d replicated nodes with the character at %s and nothing moved since",
+                base, where()))
+            local shapes = {
+                { "Vector3 in .Value",  function() return { Value = target } end },
+                { "CFrame in .Value",   function() return { Value = CFrame.new(target) } end },
+                { "a bare Vector3",     function() return target end },
+            }
+            for _, s in ipairs(shapes) do
+                local label, mk = s[1], s[2]
+                local done, ok, res = false, false, nil
+                task.spawn(function()
+                    ok, res = pcall(function() return door:InvokeServer(mk()) end)
+                    done = true
+                end)
+                local t0 = os.clock()
+                while not done and os.clock() - t0 < 5 do task.wait(0.1) end
+                if not done then
+                    spudTestSay(string.format("stream: %s — never answered in 5s", label))
+                elseif not ok then
+                    spudTestSay(string.format("stream: %s — refused: %s",
+                        label, tostring(res):sub(1, 170)))
+                else
+                    task.wait(3)
+                    local after = countNodes()
+                    spudTestSay(string.format(
+                        "stream: %s — ANSWERED (%s) · nodes %d → %d (%s)",
+                        label, tostring(res), base, after,
+                        after > base and string.format("+%d ARRIVED — the server streamed it", after - base)
+                        or "nothing new arrived"))
+                end
+            end
             return
         end
 
@@ -10212,6 +10294,9 @@ local okBuild, errBuild = pcall(function()
     end })
     Tabs.Tests:CreateButton({ Title = "Door shapes", Callback = function()
         task.spawn(function() spudTestRun("doors") end)
+    end })
+    Tabs.Tests:CreateButton({ Title = "Stream test", Callback = function()
+        task.spawn(function() spudTestRun("stream") end)
     end })
     Tabs.Tests:CreateButton({ Title = "Field remotes", Callback = function()
         task.spawn(function() spudTestRun("fieldremotes") end)
