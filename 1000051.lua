@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.163 · fluent gui"
+local VERSION    = "rebuild v1.164 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -8489,6 +8489,66 @@ local okBuild, errBuild = pcall(function()
                         label, tostring(res), base, after,
                         after > base and string.format("+%d ARRIVED — the server streamed it", after - base)
                         or "nothing new arrived"))
+                end
+            end
+            -- ▸ THE HANDLER WANTS AN INSTANCE, NOT A COORDINATE (live v1.163):
+            --   {Value=Vector3} and {Value=CFrame} both came back `GetPivot is
+            --   not a valid member` and a bare Vector3 came back `Value is not a
+            --   valid member`, so it reads arg.Value and calls :GetPivot() on it
+            --   — an Instance method. A client-made Instance never reaches the
+            --   server, so the only anchors are ones BOTH sides already hold. The
+            --   docs say Plots and Animals stay replicated at any distance while a
+            --   barn streams with the camera, which is exactly the seam to test:
+            --   hand it a distant Plot and see whether the server streams around
+            --   it. Nothing here moves the character, so any new parts arrived
+            --   because the server pulled them in.
+            local anchors, seenA = {}, {}
+            pcall(function()
+                for _, c in ipairs(workspace:GetDescendants()) do
+                    if #anchors >= 3 then break end
+                    if c:IsA("BasePart") or c:IsA("Model") then
+                        local key = c.Name:lower()
+                        if key:find("plot") or key:find("animal") or key:find("cow") then
+                            local ok2, pos = pcall(function() return c:GetPivot().Position end)
+                            if ok2 and typeof(pos) == "Vector3" then
+                                local d = (pos - root.Position).Magnitude
+                                local full = c:GetFullName()
+                                if d > 400 and not seenA[full] then
+                                    seenA[full] = true
+                                    anchors[#anchors + 1] = { c, d }
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+            spudTestSay(string.format(
+                "stream: %d replicated Instance(s) over 400 studs away (Plot/Animal/Cow named)", #anchors))
+            if #anchors == 0 then
+                spudTestSay("stream:   · no distant anchor on this client — the door cannot be aimed from here, which is NOT the same as the door being closed")
+            end
+            for _, a in ipairs(anchors) do
+                local inst, dist = a[1], a[2]
+                local b0 = countNodes()
+                local done, ok, res = false, false, nil
+                task.spawn(function()
+                    ok, res = pcall(function() return door:InvokeServer({ Value = inst }) end)
+                    done = true
+                end)
+                local t0 = os.clock()
+                while not done and os.clock() - t0 < 5 do task.wait(0.1) end
+                if not done then
+                    spudTestSay(string.format("stream: %s (%.0f away) — never answered in 5s", inst:GetFullName(), dist))
+                elseif not ok then
+                    spudTestSay(string.format("stream: %s (%.0f away) — refused: %s",
+                        inst:GetFullName(), dist, tostring(res):sub(1, 150)))
+                else
+                    task.wait(3)
+                    local b1 = countNodes()
+                    spudTestSay(string.format("stream: %s (%.0f away) — ANSWERED (%s) · nodes %d → %d (%s)",
+                        inst:GetFullName(), dist, tostring(res), b0, b1,
+                        b1 > b0 and string.format("+%d ARRIVED — the server streamed around it", b1 - b0)
+                        or "nothing new"))
                 end
             end
             return
