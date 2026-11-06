@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.165 · fluent gui"
+local VERSION    = "rebuild v1.157 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -6955,53 +6955,6 @@ local okBuild, errBuild = pcall(function()
     --   nothing touches money, animals or another player's plot. Every line is
     --   kept in spudTestLog, so COPY puts the whole run on the clipboard.
     spudTestLog = {}
-    -- ▸ ONE SHARED, BOUNDED DOOR CALL. A RemoteFunction WAITS for the server, and
-    --   a handler that never replies parks whoever called it (live v1.159: one
-    --   silent FNCGetNewspaperViewTime froze the whole Tests tab, and because the
-    --   busy flag is a global it stayed frozen through a reload). So anything that
-    --   asks a door asks it through here: the call runs in its own thread, this
-    --   thread waits a bounded time, and a non-answer comes back as a verdict
-    --   instead of a hang. Paths are resolved LONGEST FIRST because a door can
-    --   carry a dot in its own name (FNCModTool.GetFarmVersions is one
-    --   RemoteFunction, not a folder).
-    function spudDoorCall(path, timeout, ...)
-        local args = table.pack(...)
-        local door
-        pcall(function()
-            local n = game:GetService("ReplicatedStorage")
-            local segs = string.split(path, ".")
-            local i = 1
-            while i <= #segs do
-                local found, nextI = nil, i
-                for j = #segs, i, -1 do
-                    local cand = n:FindFirstChild(table.concat(segs, ".", i, j))
-                    if cand then found, nextI = cand, j + 1 break end
-                end
-                if not found then door = nil return end
-                n = found
-                i = nextI
-            end
-            door = n
-        end)
-        if not door then return false, nil, "not in this build" end
-        if door.ClassName ~= "RemoteFunction" then
-            return false, nil, "a " .. door.ClassName
-        end
-        local done, ok, res = false, false, nil
-        task.spawn(function()
-            ok, res = pcall(function()
-                return door:InvokeServer(table.unpack(args, 1, args.n))
-            end)
-            done = true
-        end)
-        local limit = timeout or 4
-        local t0 = os.clock()
-        while not done and os.clock() - t0 < limit do task.wait(0.05) end
-        if not done then return false, nil, "no answer in " .. limit .. "s" end
-        if not ok then return false, nil, tostring(res) end
-        return true, res, nil
-    end
-
     function spudTestSay(line)
         line = tostring(line)
         spudTestLog[#spudTestLog + 1] = line
@@ -7068,18 +7021,8 @@ local okBuild, errBuild = pcall(function()
     end
 
     function spudTestRun(kind)
-        -- ▸ A WEDGED TEST MUST NOT OWN THE TAB FOREVER. spudTestBusy is a global
-        --   (the build keeps its registers under Luau's limit that way), so when
-        --   v1.159's leg parked on a RemoteFunction the server never answered,
-        --   the flag stayed true THROUGH A RELOAD — the new build read the old
-        --   thread's flag and every Tests button said "a test is already
-        --   running". The flag now carries its own age and is abandoned after
-        --   five minutes, which is longer than any leg here actually takes.
-        if spudTestBusy and (os.clock() - (spudTestBusyAt or -600) < 300) then
-            spudTestSay("a test is already running") return
-        end
+        if spudTestBusy then spudTestSay("a test is already running") return end
         spudTestBusy = true
-        spudTestBusyAt = os.clock()
         local ok, err = pcall(spudTestWork, kind)
         spudTestBusy = false
         if not ok then spudTestSay("the test crashed: " .. tostring(err)) end
@@ -7103,41 +7046,6 @@ local okBuild, errBuild = pcall(function()
         if not root then spudTestSay("no character — join the game first") return end
         local here = root.Position
         local fields = findMyFields(here)
-
-        -- ▸ shared by the door legs: resolve a dotted remote path under
-        --   ReplicatedStorage without assuming any segment exists. The names are
-        --   tried LONGEST FIRST because a door can carry a dot itself — live
-        --   v1.162: `Modules.Larry.FNCModTool.GetFarmVersions` is one
-        --   RemoteFunction named "FNCModTool.GetFarmVersions", not a folder, so
-        --   descending segment by segment reported a door that is really there.
-        local function findPath(path)
-            local ok, node = pcall(function()
-                local n = game:GetService("ReplicatedStorage")
-                local segs = string.split(path, ".")
-                local i = 1
-                while i <= #segs do
-                    local found, nextI = nil, i
-                    for j = #segs, i, -1 do
-                        local cand = n:FindFirstChild(table.concat(segs, ".", i, j))
-                        if cand then found, nextI = cand, j + 1 break end
-                    end
-                    if not found then return nil end
-                    n = found
-                    i = nextI
-                end
-                return n
-            end)
-            return ok and node or nil
-        end
-        local function where()
-            local ok, s = pcall(function()
-                local ch = LocalPlayer.Character
-                local r = ch and ch:FindFirstChild("HumanoidRootPart")
-                if not r then return "no root" end
-                return string.format("%.0f, %.0f, %.0f", r.Position.X, r.Position.Y, r.Position.Z)
-            end)
-            return ok and s or "?"
-        end
 
         local function jobFor(verb)
             for _, j in ipairs(JOBS) do
@@ -8308,11 +8216,11 @@ local okBuild, errBuild = pcall(function()
         --   see. The field calls we know are the ones the game fired by hand;
         --   a bulk/field door that was never fired would only show up here.
         if kind == "remotes" then
-            -- live v1.138 said "342 found … (3004 nodes walked, CAP 3000 REACHED)",
-            -- so the walk ran out of budget and the list below was NOT the whole
-            -- door inventory. The cap is the evidence's own ceiling, so it is roomy
-            -- and the line reports the number it actually stopped at.
-            local CAP = 30000
+            -- live v1.123 said "339 found (601 nodes walked)" — the walk ran out
+            -- of budget, so the list below was NOT the whole door inventory and
+            -- said nothing about it. The cap is the evidence's own ceiling, so it
+            -- is roomy and the line reports whether it was reached.
+            local CAP = 3000
             local out, n, seen, seenPath, cut = {}, 0, 0, {}, false
             local ok, err = pcall(function()
                 local function walk(node, depth, prefix)
@@ -8341,7 +8249,7 @@ local okBuild, errBuild = pcall(function()
             end)
             table.sort(out)
             spudTestSay(string.format("remotes: %d found under ReplicatedStorage (%d nodes walked%s)%s",
-                n, seen, cut and (", CAP " .. CAP .. " REACHED — this list is cut short") or "",
+                n, seen, cut and ", CAP 3000 REACHED — this list is cut short" or "",
                 ok and "" or (" — stopped: " .. tostring(err))))
             for i = 1, #out, 5 do
                 local chunk = {}
@@ -8354,207 +8262,6 @@ local okBuild, errBuild = pcall(function()
             return
         end
 
-        -- ▸ NEW READS — the four doors v1.161…v1.164 proved exist, read in one
-        --   go. The carry table is keyed by a NUMBER (live: `.10.Capacity=357
-        --   .10.Item=Sugar Cane`), and until that number is tied to a machine the
-        --   table cannot drive a real pass — so this leg prints the table AND
-        --   every machine with its numeric Configurations and attributes beside
-        --   it. Guessing the key is how a wrong tank level decides an unload.
-        --   Company comes back with the board the fulfillment probe went looking
-        --   for, and the ModTool getter is read-only: versions listed, nothing
-        --   loaded, nothing saved.
-        if kind == "newreads" then
-            local function clip3(s, n)
-                s = tostring(s or "")
-                if #s > n then return s:sub(1, n) .. "…" end
-                return s
-            end
-            local function dump(t, depth, prefix, lines, cap)
-                if type(t) ~= "table" then
-                    if #lines < cap then lines[#lines + 1] = prefix .. "=" .. clip3(t, 44) end
-                    return
-                end
-                for k, v in pairs(t) do
-                    if #lines >= cap then return end
-                    if type(v) == "table" then
-                        if depth < 3 then dump(v, depth + 1, prefix .. "." .. tostring(k), lines, cap)
-                        else lines[#lines + 1] = prefix .. "." .. tostring(k) .. "={table}" end
-                    else
-                        lines[#lines + 1] = prefix .. "." .. tostring(k) .. "=" .. clip3(v, 44)
-                    end
-                end
-            end
-            local function emit(tag, res, cap)
-                local lines = {}
-                dump(res, 1, "", lines, cap or 40)
-                if #lines == 0 then
-                    spudTestSay(tag .. " answered with nothing at all")
-                    return
-                end
-                for i = 1, #lines, 4 do
-                    local chunk = {}
-                    for j = i, math.min(#lines, i + 3) do chunk[#chunk + 1] = lines[j] end
-                    spudTestSay(tag .. " · " .. table.concat(chunk, " · "))
-                end
-            end
-
-            local ok, res, err = spudDoorCall("Modules.Larry.FNCGetEquipmentCarryInfo", 5)
-            spudTestSay(string.format("newreads: carry table %s%s",
-                ok and "ANSWERED" or ("refused — " .. clip3(err, 120)), ""))
-            if ok then emit("newreads: carry", res, 40) end
-
-            local folder = equipmentFolder()
-            local kids = folder and folder:GetChildren() or {}
-            spudTestSay(string.format("newreads: %d machine(s) in the equipment folder, with the numbers each one carries", #kids))
-            for _, m in ipairs(kids) do
-                if #m.Name > 0 then
-                    local bits = { "type=" .. tostring(m:GetAttribute("EquipmentType") or "?") }
-                    pcall(function()
-                        for k, v in pairs(m:GetAttributes()) do
-                            if type(v) == "number" or type(v) == "string" then
-                                bits[#bits + 1] = k .. "=" .. tostring(v)
-                            end
-                        end
-                        local conf = m:FindFirstChild("Configurations")
-                        for _, c in ipairs((conf or m):GetChildren()) do
-                            if c:IsA("IntValue") or c:IsA("NumberValue") then
-                                bits[#bits + 1] = "cfg." .. c.Name .. "=" .. tostring(c.Value)
-                            end
-                        end
-                    end)
-                    spudTestSay(string.format("newreads:   · %s [%s] %s",
-                        m.Name, m.ClassName, table.concat(bits, " ")))
-                end
-            end
-
-            local okC, resC, errC = spudDoorCall("Modules.Larry.FNCGetCompany", 5)
-            spudTestSay("newreads: company board " ..
-                (okC and "ANSWERED" or ("refused — " .. clip3(errC, 120))))
-            if okC then emit("newreads: company", resC, 60) end
-
-            local okM, resM, errM = spudDoorCall("Modules.Larry.FNCModTool.GetFarmVersions", 5)
-            spudTestSay("newreads: ModTool GetFarmVersions " ..
-                (okM and "ANSWERED" or ("refused — " .. clip3(errM, 160))))
-            if okM then emit("newreads: modtool", resM, 30) end
-            spudTestSay("newreads: nothing here wrote — no LoadFarm, no SaveSlot, no order accepted")
-            return
-        end
-
-        -- ▸ DOOR SHAPES — v1.158 walked 10564 nodes WITHOUT touching its cap and
-        --   still counted 342, so the old "CAP 3000 REACHED" never hid a tail: the
-        --   inventory is complete, and 320 of those doors have never been named in
-        --   this script. The open question is no longer what exists but what each
-        --   one wants. Only RemoteFunctions are touched, only from the literal
-        --   paths below, and always with NO arguments: a handler that wants
-        --   something refuses and its error names the missing argument, and a
-        --   refusal cannot change the world. Coins and the character's own
-        --   position bracket every call, so a surprise shows up in the same line
-        --   instead of in the owner's wallet or a field they did not choose.
-        --   CmdrClient is deliberately NOT in this leg — it is the developer
-        --   console, not a farm door, and it needs the owner's decision first.
-        if kind == "doors" then
-            local READ = {
-                "Modules.Larry.FNCGetCompany", "Modules.Larry.FNCGetCurrentFarmSlot",
-                "Modules.Larry.FNCGetEquipmentCarryInfo", "Modules.Larry.FNCGetLayouts",
-                "Modules.Larry.FNCGetNewspaperViewTime", "Modules.Larry.FNCGetPermissionedBudget",
-                "Modules.Larry.FNCLayoutsUnlocked", "Modules.Larry.FNCPlayerHasPremium",
-                "Modules.Larry.FNCGetClientLog",
-            }
-            local SHAPE = {
-                "Modules.Larry.FNCStreamAroundPosition",
-                "Modules.Larry.FNCTeleportToEvent",
-                "Modules.Larry.FNCCutTree",
-                "Modules.Larry.FNCModTool.GetFarmVersions",
-            }
-            local function clip2(s, n)
-                s = tostring(s or "")
-                if #s > n then return s:sub(1, n) .. "…" end
-                return s
-            end
-            local function probe(path, tier)
-                local short = path:gsub("Modules.Larry.", "")
-                local door = findPath(path)
-                if not door then
-                    spudTestSay("doors: " .. short .. " is not in this build — not invoked")
-                    return
-                end
-                if door.ClassName ~= "RemoteFunction" then
-                    spudTestSay("doors: " .. short .. " is a " .. door.ClassName .. " — not invoked")
-                    return
-                end
-                -- A RemoteFunction WAITS for the server, and a handler that never
-                -- replies parks this thread forever — live v1.159: the leg stopped
-                -- dead after FNCGetLayouts because FNCGetNewspaperViewTime was
-                -- never answered, and every later button said "a test is already
-                -- running". So the call runs in its own thread and this one waits
-                -- a bounded time; an unanswered door is a finding, not a hang.
-                local c0, p0 = coinBalance(), where()
-                local done, ok, res = false, false, nil
-                task.spawn(function()
-                    ok, res = pcall(function() return door:InvokeServer() end)
-                    done = true
-                end)
-                local t0 = os.clock()
-                while not done and os.clock() - t0 < 4 do task.wait(0.1) end
-                local c1, p1 = coinBalance(), where()
-                if not done then
-                    spudTestSay(string.format(
-                        "doors: %s() %s never answered in 4s — coins %s → %s · you %s → %s",
-                        short, tier, tostring(c0), tostring(c1), p0, p1))
-                    return
-                end
-                if not ok then
-                    spudTestSay(string.format("doors: %s() %s refused — %s",
-                        short, tier, clip2(tostring(res), 150)))
-                    spudTestSay(string.format("doors:   · coins %s → %s · you %s → %s",
-                        tostring(c0), tostring(c1), p0, p1))
-                    return
-                end
-                spudTestSay(string.format("doors: %s() %s ANSWERED — coins %s → %s · you %s → %s",
-                    short, tier, tostring(c0), tostring(c1), p0, p1))
-                local lines, n = {}, 0
-                local function dump(t, depth, prefix)
-                    if type(t) ~= "table" then
-                        n += 1
-                        if n <= 24 then lines[#lines + 1] = prefix .. "=" .. clip2(tostring(t), 48) end
-                        return
-                    end
-                    for k, v in pairs(t) do
-                        n += 1
-                        if n > 24 then return end
-                        if type(v) == "table" then
-                            if depth < 2 then dump(v, depth + 1, prefix .. "." .. tostring(k))
-                            else lines[#lines + 1] = prefix .. "." .. tostring(k) .. "={table}" end
-                        else
-                            lines[#lines + 1] = prefix .. "." .. tostring(k) .. "=" .. clip2(tostring(v), 48)
-                        end
-                    end
-                end
-                dump(res, 1, "")
-                if n == 0 then
-                    spudTestSay("doors:   · it answered with nothing at all — no payload, no refusal")
-                else
-                    for i = 1, #lines, 4 do
-                        local chunk = {}
-                        for j = i, math.min(#lines, i + 3) do chunk[#chunk + 1] = lines[j] end
-                        spudTestSay("doors:   · " .. table.concat(chunk, " · "))
-                    end
-                end
-            end
-            for _, p in ipairs(SHAPE) do probe(p, "shape") end
-            for _, p in ipairs(READ) do probe(p, "reader") end
-            spudTestSay("doors: nothing here was called WITH an argument — a refusal names the argument the real call has to pass")
-            return
-        end
-
-        -- ▸ STREAM — ANSWERED live 2026-11-05 and retired. FNCStreamAroundPosition
-        --   reads arg.Value and calls :GetPivot() on it, so it wants an INSTANCE,
-        --   not a coordinate (the no-arg refusal named the server's own file:
-        --   ServerScriptService.Handlers.AdaptiveStreamingHandler:7). Three real
-        --   distant Instances 1421–1568 studs away were ACCEPTED and went silent,
-        --   and the replicated node count moved 50231 → 50232: the door takes the
-        --   call and streams nothing we can see. 'Not streamed' stays a real
-        --   constraint, so no leg should wait on a distant area arriving.
         -- ▸ WRONG TOOL — ANSWERED live 2026-10-31 and retired: a plow's own
         --   attachment firing cultivate on a Plowed cell the blade was hopped
         --   onto was IGNORED (Plowed → Plowed), so the server checks WHICH
@@ -10365,12 +10072,6 @@ local okBuild, errBuild = pcall(function()
     end
     Tabs.Tests:CreateButton({ Title = "Remote list", Callback = function()
         task.spawn(function() spudTestRun("remotes") end)
-    end })
-    Tabs.Tests:CreateButton({ Title = "Door shapes", Callback = function()
-        task.spawn(function() spudTestRun("doors") end)
-    end })
-    Tabs.Tests:CreateButton({ Title = "New reads", Callback = function()
-        task.spawn(function() spudTestRun("newreads") end)
     end })
     Tabs.Tests:CreateButton({ Title = "Field remotes", Callback = function()
         task.spawn(function() spudTestRun("fieldremotes") end)
