@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.159 · fluent gui"
+local VERSION    = "rebuild v1.160 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -8324,9 +8324,27 @@ local okBuild, errBuild = pcall(function()
                     spudTestSay("doors: " .. short .. " is a " .. door.ClassName .. " — not invoked")
                     return
                 end
+                -- A RemoteFunction WAITS for the server, and a handler that never
+                -- replies parks this thread forever — live v1.159: the leg stopped
+                -- dead after FNCGetLayouts because FNCGetNewspaperViewTime was
+                -- never answered, and every later button said "a test is already
+                -- running". So the call runs in its own thread and this one waits
+                -- a bounded time; an unanswered door is a finding, not a hang.
                 local c0, p0 = coinBalance(), where()
-                local ok, res = pcall(function() return door:InvokeServer() end)
+                local done, ok, res = false, false, nil
+                task.spawn(function()
+                    ok, res = pcall(function() return door:InvokeServer() end)
+                    done = true
+                end)
+                local t0 = os.clock()
+                while not done and os.clock() - t0 < 4 do task.wait(0.1) end
                 local c1, p1 = coinBalance(), where()
+                if not done then
+                    spudTestSay(string.format(
+                        "doors: %s() %s never answered in 4s — coins %s → %s · you %s → %s",
+                        short, tier, tostring(c0), tostring(c1), p0, p1))
+                    return
+                end
                 if not ok then
                     spudTestSay(string.format("doors: %s() %s refused — %s",
                         short, tier, clip2(tostring(res), 150)))
@@ -8365,8 +8383,8 @@ local okBuild, errBuild = pcall(function()
                     end
                 end
             end
-            for _, p in ipairs(READ) do probe(p, "reader") end
             for _, p in ipairs(SHAPE) do probe(p, "shape") end
+            for _, p in ipairs(READ) do probe(p, "reader") end
             spudTestSay("doors: nothing here was called WITH an argument — a refusal names the argument the real call has to pass")
             return
         end
