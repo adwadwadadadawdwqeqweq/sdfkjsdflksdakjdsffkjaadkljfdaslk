@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.157 · fluent gui"
+local VERSION    = "rebuild v1.158 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -8216,11 +8216,11 @@ local okBuild, errBuild = pcall(function()
         --   see. The field calls we know are the ones the game fired by hand;
         --   a bulk/field door that was never fired would only show up here.
         if kind == "remotes" then
-            -- live v1.123 said "339 found (601 nodes walked)" — the walk ran out
-            -- of budget, so the list below was NOT the whole door inventory and
-            -- said nothing about it. The cap is the evidence's own ceiling, so it
-            -- is roomy and the line reports whether it was reached.
-            local CAP = 3000
+            -- live v1.138 said "342 found … (3004 nodes walked, CAP 3000 REACHED)",
+            -- so the walk ran out of budget and the list below was NOT the whole
+            -- door inventory. The cap is the evidence's own ceiling, so it is roomy
+            -- and the line reports the number it actually stopped at.
+            local CAP = 30000
             local out, n, seen, seenPath, cut = {}, 0, 0, {}, false
             local ok, err = pcall(function()
                 local function walk(node, depth, prefix)
@@ -8249,7 +8249,7 @@ local okBuild, errBuild = pcall(function()
             end)
             table.sort(out)
             spudTestSay(string.format("remotes: %d found under ReplicatedStorage (%d nodes walked%s)%s",
-                n, seen, cut and ", CAP 3000 REACHED — this list is cut short" or "",
+                n, seen, cut and (", CAP " .. CAP .. " REACHED — this list is cut short") or "",
                 ok and "" or (" — stopped: " .. tostring(err))))
             for i = 1, #out, 5 do
                 local chunk = {}
