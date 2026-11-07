@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.157 · fluent gui"
+local VERSION    = "rebuild v1.158 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -8530,13 +8530,15 @@ local okBuild, errBuild = pcall(function()
         local rot = cf - cf.Position
         local fired, done, charged = 0, {}, {}
         local pastBand = 0
+        local where = {}
         -- ▸ THE BURST AT ONE STOP: exactly that block's cells. `done` is
         --   "already called at this stop" and is cleared for the one retry
         --   below; `charged` is "already paid for by the seeder/tank", so a
         --   retried cell is never counted twice. The blade position comes from
         --   the caller, measured after the settle — a cell the blade cannot
         --   reach from where it actually stands is not called at all.
-        local function burst(stop, bp)
+        local function burst(stop, bp, stopNo)
+            local nth = 0
             for _, c in ipairs(stop.cells) do
                 local key = c.id or ("i" .. tostring(c))
                 if not done[key] then
@@ -8564,6 +8566,12 @@ local okBuild, errBuild = pcall(function()
                         local dx, dz = c.X - bp.X, c.Z - bp.Z
                         far = (dx * dx + dz * dz) > spudFieldTaken * spudFieldTaken
                     end
+                    local far, dist = false, nil
+                    if bp then
+                        local dx, dz = c.X - bp.X, c.Z - bp.Z
+                        dist = math.sqrt(dx * dx + dz * dz)
+                        far = dist > spudFieldTaken
+                    end
                     if far then
                         pastBand += 1
                     else
@@ -8571,6 +8579,17 @@ local okBuild, errBuild = pcall(function()
                             dry = true
                             return
                         end
+                        nth += 1
+                        -- ▸ WHERE THIS CALL SAT, for the closing attribution: the
+                        --   stop it belongs to, its number within that block's
+                        --   burst, and how far the blade was when it was called.
+                        --   The pass-end re-read already says which cells are
+                        --   still standing, so this costs no extra trip to the
+                        --   field and answers whether the refusals are the FIRST
+                        --   calls of each burst (the server still holding the
+                        --   previous pose) or the FARTHEST ones (a band smaller
+                        --   than the 20 this build plans on).
+                        if c.id then where[c.id] = { s = stopNo, p = nth, d = dist } end
                         done[key] = true
                         if not charged[key] then
                             charged[key] = true
@@ -8694,7 +8713,7 @@ local okBuild, errBuild = pcall(function()
                 end
             else
                 misses = 0
-                burst(stop, bs)
+                burst(stop, bs, i)
                 if not firedOnce then
                     firedOnce = true
                     -- ▸ THE FIRST CALL AFTER A LONG RIDE IS ROUTINELY REFUSED while
@@ -8710,7 +8729,7 @@ local okBuild, errBuild = pcall(function()
                             task.wait(0.5)
                             -- a fresh reading: the retry is fired half a second
                             -- later, and the tow has had that long to move
-                            burst(stop, bladePos())
+                            burst(stop, bladePos(), i)
                             chk = cellsAtStage(field, stage, baseCF, baseSize)
                         end
                         if not chk or #chk >= before then break end
@@ -8735,6 +8754,40 @@ local okBuild, errBuild = pcall(function()
             pastBand > 0 and string.format(
                 " — %d cell(s) were past the %d-stud band from where the blade actually sat, left for the hop",
                 pastBand, spudFieldTaken) or ""))
+        -- ▸ WHERE THE LEFTOVERS SAT (live 2026-11-06: `fired 1768 of 1768
+        --   cell(s) from 240 stop(s) — 1418 took, 350 left` with the band filter
+        --   skipping NOTHING, so the refusals are not the far corners and the
+        --   build does not know what they are). ~1.5 refused per stop, every
+        --   stop, is the shape the server-holds-the-old-pose artifact makes, and
+        --   the same shape a tool whose real band is smaller than 20 makes; the
+        --   two are told apart by WHERE in each burst the refused cells are.
+        --   Printed only when something is left, and only from what this pass
+        --   already knows — no extra read of the field.
+        if after and #after > 0 then
+            local byPos, seenStop, stopCount, dsum, dn, dworst = {}, {}, 0, 0, 0, 0
+            for _, c in ipairs(after) do
+                local w = c.id and where[c.id]
+                if w then
+                    byPos[w.p] = (byPos[w.p] or 0) + 1
+                    if not seenStop[w.s] then seenStop[w.s] = true; stopCount += 1 end
+                    if w.d then
+                        dsum, dn = dsum + w.d, dn + 1
+                        if w.d > dworst then dworst = w.d end
+                    end
+                end
+            end
+            local parts = {}
+            for n = 1, side * side do
+                if byPos[n] then parts[#parts + 1] = string.format("%d in %d", n, byPos[n]) end
+            end
+            if #parts > 0 then
+                log(string.format(
+                    "remote %s: the %d cell(s) still standing sat at call %s — across %d stop(s), the blade averaged %.1f studs from them (worst %.1f)%s",
+                    job.verb, #after, table.concat(parts, ", "), stopCount,
+                    dn > 0 and dsum / dn or 0, dworst,
+                    dn == 0 and " (their blade distance was unreadable)" or ""))
+            end
+        end
         return took, dry
     end
 

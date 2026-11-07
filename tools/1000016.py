@@ -1269,7 +1269,49 @@ check("and they are still standing for the hop pass",
     #spudFieldCellIds(field, "Cultivated") > 0)
 check("a near-landed stop is not written off as a miss",
     offLine:find("leaving this block") == nil)
-TRAIL_BIAS = nil
+-- 20. WHERE THE REFUSALS SIT (live 2026-11-06, the owner's "it is still missing
+--     some tiles"). v1.157's band filter changed NOTHING on the real client:
+--       remote cultivate: fired 1768 of 1768 cell(s) from 240 stop(s), 3x3 per stop — 1418 took, 350 left
+--     `fired 1768` means every cell was inside the 20-stud band of its blade, so
+--     the refusals are NOT the far corners — the model that produced that fix was
+--     wrong. 350 over 240 stops is ~1.5 a stop, and the plow showed the same
+--     shape on a full field (`fired 8 of 8 — 7 took, 1 left`), which is what the
+--     hop then closed. Two causes fit and nothing in the build can tell them
+--     apart yet: the server still holding the PREVIOUS pose for the first call or
+--     two after each teleport (v1.135 already knows this happens, and only
+--     retries the FIRST stop of a pass), or a band that is smaller than 20 for
+--     this tool. So the grid now records, for every cell it calls, which stop it
+--     was and which number in that burst, and the closing line says where the
+--     leftovers sat. This asserts the attribution exists and is honest about the
+--     numbers it prints.
+RIDE_POS = Vector3.new(0, 0, 0)
+ATTPARENT.Position = Vector3.new(0, 0, 0)
+TRAIL_BIAS = Vector3.new(0, 0, -12)          -- in band (<=20), still refused by a 5
+acceptR = 5                                  -- a band smaller than the block's own
+capVal.Value = 50                            -- reach: the centre takes, the rest do not
+mode.seed, mode.atCell = "all", true
+sweepGrid()
+resetState()
+local lg20, calls20 = #logs + 1, seedRemote.invokeCalls
+spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+    baseCF, baseSize, hopAtt)
+local line20 = table.concat(logs, "|", lg20)
+check("attribution: the leftovers are reported by burst position",
+    line20:find("sat at call") ~= nil, line20:match("[^|]*sat at call[^|]*") or "no attribution line")
+check("attribution: it counts the stops they came from",
+    line20:find("stop%s*") ~= nil or line20:find("burst") ~= nil)
+check("attribution: nothing is invented when the field is clean",
+    (function()
+        acceptR = 200
+        RIDE_POS, TRAIL_BIAS = Vector3.new(0, 0, 0), nil
+        ATTPARENT.Position = Vector3.new(0, 0, 0)
+        sweepGrid(); resetState()
+        local lg21 = #logs + 1
+        spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+            baseCF, baseSize, hopAtt)
+        return table.concat(logs, "|", lg21):find("sat at call") == nil
+    end)())
+TRAIL_BIAS, acceptR = nil, 20
 
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 """
