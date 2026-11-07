@@ -96,6 +96,10 @@ spudFieldTaken = 20
 -- the game's cell pitch: the block grouping measures its spans in this, and
 -- spudBlockSide sizes the square with it
 spudFieldPitch = 10
+-- ▸ how many times one stop fires its own block before moving on (the owner's
+--    2026-11-06 answer to the corners: "make it do the 3x3 twice in the second it
+--    stays there"). Costs calls, never teleports.
+spudBlockRepeat = 2
 -- the beat the grid takes between two blocks, in MILLISECONDS (the owner's
 -- 2026-11-04 number: "make it wait 100ms after before going to the next 3x3")
 spudBlockPause = 100
@@ -188,10 +192,16 @@ local function inBand(p, cellPos)
     return (dx * dx + dz * dz) <= acceptR * acceptR
 end
 local tries = {}
+-- ▸ how many DISTINCT cells the grid asked at all. The boundary ring is now
+--   asked twice on purpose (spudBlockRepeat), so raw call counts no longer
+--   mean "one call per cell"; the honest measure of coverage is the number
+--   of cells it asked about, and refusals are measured against that.
+local askCount = {}
 spudBatchRemotes = false
 
 local function seedHandler(field, ids)
     if mode.seed == "none" then return end
+    for _, id in ipairs(ids) do askCount[id] = (askCount[id] or 0) + 1 end
     -- a server that validates ONE id per call ignores a longer list
     if mode.seed == "oneOnly" and #ids ~= 1 then return end
     local cells = fieldState[field]
@@ -214,6 +224,29 @@ local function seedHandler(field, ids)
                 -- the live rule: only a cell the blade is over is accepted
                 if not inBand(ATTPARENT and ATTPARENT.Position, cellPosOf(id)) then
                     take = false
+                end
+            end
+            -- ▸ mode.lagFirst models the OTHER half of the live measurement: a
+            --   boundary cell the server had not seen the blade reach YET — the
+            --   first ask is refused, the same ask a beat later from the SAME
+            --   pose takes. That is what "it might just be a question of what
+            --   the fps is" predicts, and it is the case a second burst fixes
+            --   for free while a smaller block would not.
+            if take and mode.lagFirst then
+                -- ▸ EXACTLY what the field measured (2026-11-06): every one of
+                --    the 208 refusals sat at 14.1 studs — the boundary ring —
+                --    while cells at 0 and 10 took. So the first ask is refused
+                --    only out there, and a repeat of the inner cells would be
+                --    asking a question that was already answered.
+                local p, cp = ATTPARENT and ATTPARENT.Position, cellPosOf(id)
+                if p then
+                    local dx, dz = cp.X - p.X, cp.Z - p.Z
+                    if math.sqrt(dx * dx + dz * dz)
+                        > spudFieldTaken - spudFieldPitch then
+                        local n = (tries[id] or 0) + 1
+                        tries[id] = n
+                        if n < 2 then take = false end
+                    end
                 end
             end
             if take then cell.Stage = "Seeded" end
@@ -321,6 +354,8 @@ adopt(adopt(decoyTool, newInst("Misc", "Part")), newInst("Attachment", "Attachme
 local noAttTool = newInst("Empty", "Model")
 
 local function resetState()
+    askCount = {}
+    tries = {}
     spudFieldRemoteState.kit = nil
     spudFieldRemoteState.off = {}
 end
@@ -328,6 +363,11 @@ end
 
 POST = r"""
 local fails = 0
+local function distinctAsked()
+    local n = 0
+    for _ in pairs(askCount) do n += 1 end
+    return n
+end
 local function check(name, ok, detail)
     if not ok then fails = fails + 1 end
     print(string.format("%-58s %s%s", name, ok and "PASS" or "FAIL",
@@ -682,8 +722,9 @@ local cj0 = seedRemote.invokeCalls
 local tookR, dryR = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
     baseCF, baseSize, hopAtt)
 check("radial: every cell takes from the stops", tookR == 15, tostring(tookR))
-check("radial: one call per cell", seedRemote.invokeCalls - cj0 == 15,
-    (seedRemote.invokeCalls - cj0) .. " call(s)")
+check("radial: every cell gets asked (the ring may be asked twice)",
+    distinctAsked() == 15, (seedRemote.invokeCalls - cj0) .. " call(s), "
+        .. distinctAsked() .. " cell(s) asked")
 check("radial: the field is empty afterwards",
     #spudFieldCellIds(field, "Cultivated") == 0)
 check("radial: one teleport per stop, no tween", rides - rj0 == 2,
@@ -719,8 +760,10 @@ check("the beat is the owner's 100 ms, not a guessed sleep",
     beatDur[spudBlockPause / 1000] ~= nil,
     "waited for " .. tostring(spudBlockPause / 1000) .. "s "
         .. tostring(beatDur[spudBlockPause / 1000] or 0) .. " time(s)")
-check("a 2-stop grid pays the beat ONCE — the last stop waits for nothing",
-    beatDur[spudBlockPause / 1000] == 1,
+-- 2 stops: ONE beat between them (the last stop waits for no next block), plus
+-- one beat per stop for its own second burst — spudBlockRepeat asks of 2.
+check("a 2-stop grid pays one inter-block beat and one repeat beat a stop",
+    beatDur[spudBlockPause / 1000] == (2 - 1) + 2 * (spudBlockRepeat - 1),
     tostring(beatDur[spudBlockPause / 1000] or 0) .. " beat(s)")
 check("the beat does not cost the field a cell", tookBeat == 15,
     tostring(tookBeat))
@@ -770,7 +813,7 @@ cj0 = seedRemote.invokeCalls
 local tookRF, dryRF = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
     baseCF, baseSize, hopAtt)
 check("radial: a long field is covered by several stops",
-    tookRF == 27 and seedRemote.invokeCalls - cj0 == 27,
+    tookRF == 27 and distinctAsked() == 27,
     (seedRemote.invokeCalls - cj0) .. " call(s), took " .. tostring(tookRF))
 check("radial: the stops are teleports, not a tween", rides - rf0 == 3,
     (rides - rf0) .. " pivot(s)")
@@ -1114,7 +1157,7 @@ cj0 = seedRemote.invokeCalls
 local tookStale = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
     baseCF, baseSize, hopAtt)
 check("stale first trail: every block still gets its burst",
-    seedRemote.invokeCalls - cj0 == 15,
+    distinctAsked() == 15,
     (seedRemote.invokeCalls - cj0) .. " call(s)")
 check("stale first trail: and every cell takes", tookStale == 15, tostring(tookStale))
 check("stale first trail: aiming costs extra jumps, not calls",
@@ -1207,7 +1250,7 @@ local function raggedRun(who, builder, cells, stops)
         baseCF, baseSize, hopAtt)
     local line = table.concat(logs, "|", lg0)
     check(who .. " field: every cell called",
-        seedRemote.invokeCalls - calls0 == cells,
+        distinctAsked() == cells,
         (seedRemote.invokeCalls - calls0) .. " call(s) for " .. cells)
     check(who .. " field: every cell TAKES the grid",
         took == cells, tostring(took) .. " took of " .. cells)
@@ -1249,7 +1292,7 @@ local c0 = seedRemote.invokeCalls
 local tookOk = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
     baseCF, baseSize, hopAtt)
 check("aimed blade: the whole field is called",
-    seedRemote.invokeCalls - c0 == cellsAll, (seedRemote.invokeCalls - c0) .. " call(s)")
+    distinctAsked() == cellsAll, (seedRemote.invokeCalls - c0) .. " call(s)")
 check("aimed blade: and every call takes", tookOk == cellsAll, tostring(tookOk))
 TRAIL_BIAS = Vector3.new(0, 0, -10)   -- arrives 10 studs past the stop, inside tol
 sweepGrid()
@@ -1259,10 +1302,12 @@ local tookOff = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
     baseCF, baseSize, hopAtt)
 local offLine = table.concat(logs, "|", lg1)
 local calledOff = seedRemote.invokeCalls - c1
-check("a blade 10 off its stop calls FEWER cells than it has",
-    calledOff < cellsAll, calledOff .. " call(s) for " .. cellsAll)
-check("a blade 10 off its stop wastes no call", tookOff == calledOff,
-    tostring(tookOff) .. " took of " .. calledOff)
+check("a blade 10 off its stop asks FEWER cells than it has",
+    distinctAsked() < cellsAll,
+    distinctAsked() .. " cell(s) asked of " .. cellsAll)
+check("a blade 10 off its stop spends no call outside the band",
+    tookOff == distinctAsked(),
+    tostring(tookOff) .. " took of " .. distinctAsked() .. " asked")
 check("the cells it left are named with the band, not silently refused",
     offLine:find("past the 20%-stud band") ~= nil, offLine:match("[^|]*band[^|]*") or "no band line")
 check("and they are still standing for the hop pass",
@@ -1312,6 +1357,47 @@ check("attribution: nothing is invented when the field is clean",
         return table.concat(logs, "|", lg21):find("sat at call") == nil
     end)())
 TRAIL_BIAS, acceptR = nil, 20
+
+-- 21. FIRE THE BLOCK TWICE FROM THE STOP IT IS ALREADY AT (owner 2026-11-06,
+--     answering the 14.1-stud corners directly: "make it do the 3x3 twice in the
+--     second it stays there, it also might just be a question of what the fps
+--     is"). The grid measured 208 refusals out of 1199 and every one of them sat
+--     at the block's CORNER distance, while corners took often enough that this
+--     is not a wall — it is a boundary the server resolves differently depending
+--     on when it last saw the blade. A second burst from the same pose costs
+--     calls, not teleports, and the hop it replaces costs 208 teleports.
+local function lagRun(repeat_, cells)
+    RIDE_POS, TRAIL_BIAS = Vector3.new(0, 0, 0), nil
+    ATTPARENT.Position = Vector3.new(0, 0, 0)
+    TRAIL_REST, TRAIL_STUCK, RIDE_JAMMED = nil, false, false
+    spudBlockRepeat = repeat_
+    mode.seed, mode.atCell, mode.lagFirst = "all", true, true
+    acceptR = 200                        -- geometry is NOT the problem here
+    capVal.Value = 50
+    sweepGrid()
+    resetState()
+    -- the "had it been asked before" memory is the fake server's, not the
+    -- field's: without clearing it the second run would take everything on the
+    -- first ask and the test would prove nothing.
+    tries = {}
+    local rides0, calls0, lg0 = rides, seedRemote.invokeCalls, #logs + 1
+    local took = spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+        baseCF, baseSize, hopAtt)
+    return took, seedRemote.invokeCalls - calls0, rides - rides0,
+        table.concat(logs, "|", lg0)
+end
+local tookOnce, callsOnce, ridesOnce = lagRun(1, 15)
+check("one ask per corner: a boundary cell is left standing",
+    tookOnce < 15, tostring(tookOnce) .. " took of 15")
+local tookTwice, callsTwice, ridesTwice, lineTwice = lagRun(2, 15)
+check("two asks from the same stop: the field is complete",
+    tookTwice == 15, tostring(tookTwice) .. " took of 15")
+check("and it costs NO extra teleport — the ride still moved once per stop",
+    ridesTwice == ridesOnce, string.format("%d vs %d pivot(s)", ridesTwice, ridesOnce))
+check("the second burst is where the cells came back",
+    callsTwice > callsOnce, string.format("%d call(s) vs %d", callsTwice, callsOnce))
+mode.lagFirst = nil
+spudBlockRepeat = 2
 
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 """

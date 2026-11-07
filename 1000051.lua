@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.158 · fluent gui"
+local VERSION    = "rebuild v1.159 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -3045,6 +3045,17 @@ local okBuild, errBuild = pcall(function()
     --   land on top of that. 100 ms a stop, in milliseconds so the next run can
     --   say whether the number is right.
     spudBlockPause = 100
+    -- ▸ HOW MANY TIMES ONE STOP FIRES ITS OWN BLOCK (owner 2026-11-06, answering
+    --   the corner measurement directly: "make it do the 3x3 twice in the second
+    --   it stays there, it also might just be a question of what the fps is").
+    --   One plow grid refused 208 of 1199 cells and the attribution put EVERY
+    --   one of them at 14.1 studs — a 3x3's corner — while corners also took
+    --   often enough that 14.1 is not a wall but a boundary the server resolves
+    --   differently depending on when it last saw the blade. A second burst from
+    --   the pose the rig is ALREADY in costs calls and the beat between them, and
+    --   no teleport; the hop it replaces costs one teleport per refused cell
+    --   (208 of them, minutes). Set it to 1 to go back to one ask a block.
+    spudBlockRepeat = 2
     -- ▸ HOW BIG AN EQUAL SQUARE CAN ONE STOP CLEAR (owner 2026-11-03: "when it
     --   plows, now it plows in a cross pattern, if it cant do a equal 3x3 or 4x4
     --   or 5x5 or 6x6 or 7x7 it should only do one of those, if it make a cross
@@ -8537,7 +8548,7 @@ local okBuild, errBuild = pcall(function()
         --   retried cell is never counted twice. The blade position comes from
         --   the caller, measured after the settle — a cell the blade cannot
         --   reach from where it actually stands is not called at all.
-        local function burst(stop, bp, stopNo)
+        local function burst(stop, bp, stopNo, riskOnly)
             local nth = 0
             for _, c in ipairs(stop.cells) do
                 local key = c.id or ("i" .. tostring(c))
@@ -8574,6 +8585,14 @@ local okBuild, errBuild = pcall(function()
                     end
                     if far then
                         pastBand += 1
+                    elseif riskOnly and (not dist
+                        or dist <= spudFieldTaken - spudFieldPitch) then
+                        -- ▸ NOT A BOUNDARY CELL. The measurement is that only the
+                        --   ring at 14.1 studs ever refuses (208 of 208), so the
+                        --   repeat asks that ring and leaves the cells at 0 and
+                        --   10 alone — a second ask there buys a refused call and
+                        --   nothing else. An unreadable distance counts as at
+                        --   risk (rule 7: unknown is not safe).
                     else
                         if budget and not charged[key] and fired >= budget then
                             dry = true
@@ -8688,6 +8707,10 @@ local okBuild, errBuild = pcall(function()
             if settled then task.wait(0.25) end
             local bs = bladePos()
             local away
+            -- did THIS stop fire at all? A stop whose blade never landed fires
+            -- nothing, and a repeat of a stop that fired nothing would spend
+            -- calls at a pose that is simply wrong — the hop is what fixes that.
+            local firedHere = false
             if bs then
                 away = (Vector3.new(bs.X, sy, bs.Z) - Vector3.new(stop.x, sy, stop.z)).Magnitude
                 off = bs - ride:GetPivot().Position
@@ -8713,6 +8736,7 @@ local okBuild, errBuild = pcall(function()
                 end
             else
                 misses = 0
+                firedHere = true
                 burst(stop, bs, i)
                 if not firedOnce then
                     firedOnce = true
@@ -8735,6 +8759,21 @@ local okBuild, errBuild = pcall(function()
                         if not chk or #chk >= before then break end
                     end
                 end
+            end
+            -- ▸ THE SECOND ASK, FROM THE POSE THE RIG IS ALREADY IN (owner
+            --   2026-11-06: "make it do the 3x3 twice in the second it stays
+            --   there, it also might just be a question of what the fps is").
+            --   The corners were measured refusing at 14.1 studs while the same
+            --   corners took other rounds, so the ask lands differently
+            --   depending on when the server last saw the blade — and a repeat
+            --   costs calls plus the beat, never a teleport. `charged` is not
+            --   cleared, so a repeated cell is never paid for twice by the
+            --   seeder or the tank; `done` is, or the burst would skip them.
+            for _ = 2, firedHere and math.max(1, spudBlockRepeat or 1) or 0 do
+                if dry or stopping() then break end
+                task.wait(spudBlockPause / 1000)
+                done = {}
+                burst(stop, bladePos(), i, true)
             end
             if dry then break end
             -- ▸ ONE BEAT BEFORE THE NEXT BLOCK (owner 2026-11-04: "when it's
