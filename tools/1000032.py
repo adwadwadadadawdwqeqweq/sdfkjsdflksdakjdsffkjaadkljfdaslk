@@ -33,12 +33,18 @@ COMPILE = BASE / "luau-compile.exe"
 #   file -> this command stops being green and says what it found.
 GATES = {"1000027.py", "1000029.py", "1000032.py"}          # budget, name audit, this file
 BENCHES = {"1000004.py", "1000036.py", "1000038.py"}        # cow scan, stall scan, store timing
+# ▸ and the PC-side tools that live in this folder but are not tests of the
+#   build: the emulator watcher and the clipboard decoder it uses. They were
+#   added without touching this list and the count guard said so out loud
+#   ("found 37 test(s), expected 35") instead of quietly running them as
+#   harnesses or dropping the real ones.
+TOOLS = {"spudwatch.py", "spud_clip.py"}
 EXPECTED_HARNESS_COUNT = 35
 
 
 def discover_harnesses() -> list[pathlib.Path]:
     tools = ROOT / "tools"
-    return sorted(p for p in tools.glob("*.py") if p.name not in GATES | BENCHES)
+    return sorted(p for p in tools.glob("*.py") if p.name not in GATES | BENCHES | TOOLS)
 
 
 def run(label: str, cmd: list[str], scan_stdout: bool = True) -> bool:
