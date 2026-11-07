@@ -276,10 +276,22 @@ def poll():
 
     faults = {m.group(1) for _, _, _, txt in lines
               for m in [FATAL_PAT.search(txt)] if m and m.group(1)}
-    if pid is None and prev_pid is not None:
-        kind = "roblox-crashed" if prev_pid in faults or faults else "roblox-exited"
+    # ▸ A PID THAT CHANGED IS THE EVENT, not a pid that is missing. The first
+    #   version only fired when the new pid was None, so a crash that Android
+    #   relaunched inside one 20-second window went 11922 -> 12345, neither of
+    #   them None, and the watcher said NOTHING about a crash whose
+    #   `Fatal signal` line it had just read. Simulated and confirmed broken
+    #   before this was written; the five cases are in the test below.
+    if prev_pid is not None and pid != prev_pid:
+        if prev_pid in faults or faults:
+            kind = "roblox-crashed"
+        elif pid is None:
+            kind = "roblox-exited"
+        else:
+            kind = "roblox-restarted"
         tail = "\n".join(t for _, _, _, t in lines if "spud" in t.lower())[-500:]
-        alert(kind, "pid %s is gone (%s). recent console:\n%s" % (prev_pid, kind, tail), adb, url)
+        alert(kind, "pid %s -> %s (%s). recent console:\n%s"
+              % (prev_pid, pid, kind, tail), adb, url)
     _state["pid"] = pid
 
     for _, _, tag, txt in lines:
