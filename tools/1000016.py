@@ -96,6 +96,9 @@ spudFieldTaken = 20
 -- the game's cell pitch: the block grouping measures its spans in this, and
 -- spudBlockSide sizes the square with it
 spudFieldPitch = 10
+-- how far above the soil the grid parks the rig; the bounce measurement is a
+-- claim about this number, so the harness carries it too
+spudFieldHover = 10
 -- ▸ how many times one stop fires its own block before moving on (the owner's
 --    2026-11-06 answer to the corners: "make it do the 3x3 twice in the second it
 --    stays there"). Costs calls, never teleports.
@@ -192,6 +195,7 @@ local function inBand(p, cellPos)
     return (dx * dx + dz * dz) <= acceptR * acceptR
 end
 local tries = {}
+local askSeq = 0
 -- ▸ how many DISTINCT cells the grid asked at all. The boundary ring is now
 --   asked twice on purpose (spudBlockRepeat), so raw call counts no longer
 --   mean "one call per cell"; the honest measure of coverage is the number
@@ -202,6 +206,18 @@ spudBatchRemotes = false
 local function seedHandler(field, ids)
     if mode.seed == "none" then return end
     for _, id in ipairs(ids) do askCount[id] = (askCount[id] or 0) + 1 end
+    -- ▸ the bounce, as the owner described it: the rig lands, the towed
+    --   implement springs, and the blade is NOT where the arrival test sampled
+    --   it. Shifting it a few studs per ask is what the per-call reading has to
+    --   catch; a build that samples once per stop would never see it.
+    if mode.wobble and ATTPARENT then
+        -- alternate on the ASK, not on the cell: every cell is asked once per
+        -- burst, so keying it by id would drift the blade one way forever
+        -- instead of bouncing it about the pose it was parked in.
+        askSeq = askSeq + 1
+        ATTPARENT.Position = ATTPARENT.Position +
+            Vector3.new(0, (askSeq % 2) == 0 and 5 or -5, 0)
+    end
     -- a server that validates ONE id per call ignores a longer list
     if mode.seed == "oneOnly" and #ids ~= 1 then return end
     local cells = fieldState[field]
@@ -1358,6 +1374,46 @@ check("attribution: nothing is invented when the field is clean",
     end)())
 TRAIL_BIAS, acceptR = nil, 20
 
+-- 21b. DOES THE FRAME RATE DECIDE IT? (owner 2026-11-06: "technically if it's at
+--     60 fps it should take less than 1 seconds to do the 3x3 right?", on top of
+--     "the tractor drops on the floor and the tool bounces back up a tiny bit and
+--     it makes it miss"). Both are claims about a STOP, not about the field, so
+--     the grid reports per stop how fast it was actually running and how much the
+--     blade's height moved while it was being asked. A stop that refused at 11 fps
+--     with the blade moving is the bounce; one that refused at 60 fps standing
+--     still is geometry. `mode.wobble` is the bounce: the fake server shifts the
+--     implement up and down a few studs on every ask it answers.
+local function wobbleRun(cells)
+    RIDE_POS, TRAIL_BIAS = Vector3.new(0, 0, 0), nil
+    ATTPARENT.Position = Vector3.new(0, 0, 0)
+    TRAIL_REST, TRAIL_STUCK, RIDE_JAMMED = nil, false, false
+    -- one ask per block (so the refusals survive to be attributed) and a band
+    -- wide enough that geometry is NOT the reason: the only thing left to
+    -- explain a refusal is the pose the blade was in when it was asked.
+    spudBlockRepeat, acceptR = 1, 200
+    mode.seed, mode.atCell, mode.lagFirst, mode.wobble = "all", true, true, true
+    capVal.Value = 50
+    sweepGrid()
+    resetState()
+    tries = {}
+    local lg0 = #logs + 1
+    spudRadialFire(seedJob, field, hopRide, tool, "Cultivated",
+        baseCF, baseSize, hopAtt)
+    return table.concat(logs, "|", lg0)
+end
+local wobbleLine = wobbleRun(15)
+mode.wobble = false
+check("the attribution reports the frame rate the stop ran at",
+    wobbleLine:find("%d+%.?%d* fps") ~= nil,
+    wobbleLine:match("[^|]*fps[^|]*") or "no fps in the line")
+check("and it reports how much the blade MOVED while it was being asked",
+    wobbleLine:find("moved %.?%d+%.?%d* studs") ~= nil,
+    wobbleLine:match("[^|]*moved[^|]*") or "no movement in the line")
+check("a wobbling blade is measured as wobbling, not as still",
+    (function()
+        local n = tonumber(wobbleLine:match("moved (%d+)%.?%d* studs"))
+        return n ~= nil and n >= 3
+    end)(), wobbleLine:match("moved [%d%.]+ studs") or "nothing")
 -- 21. FIRE THE BLOCK TWICE FROM THE STOP IT IS ALREADY AT (owner 2026-11-06,
 --     answering the 14.1-stud corners directly: "make it do the 3x3 twice in the
 --     second it stays there, it also might just be a question of what the fps
@@ -1422,7 +1478,8 @@ def main() -> int:
         print("spudFieldReach is no longer 24 — update this harness")
         return 2
     for const in ("spudToolSwing = 3", "spudToolFar = 90", "spudFieldTaken = 20",
-                  "spudFieldPitch = 10", "spudBlockPause = 100"):
+                  "spudFieldPitch = 10", "spudFieldHover = 10",
+                  "spudBlockPause = 100", "spudBlockRepeat = 2"):
         if not re.search(r"^    " + const + r"\b", src, re.M):
             print("the tow-settle gate no longer declares " + const
                   + " — update this harness")

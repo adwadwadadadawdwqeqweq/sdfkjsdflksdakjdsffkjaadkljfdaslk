@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.159 · fluent gui"
+local VERSION    = "rebuild v1.160 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -3031,6 +3031,13 @@ local okBuild, errBuild = pcall(function()
     --   ever accepted — 30 was refused — and a stop that paints a cross has
     --   already paid for every corner, so the block is sized against 20.
     spudFieldTaken = 20
+    -- ▸ HOW FAR ABOVE THE SOIL the block grid parks the rig. It used to be a
+    --   bare +10 buried in an arithmetic line; it is named because the owner's
+    --   2026-11-06 finding ("the tractor is dropping on the floor, then the plow
+    --   or tool bounces back up a tiny bit and it makes it miss") is a claim
+    --   about exactly this number, and a run has to be able to say whether the
+    --   blade was high or the soil is not where the build thinks it is.
+    spudFieldHover = 10
     -- ▸ THE GAME'S OWN CELL PITCH, in studs. `cellsAtStage` maps a cell id to
     --   `((x - (cols+1)/2) * 10, (y - (rows+1)/2) * 10)`, so neighbours sit 10
     --   studs apart on the field plane — the same 10 the row plan and the
@@ -8535,7 +8542,7 @@ local okBuild, errBuild = pcall(function()
             end
             flip = not flip
         end
-        local sy = sumY / before + 10 -- height is free: +80 was taken live
+        local sy = sumY / before + spudFieldHover -- height is free: +80 was taken live
         local cf = ride:GetPivot()
         local off = att.Parent.Position - cf.Position
         local rot = cf - cf.Position
@@ -8548,6 +8555,10 @@ local okBuild, errBuild = pcall(function()
         --   retried cell is never counted twice. The blade position comes from
         --   the caller, measured after the settle — a cell the blade cannot
         --   reach from where it actually stands is not called at all.
+        local function bladePos()
+            local p = att and att.Parent
+            if p and p.Position then return p.Position end
+        end
         local function burst(stop, bp, stopNo, riskOnly)
             local nth = 0
             for _, c in ipairs(stop.cells) do
@@ -8578,8 +8589,16 @@ local okBuild, errBuild = pcall(function()
                         far = (dx * dx + dz * dz) > spudFieldTaken * spudFieldTaken
                     end
                     local far, dist = false, nil
-                    if bp then
-                        local dx, dz = c.X - bp.X, c.Z - bp.Z
+                    -- ▸ READ THE BLADE AGAIN, EVERY CALL. The owner's bounce
+                    --   ("the tractor drops, the tool bounces back up a tiny bit
+                    --   and it makes it miss") is invisible to one reading taken
+                    --   before the burst: nine calls span ~0.32 s, and at 11 fps
+                    --   that is three frames of physics in which the implement
+                    --   moves. Sampling per call is what lets the closing line
+                    --   say whether the blade actually moved while it was asked.
+                    local b = bladePos() or bp
+                    if b then
+                        local dx, dz = c.X - b.X, c.Z - b.Z
                         dist = math.sqrt(dx * dx + dz * dz)
                         far = dist > spudFieldTaken
                     end
@@ -8608,7 +8627,17 @@ local okBuild, errBuild = pcall(function()
                         --   calls of each burst (the server still holding the
                         --   previous pose) or the FARTHEST ones (a band smaller
                         --   than the 20 this build plans on).
-                        if c.id then where[c.id] = { s = stopNo, p = nth, d = dist } end
+                        if c.id then
+                            -- ▸ and how far ABOVE THE SOIL the blade stood when
+                            --   it was asked. The arrival test cannot see that at
+                            --   all — it substitutes the target's Y for the
+                            --   blade's before measuring — so this is the first
+                            --   place the build writes the height down, which is
+                            --   the owner's bounce claim turned into a number.
+                            where[c.id] = { s = stopNo, p = nth, d = dist,
+                                h = b and (b.Y - (sy - spudFieldHover)) or nil,
+                                t = os.clock(), k = spudFrameTick or 0 }
+                        end
                         done[key] = true
                         if not charged[key] then
                             charged[key] = true
@@ -8628,10 +8657,6 @@ local okBuild, errBuild = pcall(function()
         --   own position until it is on the block, re-parks once from the
         --   fresh offset if it is still swinging, and refreshes the offset
         --   afterwards so the next jump starts from the settled trail.
-        local function bladePos()
-            local p = att and att.Parent
-            if p and p.Position then return p.Position end
-        end
         local function bladeOn(stop, tol, tries)
             local t = Vector3.new(stop.x, sy, stop.z)
             for _ = 1, tries do
@@ -8804,6 +8829,18 @@ local okBuild, errBuild = pcall(function()
         --   already knows — no extra read of the field.
         if after and #after > 0 then
             local byPos, seenStop, stopCount, dsum, dn, dworst = {}, {}, 0, 0, 0, 0
+            local hsum, hn, hworst = 0, 0, 0
+            local thsum, thn = 0, 0
+            -- ▸ the SAME height, measured on the asks that TOOK, so the line
+            --   answers the owner's question rather than restating it: if the
+            --   refused cells were asked with the blade 18 studs up and the ones
+            --   that took at 10, the drop-and-bounce is the cause; if both read
+            --   the same, it is not, and the corners are geometry.
+            local still = {}
+            for _, c in ipairs(after) do still[c.id] = true end
+            for id, w in pairs(where) do
+                if not still[id] and w.h then thsum, thn = thsum + w.h, thn + 1 end
+            end
             for _, c in ipairs(after) do
                 local w = c.id and where[c.id]
                 if w then
@@ -8813,17 +8850,82 @@ local okBuild, errBuild = pcall(function()
                         dsum, dn = dsum + w.d, dn + 1
                         if w.d > dworst then dworst = w.d end
                     end
+                    if w.h then
+                        hsum, hn = hsum + w.h, hn + 1
+                        if w.h > hworst then hworst = w.h end
+                    end
                 end
             end
             local parts = {}
             for n = 1, side * side do
                 if byPos[n] then parts[#parts + 1] = string.format("%d in %d", n, byPos[n]) end
             end
+            -- ▸ PER STOP: the frames it actually got, the seconds it took and
+            --   how far the blade's height moved between its own calls. This is
+            --   the owner's fps-and-bounce question turned into two numbers that
+            --   can be compared: refused stops at 11 fps with the blade moving
+            --   5-10 studs is the drop-and-bounce; refused stops at the same fps
+            --   and spread as the clean ones is geometry, and the block has to
+            --   shrink. `spudFrameTick` is the build's own frame counter, so
+            --   nothing here asks the game for anything.
+            local stat = {}
+            for _, w in pairs(where) do
+                local st = stat[w.s]
+                if not st then
+                    st = { n = 0, hmin = math.huge, hmax = -math.huge,
+                        t0 = w.t, t1 = w.t, k0 = w.k, k1 = w.k, bad = 0 }
+                    stat[w.s] = st
+                end
+                st.n += 1
+                if w.t < st.t0 then st.t0 = w.t end
+                if w.t > st.t1 then st.t1 = w.t end
+                if w.k < st.k0 then st.k0 = w.k end
+                if w.k > st.k1 then st.k1 = w.k end
+                if w.h then
+                    if w.h < st.hmin then st.hmin = w.h end
+                    if w.h > st.hmax then st.hmax = w.h end
+                end
+            end
+            for _, c in ipairs(after) do
+                local w = c.id and where[c.id]
+                if w and stat[w.s] then stat[w.s].bad = stat[w.s].bad + 1 end
+            end
+            local function agg(pick)
+                local nfps, fps, sec, move, n = 0, 0, 0, 0, 0
+                for _, st in pairs(stat) do
+                    if (st.bad > 0) == pick then
+                        n += 1
+                        local span = st.t1 - st.t0
+                        if span > 0 and st.k1 >= st.k0 then
+                            fps, nfps = fps + (st.k1 - st.k0) / span, nfps + 1
+                        end
+                        sec += span
+                        if st.hmax > st.hmin then move += st.hmax - st.hmin end
+                    end
+                end
+                if n == 0 then return nil end
+                return string.format(
+                    "%.1f fps, %.2f s a stop, the blade moved %.1f studs inside them",
+                    nfps > 0 and fps / nfps or 0, sec / n, move / n)
+            end
+            local badStat, goodStat = agg(true), agg(false)
+            if badStat then
+                parts[#parts + 1] = string.format(
+                    "| the stops that refused ran at %s", badStat)
+            end
+            if goodStat then
+                parts[#parts + 1] = string.format(
+                    "| the stops that took everything ran at %s", goodStat)
+            end
             if #parts > 0 then
                 log(string.format(
-                    "remote %s: the %d cell(s) still standing sat at call %s — across %d stop(s), the blade averaged %.1f studs from them (worst %.1f)%s",
+                    "remote %s: the %d cell(s) still standing sat at call %s — across %d stop(s), the blade averaged %.1f studs from them (worst %.1f), and stood %s above the soil on those asks%s%s",
                     job.verb, #after, table.concat(parts, ", "), stopCount,
                     dn > 0 and dsum / dn or 0, dworst,
+                    hn > 0 and string.format("%.1f studs (highest %.1f)", hsum / hn, hworst)
+                        or "unreadable",
+                    thn > 0 and string.format(" against %.1f on the ones that took",
+                        thsum / thn) or "",
                     dn == 0 and " (their blade distance was unreadable)" or ""))
             end
         end
@@ -15578,7 +15680,14 @@ local okBuild, errBuild = pcall(function()
         local runService = game:GetService("RunService")
         local frames, mark = 0, os.clock()
         pcall(function()
-            spudFpsConn = runService.RenderStepped:Connect(function() frames += 1 end)
+            spudFpsConn = runService.RenderStepped:Connect(function()
+                frames += 1
+                -- ▸ the same count, where anything else in the build can read it
+                --   (the block grid measures the frames it actually got between
+                --   the calls of one stop, which is the only way to answer the
+                --   owner's fps question with a number instead of an argument)
+                spudFrameTick = (spudFrameTick or 0) + 1
+            end)
         end)
         task.spawn(function()
             while spudAlive() do
