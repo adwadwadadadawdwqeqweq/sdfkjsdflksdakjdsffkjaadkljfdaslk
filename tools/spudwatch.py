@@ -81,10 +81,24 @@ def adb_path():
     return found
 
 
+# ▸ NO WINDOW, EVER (owner 2026-11-07: "can you make the terminals silent,
+#   they are annoying"). The watcher runs under pythonw, which has no console of
+#   its own — but a CHILD process (adb.exe, tasklist.exe) still allocates one,
+#   so every 20-second poll was flashing a black box across the desktop. That is
+#   what the CREATE_NO_WINDOW flag below kills. Every subprocess call in this
+#   file goes through a helper that sets it; a new call site that forgets it
+#   reintroduces the flicker, so it is stated here as the rule.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+
+def quiet(cmd, **kw):
+    return subprocess.run(cmd, creationflags=NO_WINDOW, **kw)
+
+
 def run(cmd, timeout=25):
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
-                           encoding="utf-8", errors="replace")
+        p = quiet(cmd, capture_output=True, text=True, timeout=timeout,
+                  encoding="utf-8", errors="replace")
         return p.returncode, p.stdout or "", p.stderr or ""
     except Exception as e:                                    # noqa: BLE001
         return 125, "", str(e)
@@ -196,8 +210,8 @@ def screenshot(adb):
     if not adb:
         return None
     try:
-        p = subprocess.run([adb, "-s", SERIAL, "exec-out", "screencap", "-p"],
-                           capture_output=True, timeout=30)
+        p = quiet([adb, "-s", SERIAL, "exec-out", "screencap", "-p"],
+                  capture_output=True, timeout=30)
         if p.stdout and p.stdout[:4] == b"\x89PNG":
             pathlib.Path(SHOT).write_bytes(p.stdout)
             return str(SHOT)
