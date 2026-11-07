@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.161 · fluent gui"
+local VERSION    = "rebuild v1.162 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -3122,6 +3122,50 @@ local okBuild, errBuild = pcall(function()
     --   about exactly this number, and a run has to be able to say whether the
     --   blade was high or the soil is not where the build thinks it is.
     spudFieldHover = 10
+    -- ▸ HOW THE GRID WAITS AFTER A LANDING (owner 2026-11-07: "once it's
+    --   harvested, everything in the 3x3 is sitting there for 200 milliseconds
+    --   — make it faster"). The 200 ms was real: `task.wait(0.25)` after every
+    --   stop, because the client's blade and the server's copy of it are not the
+    --   same frame, and a burst sent the frame it arrives is refused. That is a
+    --   DEADLINE standing in for a CONDITION the build can read — the pose is
+    --   not settled until the implement stops moving. So the grid now polls and
+    --   leaves the moment two reads agree within `spudSettleStill` studs, with
+    --   the old flat wait kept as the CAP: nothing ever waits longer than it did,
+    --   and a blade that is already still costs one poll (~20 ms) instead of 250.
+    --   At 11 fps the polls are frame-quantised, so a genuinely swinging tool
+    --   still spends most of the window — which is the honest answer, because
+    --   the thing being waited for has not happened yet.
+    spudSettleMax = 0.25
+    spudSettleStill = 0.5
+    spudSettlePoll = 0.02
+    -- ▸ THE GAP BETWEEN CALLS OF ONE BLOCK. Eight of these sit inside a 3x3
+    --   burst, so at 0.04 the burst alone is ~0.32 s a stop — the second lever
+    --   on the owner's "make it faster", and the one that should NOT be moved on
+    --   a guess: 40 ms is what the live server was measured taking without
+    --   dropping a call. Named so it can be dialled and the pass can say what it
+    --   cost, not because a smaller number is known to be safe.
+    spudCallGap = 0.04
+
+    -- returns (seconds waited, did it come to rest). Polls by COUNT, not by the
+    -- clock: task.wait is quantised to a frame, so counting wall time here would
+    -- spin the loop thousands of times on a slow client and make the test
+    -- harness unable to say how long anything took.
+    function spudWaitBladeStill(readPos, maxS, stillS, pollS)
+        local polls = math.max(1, math.floor((maxS or 0.25) / (pollS or 0.02)))
+        local prev = readPos()
+        for i = 1, polls do
+            task.wait(pollS or 0.02)
+            local now = readPos()
+            if now and prev then
+                local dx, dy, dz = now.X - prev.X, now.Y - prev.Y, now.Z - prev.Z
+                if dx * dx + dy * dy + dz * dz <= (stillS or 0.5) * (stillS or 0.5) then
+                    return i * (pollS or 0.02), true
+                end
+            end
+            prev = now
+        end
+        return polls * (pollS or 0.02), false
+    end
     -- ▸ THE GAME'S OWN CELL PITCH, in studs. `cellsAtStage` maps a cell id to
     --   `((x - (cols+1)/2) * 10, (y - (rows+1)/2) * 10)`, so neighbours sit 10
     --   studs apart on the field plane — the same 10 the row plan and the
@@ -3601,7 +3645,7 @@ local okBuild, errBuild = pcall(function()
             else
                 threw += 1
             end
-            task.wait(0.04)
+            task.wait(spudCallGap)
         end
         local timer = os.clock() - t0
         -- the server applies each call on its own frame: poll for the count to
@@ -3644,7 +3688,7 @@ local okBuild, errBuild = pcall(function()
                     else
                         threw += 1
                     end
-                    task.wait(0.04)
+                    task.wait(spudCallGap)
                 end
                 left = nil
                 local deadline2 = os.clock() + 1.0
@@ -8632,6 +8676,7 @@ local okBuild, errBuild = pcall(function()
         local rot = cf - cf.Position
         local fired, done, charged = 0, {}, {}
         local pastBand = 0
+        local settleSum, settleN, settleRushed = 0, 0, 0
         local where = {}
         -- ▸ THE BURST AT ONE STOP: exactly that block's cells. `done` is
         --   "already called at this stop" and is cleared for the one retry
@@ -8728,7 +8773,7 @@ local okBuild, errBuild = pcall(function()
                             fired += 1
                         end
                         spudFieldRemoteCall(job.verb, field, c.id, att)
-                        task.wait(0.04)
+                        task.wait(spudCallGap)
                     end
                 end
             end
@@ -8813,7 +8858,17 @@ local okBuild, errBuild = pcall(function()
             end
             -- what we read is the CLIENT's blade; the server sees it a beat
             -- later, so a burst fired the frame it arrives is still refused
-            if settled then task.wait(0.25) end
+            local settleS, settleStill = 0, true
+            if settled then
+                -- ▸ wait for REST, not for a clock. `bladePos` is the same
+                --   reading the arrival test used; two consecutive agrees is the
+                --   condition the flat 0.25 s was only ever hoping for.
+                settleS, settleStill = spudWaitBladeStill(bladePos,
+                    spudSettleMax, spudSettleStill, spudSettlePoll)
+                settleSum += settleS
+                settleN += 1
+                if not settleStill then settleRushed += 1 end
+            end
             local bs = bladePos()
             local away
             -- did THIS stop fire at all? A stop whose blade never landed fires
@@ -8896,9 +8951,13 @@ local okBuild, errBuild = pcall(function()
         local left = after and #after or nil
         local took = left and math.max(0, before - left) or 0
         log(string.format(
-            "remote %s: fired %d of %d cell(s) from %d stop(s), %dx%d per stop — %d took, %s left%s",
+            "remote %s: fired %d of %d cell(s) from %d stop(s), %dx%d per stop — %d took, %s left — settled in %.3f s avg%s%s%s",
             job.verb, fired, before, #stops, side, side, took,
             left and tostring(left) or "unreadable",
+            settleN > 0 and settleSum / settleN or 0,
+            settleN > 0 and string.format(" (cap %.2f s)", spudSettleMax) or "",
+            settleRushed > 0 and string.format(
+                ", %d stop(s) never came to rest inside it", settleRushed) or "",
             pastBand > 0 and string.format(
                 " — %d cell(s) were past the %d-stud band from where the blade actually sat, left for the hop",
                 pastBand, spudFieldTaken) or ""))

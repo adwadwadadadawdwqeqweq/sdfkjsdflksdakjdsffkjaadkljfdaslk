@@ -47,6 +47,7 @@ WANTED = [
     "spudPivotRig",
     "spudToolExtraTiles",
     "spudBlockSide",
+    "spudWaitBladeStill",
 ]
 
 PRE = r"""
@@ -96,6 +97,12 @@ spudFieldTaken = 20
 -- the game's cell pitch: the block grouping measures its spans in this, and
 -- spudBlockSide sizes the square with it
 spudFieldPitch = 10
+-- how the grid waits after a landing: a bounded poll for the blade to come to
+-- rest, where the cap is the flat 0.25 s the grid used to just sleep
+spudSettleMax, spudSettleStill, spudSettlePoll = 0.25, 0.5, 0.02
+-- the gap between the calls of one block; the beat recorder below indexes a
+-- table by this number, so an unset one is a `table index is nil` crash
+spudCallGap = 0.04
 -- how far above the soil the grid parks the rig; the bounce measurement is a
 -- claim about this number, so the harness carries it too
 spudFieldHover = 10
@@ -1455,6 +1462,47 @@ check("the second burst is where the cells came back",
 mode.lagFirst = nil
 spudBlockRepeat = 2
 
+-- 22. WAIT FOR REST, NOT FOR A CLOCK (owner 2026-11-07: "once it's harvested,
+--     everything in the 3x3 is sitting there for 200 milliseconds — make it
+--     faster"). The 200 ms is real: after the blade lands the grid sleeps a flat
+--     task.wait(0.25) because a burst sent the frame it arrives is still refused
+--     by the server. But that is a DEADLINE standing in for a CONDITION the
+--     build can read — the pose is not "new" until the implement stops moving.
+--     So: poll, and leave the moment two reads agree. Same worst case, much
+--     better average, and the pass says which it got.
+local waits22 = 0
+local realWait22 = task.wait
+task.wait = function(s) waits22 += 1 end
+local stillPos = Vector3.new(100, 166, -200)
+local w22, ok22 = spudWaitBladeStill(function() return stillPos end,
+    spudSettleMax, spudSettleStill, spudSettlePoll)
+check("settle: a blade already at rest costs ONE poll, not the window",
+    ok22 == true and waits22 == 1 and w22 <= spudSettlePoll * 2,
+    string.format("%.3f s in %d poll(s), still=%s", w22, waits22, tostring(ok22)))
+waits22 = 0
+local drift = 0
+local w22b, ok22b = spudWaitBladeStill(function()
+    drift += 3                                   -- never comes to rest
+    return Vector3.new(100 + drift, 166, -200)
+end, spudSettleMax, spudSettleStill, spudSettlePoll)
+check("settle: a blade that keeps moving waits the FULL cap and admits it",
+    ok22b == false and w22b >= spudSettleMax - spudSettlePoll,
+    string.format("%.3f s in %d poll(s), still=%s", w22b, waits22, tostring(ok22b)))
+check("settle: the cap is the OLD flat wait, so nothing ever waits longer",
+    spudSettleMax <= 0.25, tostring(spudSettleMax))
+check("settle: it stops the instant the blade settles, mid-window",
+    (function()
+        waits22 = 0
+        local n = 0
+        local w, still = spudWaitBladeStill(function()
+            n += 1
+            if n <= 3 then return Vector3.new(100 + n * 9, 166, -200) end
+            return Vector3.new(140, 166, -200)   -- at rest from here
+        end, spudSettleMax, spudSettleStill, spudSettlePoll)
+        return still == true and n < 12 and w < spudSettleMax
+    end)())
+task.wait = realWait22
+
 print(fails == 0 and "ALL OK" or (fails .. " FAILED"))
 """
 
@@ -1479,6 +1527,8 @@ def main() -> int:
         return 2
     for const in ("spudToolSwing = 3", "spudToolFar = 90", "spudFieldTaken = 20",
                   "spudFieldPitch = 10", "spudFieldHover = 10",
+                  "spudSettleMax = 0.25", "spudSettleStill = 0.5", "spudSettlePoll = 0.02",
+                  "spudCallGap = 0.04",
                   "spudBlockPause = 100", "spudBlockRepeat = 2"):
         if not re.search(r"^    " + const + r"\b", src, re.M):
             print("the tow-settle gate no longer declares " + const
