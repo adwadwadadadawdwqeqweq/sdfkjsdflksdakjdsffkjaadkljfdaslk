@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.160 · fluent gui"
+local VERSION    = "rebuild v1.161 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -450,6 +450,86 @@ local okBuild, errBuild = pcall(function()
         end
     end
 
+    ------------------------------------------------------------
+    -- ▸ LOCAL LOG FILE (owner 2026-11-06: "make a webhook that will log
+    --   everything locally, if that can't be done?"). The webhook already
+    --   mirrors every console line to Discord in batches, but that needs a URL,
+    --   a network and a channel — and a URL pasted into a PUBLIC repo is a
+    --   credential anyone can post through, which is why it lives in a file
+    --   instead. This writes the same stream to the executor's own workspace
+    --   folder, so a run can be read after the game closes with nothing on the
+    --   network at all. `appendfile` is what the executor offered for the
+    --   webhook URL already; `writefile` is the fallback, and if NEITHER works
+    --   the sink says so once and stays out of the way rather than buffering
+    --   without end.
+    ------------------------------------------------------------
+    -- ▸ GLOBALS, not locals: this block sits in the main build closure, where
+    --   every 4-space local costs a register and the ceiling is 185 (rule 13).
+    --   A 4-space NAME = ... is a global and costs nothing.
+    FILE_LOG, FILE_MAX_BYTES = "spudfarm_log.txt", 400000
+    FILE_FLUSH_LINES, FILE_FLUSH_SECS = 40, 2
+    fileBuf, fileHealthy = {}, true
+    spudLogFile = (spudSavedLogFile == nil) or (spudSavedLogFile == true)
+
+    function fileWrite(text)
+        if pcall(appendfile, FILE_LOG, text) then return true end
+        -- no appendfile: rewrite the file with its own tail plus this batch.
+        -- The batch is at most 40 lines, so this is not a big read per flush.
+        return pcall(function()
+            local old = ""
+            local okRead, v = pcall(readfile, FILE_LOG)
+            if okRead and type(v) == "string" then old = v end
+            writefile(FILE_LOG, old .. text)
+        end)
+    end
+
+    function fileFlush()
+        if #fileBuf == 0 then return end
+        local batch = table.concat(fileBuf, "\n") .. "\n"
+        fileBuf = {}
+        if not fileWrite(batch) then
+            fileHealthy = false
+            -- print, NOT the console logger: a logger line raised inside the
+            -- sink it is reporting as broken would re-enter it every line
+            print("[spud] local log: this executor cannot write files — the log "
+                .. "stays in the console, the dump and the webhook")
+        end
+    end
+
+    function filePush(msg)
+        if not fileHealthy or not spudLogFile then return end
+        fileBuf[#fileBuf + 1] = string.format("%s %s",
+            (tonumber(os.time and os.time()) and os.date("%m-%d %H:%M:%S")) or "-", msg)
+        if #fileBuf >= FILE_FLUSH_LINES then fileFlush() end
+    end
+
+    -- ▸ a farm that runs for days must not fill the disk: on load, keep the
+    --   newest half of the file and mark the cut. Trimmed at the START of a
+    --   session, never mid-run, so the lines being read are never the ones
+    --   being rewritten.
+    do
+        local okRead, v = pcall(readfile, FILE_LOG)
+        if okRead and type(v) == "string" and #v > FILE_MAX_BYTES then
+            local tail = v:sub(-math.floor(FILE_MAX_BYTES / 2))
+            tail = (tail:gsub("^[^\n]*\n", ""))
+            if pcall(writefile, FILE_LOG, "… older lines trimmed …\n" .. tail) then
+                print("[spud] local log: trimmed "
+                    .. tostring(math.floor(#v / 1024)) .. " KB down to the newest lines")
+            end
+        end
+    end
+    pcall(function()
+        filePush(string.format("---- %s · place %d · %s ----", VERSION, game.PlaceId,
+            (game:GetService("Players").LocalPlayer or { Name = "?" }).Name))
+    end)
+    task.spawn(function()
+        while fileHealthy do
+            task.wait(FILE_FLUSH_SECS)
+            if not spudAlive() then fileFlush(); return end
+            fileFlush()
+        end
+    end)
+
     local function log(msg)
         table.insert(LOG, tostring(msg))
         if #LOG > 24 then table.remove(LOG, 1) end
@@ -464,6 +544,10 @@ local okBuild, errBuild = pcall(function()
         pcall(function() logPara:SetValue(table.concat(LOG, "\n")) end)
         -- ▸ and OUT of the game: every line goes to the webhook queue too
         hookPush(tostring(msg))
+        -- ▸ and to the disk: the same line, timestamped, in the executor's own
+        --   workspace folder — nothing on the network, readable after the game
+        --   closes (spudfarm_log.txt)
+        filePush(tostring(msg))
     end
 
     -- ▸ the webhook says hello if a URL was remembered from last session, so
@@ -15670,9 +15754,52 @@ local okBuild, errBuild = pcall(function()
         end,
     })
 
+    -- ▸ LOCAL LOG FILE (owner 2026-11-06: "make a webhook that will log
+    --   everything locally, if that can't be done?"). It can be done, and it is
+    --   not the webhook's job — the webhook needs a URL, a network and a channel,
+    --   and a URL pasted into a public repo is a credential anyone can post
+    --   through. This is the same stream written to the executor's own workspace
+    --   folder: nothing leaves the machine, and the file is still there after the
+    --   game closes. ON by default and remembered; off means the console, the
+    --   dump and the webhook are all there is.
+    Tabs.Settings:CreateToggle("localLogFile", {
+        Title = "Write a local log file",
+        Default = spudLogFile,
+        Callback = function(on)
+            spudLogFile = on == true
+            spudSavedLogFile = spudLogFile -- survives a reload
+            if spudLogFile then
+                fileFlush()
+                log("local log: on — every line is appended to " .. FILE_LOG
+                    .. " in the executor's workspace folder")
+            else
+                log("local log: off — nothing is written to disk this run")
+            end
+        end,
+    })
+
+    Tabs.Settings:CreateButton("openLogFile", {
+        Title = "📄 Flush the local log now",
+        Description = "Writes what is buffered so the file is current, and says where it is.",
+        Callback = function()
+            fileFlush()
+            local okRead, v = pcall(readfile, FILE_LOG)
+            if okRead and type(v) == "string" and #v > 0 then
+                -- no invented path: the file is opened by the executor's own
+                -- file functions, so the honest statement is the name, the size
+                -- and WHERE those functions put things, not a guess at a folder
+                log(string.format(
+                    "local log: %s is %.1f KB — in the folder your executor saves scripts to",
+                    FILE_LOG, #v / 1024))
+            else
+                log("local log: nothing in " .. FILE_LOG
+                    .. " yet — this executor could not write it, so the console and the webhook are the record")
+            end
+        end,
+    })
+
     -- ▸ FPS METER (user: "im still on 8-9 fps so something is eating my fps
-    --   big time"). NOTHING in this script runs every frame except this one
-    --   counter — there is no heartbeat loop and nothing is drawn per frame —
+    --   big time"). NOTHING in this script runs every frame except this one    --   counter — there is no heartbeat loop and nothing is drawn per frame —
     --   so this line is how the claim gets settled with a number instead of a
     --   guess: read one sample with every toggle OFF, then one with the loop
     --   on. It also names which of our threads are alive at the time.
