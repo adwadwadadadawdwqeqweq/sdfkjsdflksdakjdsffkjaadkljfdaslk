@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.163 · fluent gui"
+local VERSION    = "rebuild v1.164 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -3781,6 +3781,24 @@ local okBuild, errBuild = pcall(function()
         return kit
     end
 
+    -- ▸ A REMOTE THE GAME CREATES LATE IS NOT ABSENT FOREVER (live 2026-11-08).
+    --   The kit is built on the first call and cached, so any RemoteEvent the
+    --   game had not created at that moment was missing from the kit for the
+    --   REST OF THE SESSION — and `spudEquipRemoteCall` answered false without
+    --   a word. That is how a long session pressed E at the seed crate 21 times
+    --   and never fired `EVTRequestToCarry`, then the same build reloaded and
+    --   the first trip printed `✅ carrying the seed crate (EVTRequestToCarry)`.
+    --   A key the cached kit does not have re-walks the folder here. It rebuilds
+    --   through `spudEquipRemoteKit` rather than a second lookup path, so the
+    --   two can never drift apart on what "present" means.
+    function spudEquipRemoteResolve(key)
+        local state = spudEquipRemoteState
+        if not state.kit then return nil end
+        state.kit = nil
+        local kit = spudEquipRemoteKit()
+        return kit and kit[key] or nil
+    end
+
     -- an ignored call is not a failure worth retrying all session: three and
     -- the key/UI path owns that action again (the milk store's rule)
     function spudEquipRemoteMiss(key)
@@ -3798,6 +3816,7 @@ local okBuild, errBuild = pcall(function()
         local state = spudEquipRemoteState
         if state.off[key] then return false end
         local entry = (spudEquipRemoteKit() or {})[key]
+        if not entry then entry = spudEquipRemoteResolve(key) end
         if not entry then return false end
         local args = table.pack(...)
         local ok = pcall(function()
@@ -4315,16 +4334,34 @@ local okBuild, errBuild = pcall(function()
     --   with the game's own action list so a failure is readable.
     -- EVTRequestToCarry(<draggable>) — captured while picking a seed box up.
     -- `carrying()` is the proof; E is the fallback.
+    -- ▸ AND THE SECOND RESULT SAYS WHY (live 2026-11-08). This returned a bare
+    --   false, and a false has five different causes — no box, the call
+    --   switched off for the session, the remote not in this build, the call
+    --   throwing, the game ignoring it — so 21 refusals in a row read like a
+    --   standing-distance problem when the remote had silently gone away. The
+    --   verdict now travels with the failure and `carryCrate` prints it.
     function spudCarryRemote(model)
-        if not model then return false end
-        if not spudEquipRemoteCall("carry", model) then return false end
+        if not model then return false, "no crate to carry" end
+        local state = spudEquipRemoteState
+        if state.off.carry then
+            return false, "the carry call is switched off for this session"
+        end
+        local kit = spudEquipRemoteKit()
+        if not kit then return false, "no Modules.Larry in this build" end
+        if not (kit.carry or spudEquipRemoteResolve("carry")) then
+            return false, "no EVTRequestToCarry — not in this build"
+        end
+        if not spudEquipRemoteCall("carry", model) then
+            return false, "the carry call threw"
+        end
         for _ = 1, 6 do
-            if stopping() then return false end
-            if carrying() then return true end
+            if stopping() then return false, "the run stopped mid-carry" end
+            if carrying() then return true, "taken" end
             task.wait(0.2)
         end
         spudEquipRemoteMiss("carry")
-        return false
+        return false, "fired, ignored " .. tostring(state.fails.carry or 0)
+            .. " time(s) this session"
     end
 
     -- EVTRequestToDrop() — the captured drop. `carrying()` going false is the
@@ -4368,10 +4405,16 @@ local okBuild, errBuild = pcall(function()
     end
 
     local function carryCrate(what, model)
-        if spudCarryRemote(model) then
+        local took, why = spudCarryRemote(model)
+        if took then
             log("✅ carrying the " .. what .. " (EVTRequestToCarry)")
             return true
         end
+        -- ▸ WHY THE BETTER MECHANISM WAS SKIPPED, printed before the presses.
+        --   On this client the E fallback has never armed a Carry in any log,
+        --   so every one of these lines is the trip being lost to the cause
+        --   named here — not to the distance the step-aside stands at.
+        log("carry: the remote did not take the " .. what .. " — " .. tostring(why))
         -- ▸ BESIDE THE BOX BEFORE PRESSING ANYTHING (v1.143, live). Every call
         --   site arrives here by teleporting the character ONTO the crate
         --   (`tpChar(hit.pos)`, `tpChar(seeder:GetPivot().Position)`), which is

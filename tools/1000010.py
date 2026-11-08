@@ -52,6 +52,7 @@ SRC = ROOT / "1000051.lua"
 WANTED = [
     "spudNameKey",
     "spudEquipRemoteKit",
+    "spudEquipRemoteResolve",
     "spudEquipRemoteMiss",
     "spudEquipRemoteCall",
     "spudEquipRemoteAct",
@@ -373,6 +374,74 @@ check("an empty list is a readable NO, not unknown",
 check("no list at all is UNREADABLE, never a no",
     spudOfferSaysCarry(nil) == nil
         and spudOfferSaysCarry("not a table") == nil)
+
+-- 11c. A REMOTE THE GAME CREATES LATE IS NOT ABSENT FOREVER (live
+--   2026-11-08: a nine-hour session pressed E at the seed crate 21 times and
+--   fired EVTRequestToCarry not once — the kit is built on the first call and
+--   cached, and a key missing at that moment stays missing for the whole
+--   session IN SILENCE. The reload brought the same build up and the very
+--   first trip printed `✅ carrying the seed crate (EVTRequestToCarry)`, so
+--   the call is the mechanism that works on that client and losing it for a
+--   session loses the run. A key the cached kit does not have is now re-walked
+--   against Modules.Larry before anything falls back to a key press.)
+resetState()
+local keepNoCarry = {}
+for _, k in ipairs(larry.kids) do
+    if k ~= carryRemote then keepNoCarry[#keepNoCarry + 1] = k end
+end
+larry.kids = keepNoCarry
+carryRemote.Parent = nil
+check("a kit built while EVTRequestToCarry is missing has no carry",
+    spudEquipRemoteKit().carry == nil)
+adopt(larry, carryRemote)
+carryingFlag = false
+local late0 = carryRemote.fireCalls
+local lateOk, lateWhy = spudCarryRemote(kadl)
+check("a remote the game created after the kit was cached still fires",
+    lateOk == true and carryRemote.fireCalls - late0 == 1
+        and carryRemote.lastArgs[1] == kadl, tostring(lateWhy))
+check("a carry the remote took says so",
+    tostring(lateWhy):find("taken") ~= nil, tostring(lateWhy))
+
+-- 11d. AND THE REASON IS NAMED. `spudEquipRemoteCall` answers true/false and
+--   the false has three different causes — switched off for the session, not
+--   in this build, the call threw — none of which the console could tell
+--   apart, which is why 21 refusals looked like a distance problem.
+resetState()
+spudEquipRemoteState.off.carry = true
+local offOk, offWhy = spudCarryRemote(kadl)
+check("a carry switched off for the session names itself",
+    offOk == false and tostring(offWhy):find("switched off") ~= nil,
+    tostring(offWhy))
+
+resetState()
+local keepGone = {}
+for _, k in ipairs(larry.kids) do
+    if k ~= carryRemote then keepGone[#keepGone + 1] = k end
+end
+larry.kids = keepGone
+carryRemote.Parent = nil
+spudEquipRemoteKit()
+local noBefore = carryRemote.fireCalls
+local noOk, noWhy = spudCarryRemote(kadl)
+check("a carry remote this build does not have is named",
+    noOk == false and tostring(noWhy):find("not in this build") ~= nil
+        and carryRemote.fireCalls == noBefore, tostring(noWhy))
+adopt(larry, carryRemote)
+
+resetState()
+mode.carry = "none"
+local igOk, igWhy = spudCarryRemote(kadl)
+check("an ignored carry call names itself and counts the miss",
+    igOk == false and tostring(igWhy):find("ignored") ~= nil
+        and spudEquipRemoteState.fails.carry == 1, tostring(igWhy))
+
+resetState()
+local nilBefore = carryRemote.fireCalls
+local nilOk, nilWhy = spudCarryRemote(nil)
+check("no crate fires nothing and says there was nothing to fire",
+    nilOk == false and carryRemote.fireCalls == nilBefore
+        and tostring(nilWhy):find("no crate") ~= nil, tostring(nilWhy))
 
 -- 12. drop: EVTRequestToDrop() with no arguments, proven by empty hands
 resetState()
