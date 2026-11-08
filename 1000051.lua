@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.162 · fluent gui"
+local VERSION    = "rebuild v1.163 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -4420,6 +4420,9 @@ local okBuild, errBuild = pcall(function()
             log("the " .. what .. " didn't come up on attempt " .. attempt
                 .. " (hands still empty) — the game offers: "
                 .. (acts and (#acts > 0 and table.concat(acts, " · ") or "nothing") or "unreadable"))
+            if attempt == 1 then
+                log("carry survey: " .. spudCrateMissText(model, part))
+            end
         end
         return false
     end
@@ -4441,6 +4444,75 @@ local okBuild, errBuild = pcall(function()
         if o and o:IsA("ObjectValue") and o.Value then return o.Value.Name end
         if o and o:IsA("StringValue") then return o.Value end
         return nil
+    end
+
+    -- ▸ WHAT THE REFUSING BOX ITSELF SAYS. The seed crate has never been
+    --   surveyed, and today's console needs it: every shop trip ends
+    --   `didn't come up on attempt 1/2/3 (hands still empty) — the game offers:
+    --   nothing`, while the v1.144 run read `offers: Carry` on attempt 1 and
+    --   carried on attempt 2. Standing 8 studs off is already measured, so the
+    --   two answers still open are WHICH box the search chose — the town keeps
+    --   the priced shop boxes in GameplayVisuals.LockedDraggables (dump: SeedBox
+    --   costs 600..210000) and a display box of that kind may simply have no
+    --   Carry to give — and whether the game HOLDS a Carry it has not shown,
+    --   which is a refusal, not a distance. Same survey the jugs get
+    --   (milkJugMissText): where it is, where I arrived, what it is tagged,
+    --   what the HUD shows, what it hides.
+    function spudCrateMissText(model, part)
+        local names, depth = {}, 0
+        local up = model
+        while up and up ~= workspace and depth < 8 do
+            names[#names + 1] = up.Name
+            up = up.Parent
+            depth += 1
+        end
+        local path = "Workspace"
+        for i = #names, 1, -1 do path = path .. "." .. names[i] end
+        local attrs = {}
+        pcall(function()
+            for k, v in pairs(model:GetAttributes()) do
+                if typeof(v) ~= "Instance" then
+                    attrs[#attrs + 1] = k .. "=" .. tostring(v)
+                    if #attrs >= 6 then break end
+                end
+            end
+        end)
+        local ch = LocalPlayer.Character
+        local root = ch and ch:FindFirstChild("HumanoidRootPart")
+        local off, flat, dy = -1, -1, -1
+        if part and root then
+            local d = part.Position - root.Position
+            off = d.Magnitude
+            flat = math.sqrt(d.X * d.X + d.Z * d.Z)
+            dy = d.Y
+        end
+        local shown, all = {}, {}
+        pcall(function()
+            local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+            local btns = pg.GuiViews.HUD.PCGP_ContextActions.Buttons
+            for _, b in ipairs(btns:GetChildren()) do
+                if b:IsA("GuiObject") then
+                    all[#all + 1] = b.Name .. (b.Visible and "" or "(hidden)")
+                    if b.Visible then shown[#shown + 1] = b.Name end
+                end
+            end
+        end)
+        return string.format(
+            "%s at (%d, %d, %d) in %s — I am (%d, %d, %d) %.1f off (%.1f flat, %.1f Y) — owner %s — attrs %s — label %s — shows: %s | registry: %s",
+            tostring(model and model.Name or "?"),
+            part and math.floor(part.Position.X) or -9999,
+            part and math.floor(part.Position.Y) or -9999,
+            part and math.floor(part.Position.Z) or -9999,
+            path,
+            root and math.floor(root.Position.X) or -9999,
+            root and math.floor(root.Position.Y) or -9999,
+            root and math.floor(root.Position.Z) or -9999,
+            off, flat, dy,
+            tostring(crateOwner(model) or "no tag"),
+            (#attrs > 0 and table.concat(attrs, " ") or "none"),
+            (model and crateLabel(model) ~= "" and crateLabel(model) or "''"),
+            (#shown > 0 and table.concat(shown, " · ") or "nothing"),
+            (#all > 0 and table.concat(all, " · ") or "no buttons at all"))
     end
 
     -- ▸ THE GAME'S OWN SEED TAG (user: "when it goes to the shop make it
