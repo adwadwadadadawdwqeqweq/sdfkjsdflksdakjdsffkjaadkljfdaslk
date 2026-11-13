@@ -39,7 +39,7 @@ BENCHES = {"1000004.py", "1000036.py", "1000038.py"}        # cow scan, stall sc
 #   ("found 37 test(s), expected 35") instead of quietly running them as
 #   harnesses or dropping the real ones.
 TOOLS = {"spudwatch.py", "spud_clip.py"}
-EXPECTED_HARNESS_COUNT = 35
+EXPECTED_HARNESS_COUNT = 36
 
 
 def discover_harnesses() -> list[pathlib.Path]:

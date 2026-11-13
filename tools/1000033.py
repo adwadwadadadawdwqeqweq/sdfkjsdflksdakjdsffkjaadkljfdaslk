@@ -640,7 +640,11 @@ def main() -> int:
     elif check_region.count("seedShopTries += 1") < 2:
         fails.append("the fill loop does not count its own trips — the ceiling "
                      "cannot stop it and the wallet is hammered instead")
-    elif "bought = buySeedAndFill(seedChoice)" not in check_region:
+    elif "bought = buySeedAndFill(plantSeed)" not in check_region:
+        # v1.165: the trip buys `plantSeed` — the Farm tab's dropdown, replaced by
+        # the Company's cheapest open order when Auto contracts is on. It is
+        # settled ONCE at the top of the block, so a fill loop that asked again
+        # could walk back into town for a different crate each visit.
         fails.append("the fill loop does not re-run the proven trip — it would "
                      "loop on a read that never changes")
     else:

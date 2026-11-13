@@ -13,7 +13,7 @@ local LIB_URL    = "https://github.com/ActualMasterOogway/Fluent-Renewed/release
     .. (FLUENT_TAG == "latest" and "latest/download/" or ("download/" .. FLUENT_TAG .. "/"))
     .. "Fluent.luau"
 local SCRIPT_URL = "https://raw.githubusercontent.com/adwadwadadadawdwqeqweq/sdfkjsdflksdakjdsffkjaadkljfdaslk/main/1000051.lua"
-local VERSION    = "rebuild v1.164 · fluent gui"
+local VERSION    = "rebuild v1.165 · fluent gui"
 
 local Players    = game:GetService("Players")
 local StarterGui = game:GetService("StarterGui")
@@ -3041,6 +3041,13 @@ local okBuild, errBuild = pcall(function()
     -- the growth wait's spin guard: the same cuttable count twice in a row means
     -- the harvest pass is taking nothing, so it stops restarting on a dime.
     spudCutWatch = { left = nil, stuck = 0 }
+    -- ▸ AUTO CONTRACTS (the owner asked for the feature 2026-11-03 and set its
+    --   scope on 2026-11-12: "only steer what is planted for now"). The board is
+    --   READ and used to choose the next seed; no order is accepted and none is
+    --   claimed, so the only calls this adds are the farm's own. OFF until
+    --   pressed — it decides WHICH crop the field gets, and a feature that
+    --   changes the harvest without being asked is a surprise, not a feature.
+    spudAutoContracts = (spudSavedContracts == true)
     local KNOWN_STAGES = {
         Empty = true, Plowed = true, Cultivated = true, Seeded = true,
     }
@@ -3768,6 +3775,13 @@ local okBuild, errBuild = pcall(function()
             drop = { "EVTRequestToDrop", "FireServer" },
             sell = { "EVTSellAtStore", "FireServer" },
             purchase = { "FNCRequestStorePurchase", "InvokeServer" },
+            -- ▸ the Company board, and the reason it is in THIS kit: it is the
+            --   only door that resolves a late-created remote (v1.164's
+            --   spudEquipRemoteResolve), and a third kit builder is a third
+            --   definition of "present" to keep in step. It is also the only
+            --   GETTER here — nothing in this build accepts or claims an order
+            --   (owner 2026-11-12: "only steer what is planted for now").
+            company = { "FNCGetCompany", "InvokeServer" },
         }
         local kit = {}
         for key, spec in pairs(specs) do
@@ -4088,6 +4102,158 @@ local okBuild, errBuild = pcall(function()
         local p = prices and name and prices[tostring(name):lower()]
         if not (p and balance) then return false end
         return p > balance
+    end
+
+    -- ▸ AUTO CONTRACTS · the chooser, and it is PURE on purpose
+    --   (tools/1000042.py slices this body out and runs it against a fake board).
+    --   WHERE THE ORDERS COME FROM, because that took two years of probes: an
+    --   order is not an instance. §3.18's walk read 20 004 world nodes and 386
+    --   PlayerGui labels and found nothing order-shaped, and the grow-time answer
+    --   (CropGrowthConfigClient: Tomato 2178, Wheat 45, Rice 480 …) came from a
+    --   module, not the board. What does answer is the door:
+    --   `FNCGetCompany()`, invoked with NO arguments from anywhere, gives
+    --   `.activeOrders.<n>{ product, total, deposited, progress, completed,
+    --   claimed }` plus `.ordersShipped` and `.feed` — read live off this client
+    --   on 2026-11-05 by the same run that proved the carry door. Those field
+    --   names are the game's, copied out of that answer; nothing here invents one.
+    --   THE RULES are the owner's (2026-11-03, restated 2026-11-12): crops only,
+    --   the EASIEST open order, skip one whose crate the wallet cannot buy, and
+    --   steer only the NEXT planting. "Easiest" used to be seeding time and cost;
+    --   v1.124 proved a `Seeded` cell cuts and pays, so with early harvest on no
+    --   crop is slower than another and time left the ranking on its own. What is
+    --   left is the spend: **units owed × the crate price the shelf last showed**.
+    --   The board carries no reward amount, so this picks the CHEAPEST to finish,
+    --   never the most valuable — that distinction is in the log line, not hidden.
+    spudContract = { at = nil, seed = nil, note = "", open = "", skipped = "",
+        survey = nil, read = false }
+    spudContractWait = 3
+    spudContractTtl = 60
+
+    function spudContractPick(board, seedList, prices, balance, current)
+        local res = { seed = nil, why = "", open = "", skipped = "" }
+        if type(board) ~= "table" then
+            res.why = "the Company gave no board"
+            return res
+        end
+        local orders = board.activeOrders
+        if type(orders) ~= "table" then
+            res.why = "the board carries no activeOrders"
+            return res
+        end
+        if type(seedList) ~= "table" or #seedList == 0 then
+            res.why = "no seed list was read from the game"
+            return res
+        end
+        -- the game's own vocabulary, folded the way every other name comparison
+        -- in this build folds it (spudNameKey, v1.135)
+        local byKey = {}
+        for _, n in ipairs(seedList) do
+            local k = spudNameKey(n)
+            if k ~= "" then byKey[k] = n end
+        end
+        local function sing(s)
+            if #s > 4 and s:sub(-1) == "s" then return s:sub(1, -2) end
+            return s
+        end
+        local bySing = {}
+        for k, n in pairs(byKey) do bySing[sing(k)] = n end
+        -- A board word becomes a seed name, or it is nothing. The one `product`
+        -- the live read ever printed was `EggBox`, so the crop vocabulary is
+        -- genuinely unknown here: an exact fold wins, a singularised fold is next,
+        -- and a prefix counts ONLY when exactly one seed starts that way — two
+        -- candidates is a guess, and a guess is what rule 4 forbids.
+        local function seedFor(product)
+            local k = spudNameKey(product)
+            if k == "" then return nil end
+            if byKey[k] then return byKey[k] end
+            local kk = sing(k)
+            if bySing[kk] then return bySing[kk] end
+            if #kk < 4 then return nil end
+            local hits, who = 0, nil
+            for key2, name2 in pairs(bySing) do
+                if #key2 >= 4 and (key2:sub(1, #kk) == kk or kk:sub(1, #key2) == key2) then
+                    hits = hits + 1
+                    who = name2
+                end
+            end
+            return hits == 1 and who or nil
+        end
+        local function closed(o)
+            return o.completed == true or o.completed == 1
+                or o.claimed == true or o.claimed == 1
+        end
+        local cands, odd = {}, {}
+        for _, o in pairs(orders) do
+            if type(o) == "table" then
+                local product = tostring(o.product or o.Product or "")
+                local total = tonumber(o.total or o.Total)
+                local inHand = tonumber(o.deposited or o.Deposited) or 0
+                if product ~= "" and not closed(o) and total and total > inHand then
+                    local name = seedFor(product)
+                    if not name then
+                        -- an order for something no field grows (EggBox, milk,
+                        -- wool): named, counted, and left alone
+                        odd[#odd + 1] = product
+                    elseif spudSeedPriceBlocks(prices, name, balance) then
+                        odd[#odd + 1] = product .. " (a crate costs more than the wallet)"
+                    else
+                        local need = total - inHand
+                        local price = prices and prices[name:lower()]
+                        cands[#cands + 1] = {
+                            name = name, product = product, need = need,
+                            price = price, cost = price and need * price or nil,
+                            tier = price and 1 or 2,
+                        }
+                    end
+                end
+            end
+        end
+        -- a shelf price is only known for a crate this run has stood next to, so
+        -- an unpriced crop is ranked on units alone and ranked AFTER the priced
+        -- ones — never mixed into one number that would silently favour whichever
+        -- shop visit happened first.
+        table.sort(cands, function(a, b)
+            if a.tier ~= b.tier then return a.tier < b.tier end
+            if a.tier == 1 and a.cost ~= b.cost then return a.cost < b.cost end
+            if a.need ~= b.need then return a.need < b.need end
+            return a.name < b.name
+        end)
+        local parts = {}
+        for _, c in ipairs(cands) do
+            parts[#parts + 1] = string.format("%s %d owed%s", c.name, c.need,
+                c.price and (" at " .. tostring(c.price) .. " a crate")
+                    or " (no shelf price read)")
+        end
+        res.open = table.concat(parts, " · ")
+        res.skipped = table.concat(odd, ", ")
+        local curKey = spudNameKey(current)
+        local chosen, why
+        if curKey ~= "" then
+            for _, c in ipairs(cands) do
+                if spudNameKey(c.name) == curKey then
+                    chosen = c
+                    why = "kept " .. c.name .. " — its order is still open"
+                    break
+                end
+            end
+        end
+        if not chosen and #cands > 0 then
+            chosen = cands[1]
+            why = "cheapest to finish: " .. chosen.product .. ", " .. chosen.need
+                .. " owed" .. (chosen.price
+                    and (" at " .. tostring(chosen.price) .. " a crate")
+                    or " with no shelf price read yet")
+                .. (#cands > 1 and (" (of " .. #cands .. " open crop order(s))") or "")
+        end
+        res.seed = chosen and chosen.name or nil
+        if res.seed then
+            res.why = why
+        elseif #cands == 0 then
+            res.why = (#odd > 0
+                and "no open order is a crop this run can afford"
+                or "the board holds no open order")
+        end
+        return res
     end
 
     -- ▸ FILL TO THE MACHINE'S OWN CAPACITY, AND ENOUGH TRIPS TO DO IT (owner
@@ -5618,6 +5784,73 @@ local okBuild, errBuild = pcall(function()
         return seedCrateIntoSeeder(hit.m)
     end
 
+    -- ▸ THE BOARD, READ ONCE A MINUTE AND NEVER PARKED ON. `InvokeServer` is a
+    --   blocking call: the thread that makes it waits for the server's reply, and
+    --   a handler that never replies takes the farm loop down with it — which is
+    --   why v1.156 gave the Tests door reads a deadline. A getter used inside the
+    --   planting loop gets the same treatment here, so the worst this feature can
+    --   cost the run is 3 s once a minute and a log line.
+    function spudCompanyBoard()
+        local entry = (spudEquipRemoteKit() or {}).company
+        if not entry then entry = spudEquipRemoteResolve("company") end
+        if not entry then return nil, "no FNCGetCompany door in this build" end
+        local got, board, threw
+        local okSpawn = pcall(function()
+            task.spawn(function()
+                local good, res = pcall(function() return entry.remote:InvokeServer() end)
+                if good then board = res else threw = tostring(res) end
+                got = true
+            end)
+        end)
+        if not okSpawn then return nil, "the board read could not start" end
+        local deadline = os.clock() + (tonumber(spudContractWait) or 3)
+        while not got and os.clock() < deadline do task.wait(0.05) end
+        if not got then return nil, "FNCGetCompany never answered in " .. tostring(spudContractWait) .. " s" end
+        if threw then return nil, "FNCGetCompany refused: " .. threw:sub(1, 90) end
+        if type(board) ~= "table" then return nil, "FNCGetCompany answered nothing" end
+        return board
+    end
+
+    -- ▸ THE SEED THE NEXT PLANTING SHOULD USE, or nil with the reason it is nil.
+    --   Every failure here lands on the dropdown, never on a guess: no door, no
+    --   reply, an empty board or a board of things no field grows all mean the run
+    --   plants what the Farm tab says (rule 7 — unreadable is not a decision).
+    function spudContractSteer(current)
+        local st = spudContract
+        local now = os.clock()
+        if st.at and now - st.at < (tonumber(spudContractTtl) or 60) then
+            return st.seed, st.note, st
+        end
+        st.at = now
+        local board, why = spudCompanyBoard()
+        if not board then
+            st.seed, st.note, st.read = nil, why, false
+            log("contracts: " .. why .. " — planting the Farm tab's seed")
+            return nil, st.note, st
+        end
+        local list = {}
+        for n in pairs(seedIdOf) do list[#list + 1] = n end
+        table.sort(list)
+        local res = spudContractPick(board, list, spudSeedPrices, coinBalance(), current)
+        st.seed, st.note, st.read = res.seed, res.why, true
+        st.open, st.skipped = res.open, res.skipped
+        log("contracts: " .. (res.seed and ("steering the next planting to " .. res.seed)
+            or "nothing to steer") .. " — " .. res.why)
+        -- ▸ the board itself is named when it CHANGES. A read is once a minute
+        --   and the answer rarely does, so printing the whole survey every time
+        --   buries the one line that moved — and the owner reads this buffer
+        --   off logcat on the phone.
+        local survey = res.open .. " | " .. res.skipped
+        if survey ~= (st.survey or "") then
+            st.survey = survey
+            if res.open ~= "" then log("contracts open: " .. res.open) end
+            if res.skipped ~= "" then
+                log("contracts skipped (not a crop this run can buy): " .. res.skipped)
+            end
+        end
+        return st.seed, st.note, st
+    end
+
     -- ▸ SEEDER STEP 1 — the seed check (user: "first thing from the seeder:
     --   we need to know if it has seeds in it or not. if it does stay in
     --   tractor. if it does not get out of the tractor"). Runs at the start
@@ -5701,13 +5934,24 @@ local okBuild, errBuild = pcall(function()
         --   and only on foot — the shop is walked into.
         if hum.SeatPart then return false end
         local needCells = seedNeedLeft(tr:GetPivot().Position)
-        if not seedChoice then
+        -- ▸ AUTO CONTRACTS: the Company board decides what the NEXT planting is,
+        --   and this is the only place that decision lands. The trip buys the
+        --   crate, the crate fills the seeder and the seeder is what the field
+        --   gets — so a switch here shows up in the next pass and disturbs
+        --   nothing already in the ground (the owner's rule since 2026-11-03:
+        --   steer the next planting, never rip out a crop).
+        local plantSeed = seedChoice
+        if spudAutoContracts then
+            local picked = spudContractSteer(seedChoice)
+            if picked then plantSeed = picked end
+        end
+        if not plantSeed then
             log("the seeder is empty and nothing is picked in the Farm tab's Seed dropdown — pick a seed and the loop can buy it")
             return false
         end
-        if spudSeedPriceBlocks(spudSeedPrices, seedChoice, coinBalance()) then
+        if spudSeedPriceBlocks(spudSeedPrices, plantSeed, coinBalance()) then
             log(string.format("the %s crate was %s coins at the shelf and the balance is %s — not hopping to town for a price this run has already read (sell a load or pick a cheaper seed)",
-                seedChoice, tostring(spudSeedPrices[tostring(seedChoice):lower()]),
+                plantSeed, tostring(spudSeedPrices[tostring(plantSeed):lower()]),
                 tostring(coinBalance())))
             return false
         end
@@ -5759,7 +6003,7 @@ local okBuild, errBuild = pcall(function()
             (count and count > 0) and string.format("the seeder holds %d seed(s) of %s",
                 count, tostring(capPlan or cap))
                 or "the seeder is empty",
-            seedChoice, needCells))
+            plantSeed, needCells))
         -- the fill at the shop only works on a seeder that is OUT in the
         -- world — bring it back from storage first. If that fails, do NOT
         -- buy: the crate would land on the counter with nothing to pour it
@@ -5771,8 +6015,8 @@ local okBuild, errBuild = pcall(function()
             log("the seeder couldn't be brought out of storage — not buying a crate it can't be poured into")
             return false
         end
-        setStage("shop trip: buying " .. tostring(seedChoice) .. " seeds")
-        local bought = buySeedAndFill(seedChoice)
+        setStage("shop trip: buying " .. tostring(plantSeed) .. " seeds")
+        local bought = buySeedAndFill(plantSeed)
         if stopping() then return false end
         -- ▸ FILL IT TO THE TOP BEFORE PLANTING (owner 2026-11-04: "it should
         --   fill untill max or there is not mroe moeny"). One trip buys
@@ -5798,8 +6042,8 @@ local okBuild, errBuild = pcall(function()
             end
             seedShopTries += 1
             log(string.format("seeder fill: %d/%d — back to town for more %s (trip %d of %d)",
-                have2, cap2, tostring(seedChoice), seedShopTries, tripsCeiling))
-            bought = buySeedAndFill(seedChoice)
+                have2, cap2, tostring(plantSeed), seedShopTries, tripsCeiling))
+            bought = buySeedAndFill(plantSeed)
         end
         -- ▸ GET BACK IN AND SEED (user's step list ends with it: "get back in
         --   and seed"). The shop trip leaves the character on foot next to
@@ -10442,6 +10686,30 @@ local okBuild, errBuild = pcall(function()
                 .. ") — no seed picker this session")
         end
     end
+
+    -- ▸ AUTO CONTRACTS · the switch, OUTSIDE the seed-list block on purpose: the
+    --   dropdown is not built when FieldHelper cannot be read, and a dead feature
+    --   with no way to see why is worse than one with no button. The board decides
+    --   the NEXT seed only — no order is accepted and none is claimed (the owner's
+    --   scope, 2026-11-12) — and the Farm tab's Seed dropdown is what it falls
+    --   back to for everything the board cannot answer.
+    Tabs.Farm:CreateToggle("autoContracts", {
+        Title = "Auto contracts",
+        Default = spudAutoContracts,
+        Callback = function(on)
+            spudAutoContracts = on == true
+            spudSavedContracts = spudAutoContracts -- survives a reload
+            spudContract.at = nil                  -- the next ask reads afresh
+            if not spudAutoContracts then
+                spudContract.seed = nil
+                log("auto contracts: off — the Seed dropdown decides again")
+                return
+            end
+            local picked, note = spudContractSteer(seedChoice)
+            log("auto contracts: on — " .. (picked and ("next planting: " .. picked)
+                or "the board cannot steer this run") .. " (" .. tostring(note) .. ")")
+        end,
+    })
 
     -- ▸ WHOSE FIELDS THE FARM PASS WORKS (user: "make the farming be able to
     --   work on someone elses farm"). "(mine)" is the old behaviour; picking
